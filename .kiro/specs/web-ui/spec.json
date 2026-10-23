@@ -1,0 +1,61 @@
+{
+  "feature_name": "web-ui",
+  "language": "ja",
+  "phase": "completed-workspace-redesign",
+  "approvals": {
+    "requirements": {
+      "generated": true,
+      "approved": true
+    },
+    "design": {
+      "generated": true,
+      "approved": true
+    },
+    "tasks": {
+      "generated": true,
+      "approved": true
+    }
+  },
+  "ready_for_implementation": true,
+  "execution_authorization": {
+    "basis": "2026-10-23 explicit user instruction to commit, push, create PRs, and merge in a private repository",
+    "loopback_server": true,
+    "publication": false,
+    "git_commit_push": true,
+    "real_data_connection": false,
+    "git_pr_merge": true,
+    "repository_visibility": "private"
+  },
+  "updated_at": "2026-10-23T07:12:12.412613+00:00",
+  "verification": {
+    "app_tests_passed": 20,
+    "clippy": "passed",
+    "msrv": "1.88",
+    "browser": "passed",
+    "ui_score": 18,
+    "experience_score": 18,
+    "url": "http://127.0.0.1:4317",
+    "record": ".agent-harness/runs/2026-10-23-workspace-redesign/result.md",
+    "data_preserved": {
+      "companies": 100,
+      "activities": 57
+    }
+  },
+  "current_revision": {
+    "basis": "2026-10-23 user explicitly requested a UI closer to Salesforce",
+    "design": "workspace-redesign.md",
+    "requirements": "18.1–18.7",
+    "publication": false
+  },
+  "previous_verification": {
+    "app_tests_passed": 13,
+    "core_boundary_tests_passed": 2,
+    "clippy": "passed",
+    "msrv": "1.88",
+    "browser": "passed",
+    "ui_score": 17,
+    "experience_score": 18,
+    "url": "http://127.0.0.1:4317",
+    "record": ".agent-harness/runs/2026-10-23-local-web/result.md"
+  }
+}

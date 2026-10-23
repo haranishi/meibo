@@ -1,0 +1,1122 @@
+{
+  "test_cmd": [
+    "cargo",
+    "test",
+    "-q",
+    "-p",
+    "meibo-core",
+    "--lib",
+    "--test",
+    "pure",
+    "--no-fail-fast"
+  ],
+  "timeout_sec": 300,
+  "mutations": [
+    {
+      "label": "houjin: 重み逆転",
+      "file": "crates/core/src/houjin.rs",
+      "find": "i % 2 == 0",
+      "replace": "i % 2 != 0"
+    },
+    {
+      "label": "houjin: 剰余削除",
+      "file": "crates/core/src/houjin.rs",
+      "find": "9 - sum % 9",
+      "replace": "9 - sum % 8"
+    },
+    {
+      "label": "houjin: 検査省略",
+      "file": "crates/core/src/houjin.rs",
+      "find": "bytes[0] - b'0' != check_digit(&bytes[1..])",
+      "replace": "false"
+    },
+    {
+      "label": "houjin: 長さ境界",
+      "file": "crates/core/src/houjin.rs",
+      "find": "number.len() != 13",
+      "replace": "number.len() != 12"
+    },
+    {
+      "label": "houjin: ASCII検査省略",
+      "file": "crates/core/src/houjin.rs",
+      "find": "!number.bytes().all(|b| b.is_ascii_digit())",
+      "replace": "false"
+    },
+    {
+      "label": "houjin: 6帯を7帯へ",
+      "file": "crates/core/src/houjin.rs",
+      "find": "0 => '6'",
+      "replace": "0 => '7'"
+    },
+    {
+      "label": "houjin: 8帯を7帯へ",
+      "file": "crates/core/src/houjin.rs",
+      "find": "1 => '8'",
+      "replace": "1 => '7'"
+    },
+    {
+      "label": "houjin: 9帯を7帯へ",
+      "file": "crates/core/src/houjin.rs",
+      "find": "2 => '9'",
+      "replace": "2 => '7'"
+    },
+    {
+      "label": "houjin: 連番を固定",
+      "file": "crates/core/src/houjin.rs",
+      "find": "sequence % BAND_SIZE",
+      "replace": "0"
+    },
+    {
+      "label": "houjin: 帯境界",
+      "file": "crates/core/src/houjin.rs",
+      "find": "100_000_000_000",
+      "replace": "100_000_000_001"
+    },
+    {
+      "label": "normalize: NFKC省略",
+      "file": "crates/core/src/normalize.rs",
+      "find": ".nfkc()",
+      "replace": ".chars()"
+    },
+    {
+      "label": "normalize: 小文字化省略",
+      "file": "crates/core/src/normalize.rs",
+      "find": ".flat_map(char::to_lowercase)",
+      "replace": ".flat_map(|c| [c])"
+    },
+    {
+      "label": "normalize: かな移動省略",
+      "file": "crates/core/src/normalize.rs",
+      "find": "u32::from(c) + 0x60",
+      "replace": "u32::from(c)"
+    },
+    {
+      "label": "normalize: かな下端",
+      "file": "crates/core/src/normalize.rs",
+      "find": "'\\u{3041}'..=",
+      "replace": "'\\u{3042}'..="
+    },
+    {
+      "label": "normalize: かな上端",
+      "file": "crates/core/src/normalize.rs",
+      "find": "..='\\u{3096}'",
+      "replace": "..='\\u{3095}'"
+    },
+    {
+      "label": "normalize: 繰返し下端",
+      "file": "crates/core/src/normalize.rs",
+      "find": "'\\u{309d}'..=",
+      "replace": "'\\u{309e}'..="
+    },
+    {
+      "label": "normalize: 繰返し上端",
+      "file": "crates/core/src/normalize.rs",
+      "find": "..='\\u{309e}'",
+      "replace": "..='\\u{309d}'"
+    },
+    {
+      "label": "normalize: 検索検査省略",
+      "file": "crates/core/src/normalize.rs",
+      "find": "!key.chars().any(char::is_alphanumeric)",
+      "replace": "false"
+    },
+    {
+      "label": "normalize: 検索文字数をバイト数",
+      "file": "crates/core/src/normalize.rs",
+      "find": "key.chars().count()",
+      "replace": "key.len()"
+    },
+    {
+      "label": "normalize: 電話変換省略",
+      "file": "crates/core/src/normalize.rs",
+      "find": "u32::from(c) - 0xfee0",
+      "replace": "u32::from(c)"
+    },
+    {
+      "label": "normalize: 空白変換省略",
+      "file": "crates/core/src/normalize.rs",
+      "find": "'\\u{3000}' => ' '",
+      "replace": "'\\u{3000}' => '\\u{3000}'"
+    },
+    {
+      "label": "shapes: 複数値上限",
+      "file": "crates/core/src/shapes.rs",
+      "find": "*n > 10",
+      "replace": "*n > 9"
+    },
+    {
+      "label": "shapes: 複数列許可",
+      "file": "crates/core/src/shapes.rs",
+      "find": "**n > 1).count() > 1",
+      "replace": "**n > 1).count() > 2"
+    },
+    {
+      "label": "shapes: 地域種類混在許可",
+      "file": "crates/core/src/shapes.rs",
+      "find": "if filters.region.iter().any(|r| {",
+      "replace": "if false && filters.region.iter().any(|r| {"
+    },
+    {
+      "label": "shapes: 非先頭業種許可",
+      "file": "crates/core/src/shapes.rs",
+      "find": "filters.industry.len() > 1 && !region.is_empty()",
+      "replace": "false"
+    },
+    {
+      "label": "shapes: 並び検査省略",
+      "file": "crates/core/src/shapes.rs",
+      "find": "shape.filters == signature && shape.sort == *sort",
+      "replace": "shape.filters == signature"
+    },
+    {
+      "label": "shapes: 電話条件を反転",
+      "file": "crates/core/src/shapes.rs",
+      "find": "filters.has_phone.is_some()",
+      "replace": "filters.has_phone.is_none()"
+    },
+    {
+      "label": "shapes: 次回条件を反転",
+      "file": "crates/core/src/shapes.rs",
+      "find": "filters.next_action_before.is_some()",
+      "replace": "filters.next_action_before.is_none()"
+    },
+    {
+      "label": "shapes: 業種条件を反転",
+      "file": "crates/core/src/shapes.rs",
+      "find": "!filters.industry.is_empty()",
+      "replace": "filters.industry.is_empty()"
+    },
+    {
+      "label": "shapes: 状態条件を反転",
+      "file": "crates/core/src/shapes.rs",
+      "find": "!filters.status.is_empty()",
+      "replace": "filters.status.is_empty()"
+    },
+    {
+      "label": "shapes: 担当条件を反転",
+      "file": "crates/core/src/shapes.rs",
+      "find": "!filters.owner.is_empty()",
+      "replace": "filters.owner.is_empty()"
+    },
+    {
+      "label": "shapes: 形番号を変更",
+      "file": "crates/core/src/shapes.rs",
+      "find": "Shape::Declared(shape.number)",
+      "replace": "Shape::Declared(shape.number + 1)"
+    },
+    {
+      "label": "shapes: 形1表破壊",
+      "file": "crates/core/src/shapes.rs",
+      "find": "number: 1,",
+      "replace": "number: 2,"
+    },
+    {
+      "label": "shapes: 形2表破壊",
+      "file": "crates/core/src/shapes.rs",
+      "find": "number: 2,",
+      "replace": "number: 3,"
+    },
+    {
+      "label": "shapes: 形3表破壊",
+      "file": "crates/core/src/shapes.rs",
+      "find": "number: 3,",
+      "replace": "number: 4,"
+    },
+    {
+      "label": "shapes: 形4表破壊",
+      "file": "crates/core/src/shapes.rs",
+      "find": "number: 4,",
+      "replace": "number: 5,"
+    },
+    {
+      "label": "shapes: 形5表破壊",
+      "file": "crates/core/src/shapes.rs",
+      "find": "number: 5,",
+      "replace": "number: 6,"
+    },
+    {
+      "label": "shapes: 形6表破壊",
+      "file": "crates/core/src/shapes.rs",
+      "find": "number: 6,",
+      "replace": "number: 7,"
+    },
+    {
+      "label": "shapes: 形7表破壊",
+      "file": "crates/core/src/shapes.rs",
+      "find": "number: 7,",
+      "replace": "number: 8,"
+    },
+    {
+      "label": "shapes: 形8表破壊",
+      "file": "crates/core/src/shapes.rs",
+      "find": "number: 8,",
+      "replace": "number: 9,"
+    },
+    {
+      "label": "shapes: 形9表破壊",
+      "file": "crates/core/src/shapes.rs",
+      "find": "number: 9,",
+      "replace": "number: 10,"
+    },
+    {
+      "label": "shapes: 形10表破壊",
+      "file": "crates/core/src/shapes.rs",
+      "find": "number: 10,",
+      "replace": "number: 11,"
+    },
+    {
+      "label": "shapes: 形11表破壊",
+      "file": "crates/core/src/shapes.rs",
+      "find": "number: 11,",
+      "replace": "number: 12,"
+    },
+    {
+      "label": "shapes: 形12表破壊",
+      "file": "crates/core/src/shapes.rs",
+      "find": "number: 12,",
+      "replace": "number: 13,"
+    },
+    {
+      "label": "shapes: 形13表破壊",
+      "file": "crates/core/src/shapes.rs",
+      "find": "number: 13,",
+      "replace": "number: 14,"
+    },
+    {
+      "label": "shapes: 形14表破壊",
+      "file": "crates/core/src/shapes.rs",
+      "find": "number: 14,",
+      "replace": "number: 15,"
+    },
+    {
+      "label": "shapes: 形15表破壊",
+      "file": "crates/core/src/shapes.rs",
+      "find": "number: 15,",
+      "replace": "number: 16,"
+    },
+    {
+      "label": "shapes: 形16表破壊",
+      "file": "crates/core/src/shapes.rs",
+      "find": "number: 16,",
+      "replace": "number: 17,"
+    },
+    {
+      "label": "shapes: 形17表破壊",
+      "file": "crates/core/src/shapes.rs",
+      "find": "number: 17,",
+      "replace": "number: 18,"
+    },
+    {
+      "label": "shapes: 形18表破壊",
+      "file": "crates/core/src/shapes.rs",
+      "find": "number: 18,",
+      "replace": "number: 19,"
+    },
+    {
+      "label": "shapes: 形19表破壊",
+      "file": "crates/core/src/shapes.rs",
+      "find": "number: 19,",
+      "replace": "number: 20,"
+    },
+    {
+      "label": "shapes: 形20表破壊",
+      "file": "crates/core/src/shapes.rs",
+      "find": "number: 20,",
+      "replace": "number: 21,"
+    },
+    {
+      "label": "shapes: 形21表破壊",
+      "file": "crates/core/src/shapes.rs",
+      "find": "number: 21,",
+      "replace": "number: 22,"
+    },
+    {
+      "label": "shapes: 形22表破壊",
+      "file": "crates/core/src/shapes.rs",
+      "find": "number: 22,",
+      "replace": "number: 23,"
+    },
+    {
+      "label": "write fold: 状態の適用を無視",
+      "file": "crates/core/src/write.rs",
+      "find": "value.status = status;",
+      "replace": "let _ = status;"
+    },
+    {
+      "label": "write fold: Clear を無視",
+      "file": "crates/core/src/write.rs",
+      "find": "NextAction::Clear => value.next_action_at = None,",
+      "replace": "NextAction::Clear => {}"
+    },
+    {
+      "label": "write fold: Set を無視",
+      "file": "crates/core/src/write.rs",
+      "find": "NextAction::Set(at) => value.next_action_at = Some(at),",
+      "replace": "NextAction::Set(_) => {}"
+    },
+    {
+      "label": "write fold: Keep が解除する",
+      "file": "crates/core/src/write.rs",
+      "find": "NextAction::Keep => {}",
+      "replace": "NextAction::Keep => value.next_action_at = None,"
+    },
+    {
+      "label": "write fold: 最終活動日が後勝ち",
+      "file": "crates/core/src/write.rs",
+      "find": "value.last_activity_at = value.last_activity_at.max(a.at);",
+      "replace": "value.last_activity_at = a.at;"
+    },
+    {
+      "label": "write fold: 最終活動日が最小",
+      "file": "crates/core/src/write.rs",
+      "find": "value.last_activity_at.max(a.at)",
+      "replace": "value.last_activity_at.min(a.at)"
+    },
+    {
+      "label": "write fold: 状態変更が最終活動日を更新",
+      "file": "crates/core/src/write.rs",
+      "find": "ActivityKind::Call | ActivityKind::Visit | ActivityKind::Email | ActivityKind::Memo",
+      "replace": "ActivityKind::Call | ActivityKind::Visit | ActivityKind::Email | ActivityKind::Memo | ActivityKind::StatusChange"
+    },
+    {
+      "label": "write fold: メモを数えない",
+      "file": "crates/core/src/write.rs",
+      "find": "| ActivityKind::Email | ActivityKind::Memo",
+      "replace": "| ActivityKind::Email"
+    },
+    {
+      "label": "write fold: 訪問を数えない",
+      "file": "crates/core/src/write.rs",
+      "find": "ActivityKind::Call | ActivityKind::Visit |",
+      "replace": "ActivityKind::Call |"
+    },
+    {
+      "label": "write fold: 基準の状態を使わない",
+      "file": "crates/core/src/write.rs",
+      "find": "status: base,",
+      "replace": "status: Status::Untouched,"
+    },
+    {
+      "label": "write fold: 初期の最終活動日が非0",
+      "file": "crates/core/src/write.rs",
+      "find": "last_activity_at: 0,",
+      "replace": "last_activity_at: 1,"
+    },
+    {
+      "label": "write 活動: 他社の担当者を許す",
+      "file": "crates/core/src/write.rs",
+      "find": "if company != a.company.0 {",
+      "replace": "if company == a.company.0 {"
+    },
+    {
+      "label": "write 活動: 除外の保護(事前)を外す",
+      "file": "crates/core/src/write.rs",
+      "find": "a.status_after.is_some_and(|s| s != Status::Excluded)",
+      "replace": "a.status_after.is_some_and(|s| s == Status::Excluded)"
+    },
+    {
+      "label": "write 活動: 除外の保護(事後)を外す",
+      "file": "crates/core/src/write.rs",
+      "find": "value.status != Status::Excluded {",
+      "replace": "value.status == Status::Excluded {"
+    },
+    {
+      "label": "write 取り消し: 二重取り消しを許す",
+      "file": "crates/core/src/write.rs",
+      "find": "a.company_id=?2 AND a.kind<>9 AND NOT EXISTS(SELECT 1 FROM activities r WHERE r.reverses_id=a.id))",
+      "replace": "a.company_id=?2 AND a.kind<>9)"
+    },
+    {
+      "label": "write 取り消し: 他企業の活動を許す",
+      "file": "crates/core/src/write.rs",
+      "find": "a.id=?1 AND a.company_id=?2 AND a.kind<>9",
+      "replace": "a.id=?1 AND ?2 IS NOT NULL AND a.kind<>9"
+    },
+    {
+      "label": "write 解除: 除外でなくても解除できる",
+      "file": "crates/core/src/write.rs",
+      "find": "company_state(tx, id)?.folded.status != Status::Excluded",
+      "replace": "false"
+    },
+    {
+      "label": "write 解除: 除外への解除を許す",
+      "file": "crates/core/src/write.rs",
+      "find": "if to == Status::Excluded {",
+      "replace": "if false {"
+    },
+    {
+      "label": "write 登録: 法人番号の重複を調べない",
+      "file": "crates/core/src/write.rs",
+      "find": "check_duplicate(tx, c.corporate_number.as_deref(), None)?;",
+      "replace": "let _ = ();"
+    },
+    {
+      "label": "write 更新: 自社を重複扱い",
+      "file": "crates/core/src/write.rs",
+      "find": "check_duplicate(tx, c.corporate_number.as_deref(), Some(id))?;",
+      "replace": "check_duplicate(tx, c.corporate_number.as_deref(), None)?;"
+    },
+    {
+      "label": "write 更新: 状態を変えられる",
+      "file": "crates/core/src/write.rs",
+      "find": "if old.folded.status != c.status { return Err(EngineError::StatusViaActivity); }",
+      "replace": "if false { return Err(EngineError::StatusViaActivity); }"
+    },
+    {
+      "label": "write 更新: 消去済みを更新できる",
+      "file": "crates/core/src/write.rs",
+      "find": "if old.erased { return Err(invalid(\"id\", \"erased\")); }",
+      "replace": "if false { return Err(invalid(\"id\", \"erased\")); }"
+    },
+    {
+      "label": "write 更新: 改名で全文索引へ入れない",
+      "file": "crates/core/src/write.rs",
+      "find": "if old_key != normalized.name_key { fts::insert(tx, id.0, &normalized.name_key)?; }",
+      "replace": "{}"
+    },
+    {
+      "label": "write 更新: 旧キーを消さない",
+      "file": "crates/core/src/write.rs",
+      "find": "if old_key != normalized.name_key { fts::delete(tx, id.0, &old_key)?; }",
+      "replace": "{}"
+    },
+    {
+      "label": "write 更新: 電話の変更が件数表に出ない",
+      "file": "crates/core/src/write.rs",
+      "find": "counts::apply_delta(tx, Some((c.status,old.has_phone)), Some((c.status,c.phone.is_some())))",
+      "replace": "counts::apply_delta(tx, Some((c.status,old.has_phone)), Some((c.status,old.has_phone)))"
+    },
+    {
+      "label": "write 登録: 件数表へ入れない",
+      "file": "crates/core/src/write.rs",
+      "find": "counts::apply_delta(tx, None, Some((c.status, c.phone.is_some())))?;",
+      "replace": "let _ = ();"
+    },
+    {
+      "label": "write 活動: 件数表の電話が反転",
+      "file": "crates/core/src/write.rs",
+      "find": "Some((value.status, old.has_phone)),",
+      "replace": "Some((value.status, !old.has_phone)),"
+    },
+    {
+      "label": "write 検査: 都道府県の上限",
+      "file": "crates/core/src/write.rs",
+      "find": "(1..=47).contains(&c.prefecture)",
+      "replace": "(1..=48).contains(&c.prefecture)"
+    },
+    {
+      "label": "write 検査: 都道府県の下限",
+      "file": "crates/core/src/write.rs",
+      "find": "(1..=47).contains(&c.prefecture)",
+      "replace": "(0..=47).contains(&c.prefecture)"
+    },
+    {
+      "label": "write 検査: 市区町村の桁",
+      "file": "crates/core/src/write.rs",
+      "find": "code.len() != 5",
+      "replace": "code.len() != 6"
+    },
+    {
+      "label": "write 検査: 市区町村と都道府県の一致",
+      "file": "crates/core/src/write.rs",
+      "find": "code[..2].parse::<u8>().ok() != Some(c.prefecture)",
+      "replace": "code[..2].parse::<u8>().ok() == Some(c.prefecture)"
+    },
+    {
+      "label": "write 日付: 閏年の規則",
+      "file": "crates/core/src/write.rs",
+      "find": "year.is_multiple_of(4) && (!year.is_multiple_of(100) || year.is_multiple_of(400))",
+      "replace": "year.is_multiple_of(4)"
+    },
+    {
+      "label": "write 日付: 月末日",
+      "file": "crates/core/src/write.rs",
+      "find": "day <= days",
+      "replace": "day < days"
+    },
+    {
+      "label": "write 日付: 年0",
+      "file": "crates/core/src/write.rs",
+      "find": "year > 0 &&",
+      "replace": "year >= 0 &&"
+    },
+    {
+      "label": "query 近い順の逆",
+      "file": "crates/core/src/query.rs",
+      "find": "for j in (0..self.columns.len()).rev() {",
+      "replace": "for j in 0..self.columns.len() {"
+    },
+    {
+      "label": "query カーソル行を含める",
+      "file": "crates/core/src/query.rs",
+      "find": "(format!(\"{col} > ?\"), vec![value.clone()])",
+      "replace": "(format!(\"{col} >= ?\"), vec![value.clone()])"
+    },
+    {
+      "label": "query 降順の比較が逆",
+      "file": "crates/core/src/query.rs",
+      "find": "(format!(\"{col} < ?\"), vec![value.clone()])",
+      "replace": "(format!(\"{col} > ?\"), vec![value.clone()])"
+    },
+    {
+      "label": "query NULLの比較が逆",
+      "file": "crates/core/src/query.rs",
+      "find": "(format!(\"{col} IS NOT NULL\"), vec![])",
+      "replace": "(format!(\"{col} IS NULL\"), vec![])"
+    },
+    {
+      "label": "query 先行列の一致が=",
+      "file": "crates/core/src/query.rs",
+      "find": "branch.push((format!(\"{col} IS ?\"), vec![value.clone()]));",
+      "replace": "branch.push((format!(\"{col} = ?\"), vec![value.clone()]));"
+    },
+    {
+      "label": "query 除外がinclude指定を無視",
+      "file": "crates/core/src/query.rs",
+      "find": "let exclude = f.status.is_empty() && !f.include_excluded;",
+      "replace": "let exclude = f.status.is_empty();"
+    },
+    {
+      "label": "query 除外を付けない",
+      "file": "crates/core/src/query.rs",
+      "find": "let exclude = f.status.is_empty() && !f.include_excluded;",
+      "replace": "let exclude = false;"
+    },
+    {
+      "label": "query 除外の値",
+      "file": "crates/core/src/query.rs",
+      "find": "predicates.push(\"status <> 5\".into());",
+      "replace": "predicates.push(\"status <> 4\".into());"
+    },
+    {
+      "label": "query 次回対応日の境界",
+      "file": "crates/core/src/query.rs",
+      "find": "predicates.push(format!(\"{N} <= ?\"));",
+      "replace": "predicates.push(format!(\"{N} < ?\"));"
+    },
+    {
+      "label": "query 件数の近道を形1へ",
+      "file": "crates/core/src/query.rs",
+      "find": "matches!(plan.number, 16 | 17 | 18 | 22)",
+      "replace": "matches!(plan.number, 16 | 17 | 18 | 22 | 1)"
+    },
+    {
+      "label": "query 一覧の上限201",
+      "file": "crates/core/src/query.rs",
+      "find": "(1..=200).contains(&limit)",
+      "replace": "(1..=201).contains(&limit)"
+    },
+    {
+      "label": "query リストの上限100001",
+      "file": "crates/core/src/query.rs",
+      "find": "(1..=100_000).contains(&limit)",
+      "replace": "(1..=100_001).contains(&limit)"
+    },
+    {
+      "label": "query 個人情報を常に出す",
+      "file": "crates/core/src/query.rs",
+      "find": "if !field.is_personal_for(sole) || fields.contains(&field) {",
+      "replace": "if true {"
+    },
+    {
+      "label": "query 選んでも個人情報を出さない",
+      "file": "crates/core/src/query.rs",
+      "find": "if !field.is_personal_for(sole) || fields.contains(&field) {",
+      "replace": "if !field.is_personal_for(sole) {"
+    },
+    {
+      "label": "query 担当者の並び",
+      "file": "crates/core/src/query.rs",
+      "find": "ORDER BY created_at DESC,id DESC",
+      "replace": "ORDER BY id DESC"
+    },
+    {
+      "label": "query 活動の並び(同時刻)",
+      "file": "crates/core/src/query.rs",
+      "find": "ORDER BY at DESC,id DESC",
+      "replace": "ORDER BY at DESC,id"
+    },
+    {
+      "label": "query 活動の並び(日時)",
+      "file": "crates/core/src/query.rs",
+      "find": "ORDER BY at DESC,id DESC",
+      "replace": "ORDER BY at,id DESC"
+    },
+    {
+      "label": "query 複数値で小さい値を飛ばさない",
+      "file": "crates/core/src/query.rs",
+      "find": "std::cmp::Ordering::Less => continue,",
+      "replace": "std::cmp::Ordering::Less => (),"
+    },
+    {
+      "label": "query 複数値で大きい値から全範囲にしない",
+      "file": "crates/core/src/query.rs",
+      "find": "std::cmp::Ordering::Greater => cursor = None,",
+      "replace": "std::cmp::Ordering::Greater => (),"
+    },
+    {
+      "label": "query カーソルの形番号を照合しない",
+      "file": "crates/core/src/query.rs",
+      "find": "let prefix = format!(\"v1:{}:\", self.number);",
+      "replace": "let prefix = String::from(\"v1:\");"
+    },
+    {
+      "label": "query カーソルの列数を照合しない",
+      "file": "crates/core/src/query.rs",
+      "find": "if parts.len() != self.columns.len() {",
+      "replace": "if false {"
+    },
+    {
+      "label": "query 除外状態のカーソルを許す",
+      "file": "crates/core/src/query.rs",
+      "find": "if self.exclude && *col == S && value == Value::Integer(5) {",
+      "replace": "if false {"
+    },
+    {
+      "label": "query カーソルの市区町村の桁",
+      "file": "crates/core/src/query.rs",
+      "find": "if part.len() != 5 || !part.bytes().all(|b| b.is_ascii_digit()) {",
+      "replace": "if part.len() != 6 || !part.bytes().all(|b| b.is_ascii_digit()) {"
+    },
+    {
+      "label": "query 地域の都道府県の上限",
+      "file": "crates/core/src/query.rs",
+      "find": "Region::Prefecture(p) if (1..=47).contains(p)",
+      "replace": "Region::Prefecture(p) if (1..=48).contains(p)"
+    },
+    {
+      "label": "query 地域の市区町村の数字検査",
+      "file": "crates/core/src/query.rs",
+      "find": "m.len() == 5 && m.bytes().all(|b| b.is_ascii_digit())",
+      "replace": "m.len() == 5"
+    },
+    {
+      "label": "query 複数値の重複を除かない",
+      "file": "crates/core/src/query.rs",
+      "find": "values.dedup();",
+      "replace": "();"
+    },
+    {
+      "label": "query 複数値を昇順に並べない",
+      "file": "crates/core/src/query.rs",
+      "find": "values.sort_by(value_cmp);",
+      "replace": "();"
+    },
+    {
+      "label": "query 続きのカーソルが余分な行から",
+      "file": "crates/core/src/query.rs",
+      "find": "keys.pop();",
+      "replace": "();"
+    },
+    {
+      "label": "search 2文字以下も全文索引",
+      "file": "crates/core/src/search.rs",
+      "find": "length >= 3 &&",
+      "replace": "length >= 2 &&",
+      "count": 1
+    },
+    {
+      "label": "search 部分一致が先頭を除く",
+      "file": "crates/core/src/search.rs",
+      "find": "instr(name_key,?)>0",
+      "replace": "instr(name_key,?)>1",
+      "count": 3
+    },
+    {
+      "label": "search 続きがカーソル行を含む",
+      "file": "crates/core/src/search.rs",
+      "find": "name_fts.rowid>?",
+      "replace": "name_fts.rowid>=?"
+    },
+    {
+      "label": "search 引用符を逃がさない",
+      "file": "crates/core/src/search.rs",
+      "find": "key.replace('\"', \"\\\"\\\"\")",
+      "replace": "key.clone()"
+    },
+    {
+      "label": "lists リスト上限100001",
+      "file": "crates/core/src/lists.rs",
+      "find": "!(1..=100_000).contains(&limit)",
+      "replace": "!(1..=100_001).contains(&limit)"
+    },
+    {
+      "label": "lists リスト上限に0を許す",
+      "file": "crates/core/src/lists.rs",
+      "find": "!(1..=100_000).contains(&limit)",
+      "replace": "!(0..=100_000).contains(&limit)"
+    },
+    {
+      "label": "lists 空白だけの名前を許す",
+      "file": "crates/core/src/lists.rs",
+      "find": "name.trim().is_empty()",
+      "replace": "name.is_empty()"
+    },
+    {
+      "label": "lists 名前のNULを許す",
+      "file": "crates/core/src/lists.rs",
+      "find": "reject_nul(\"name\", name)?;",
+      "replace": "();"
+    },
+    {
+      "label": "lists 存在しないリストの削除を許す",
+      "file": "crates/core/src/lists.rs",
+      "find": "if tx.execute(DELETE_LIST, [id.0]).map_err(storage)? == 0 {",
+      "replace": "if tx.execute(DELETE_LIST, [id.0]).map_err(storage)? == 99 {"
+    },
+    {
+      "label": "lists 消去済みを一括変更の対象に含める",
+      "file": "crates/core/src/lists.rs",
+      "find": " AND erased_at IS NULL AND (?2 OR status<>5)",
+      "replace": " AND (?2 OR status<>5)"
+    },
+    {
+      "label": "lists 除外の既定が別の状態",
+      "file": "crates/core/src/lists.rs",
+      "find": "(?2 OR status<>5)",
+      "replace": "(?2 OR status<>4)"
+    },
+    {
+      "label": "lists 除外への変更保護を外す",
+      "file": "crates/core/src/lists.rs",
+      "find": "change.status.is_some_and(|s| s != Status::Excluded)",
+      "replace": "change.status.is_some_and(|s| s == Status::Excluded)"
+    },
+    {
+      "label": "lists 担当の設定が解除になる",
+      "file": "crates/core/src/lists.rs",
+      "find": "OwnerChange::Set(id) => Some(id.0),",
+      "replace": "OwnerChange::Set(id) => Some(id.0 + 1),"
+    },
+    {
+      "label": "lists 担当を変えない指定でも変える",
+      "file": "crates/core/src/lists.rs",
+      "find": "None if change.owner != OwnerChange::Keep => {",
+      "replace": "None if true => {"
+    },
+    {
+      "label": "lists 同じ状態の企業にも活動を作る",
+      "file": "crates/core/src/lists.rs",
+      "find": "\"{TARGET} AND status<>?3\"",
+      "replace": "\"{TARGET}\""
+    },
+    {
+      "label": "lists 件数表の減算をしない",
+      "file": "crates/core/src/lists.rs",
+      "find": "UPDATE counts SET n=n-?3 WHERE",
+      "replace": "UPDATE counts SET n=n WHERE"
+    },
+    {
+      "label": "lists 件数表の加算をしない",
+      "file": "crates/core/src/lists.rs",
+      "find": "UPDATE counts SET n=n+?3 WHERE",
+      "replace": "UPDATE counts SET n=n WHERE"
+    },
+    {
+      "label": "lists 状態を更新しない",
+      "file": "crates/core/src/lists.rs",
+      "find": "UPDATE companies SET status=?3,updated_at=?4 WHERE {condition}",
+      "replace": "UPDATE companies SET status=status+0*?3,updated_at=?4 WHERE {condition}"
+    },
+    {
+      "label": "lists 活動の種類が状態変更でない",
+      "file": "crates/core/src/lists.rs",
+      "find": "SELECT id,5,?4,?3,0 FROM companies",
+      "replace": "SELECT id,4,?4,?3,0 FROM companies"
+    },
+    {
+      "label": "erase 消去済みの担当者への続きのメモ消去を無視",
+      "file": "crates/core/src/erase.rs",
+      "find": "if erased.is_some() && !wipe_notes {",
+      "replace": "if erased.is_some() {"
+    },
+    {
+      "label": "erase 消去済みの担当者の消去日時を上書き",
+      "file": "crates/core/src/erase.rs",
+      "find": "if erased.is_none() {",
+      "replace": "if true {"
+    },
+    {
+      "label": "erase 個人事業でなくても消せる",
+      "file": "crates/core/src/erase.rs",
+      "find": "if !sole {",
+      "replace": "if false {"
+    },
+    {
+      "label": "erase 消去済みの企業を再消去",
+      "file": "crates/core/src/erase.rs",
+      "find": "        if erased.is_some() {\n",
+      "replace": "        if false {\n"
+    },
+    {
+      "label": "erase 状態変更の活動で除外にしない",
+      "file": "crates/core/src/erase.rs",
+      "find": "status_after: Some(Status::Excluded),",
+      "replace": "status_after: None,"
+    },
+    {
+      "label": "erase 次回対応日を解除しない",
+      "file": "crates/core/src/erase.rs",
+      "find": "next_action: NextAction::Clear,",
+      "replace": "next_action: NextAction::Keep,"
+    },
+    {
+      "label": "erase 全文索引の旧キーを消さない",
+      "file": "crates/core/src/erase.rs",
+      "find": "fts::delete(tx, id.0, &key)?;",
+      "replace": "();"
+    },
+    {
+      "label": "erase 全文索引に消去済みの名前を入れない",
+      "file": "crates/core/src/erase.rs",
+      "find": "fts::insert(tx, id.0, &erased_key)?;",
+      "replace": "();"
+    },
+    {
+      "label": "erase 件数表の電話の有無が残る",
+      "file": "crates/core/src/erase.rs",
+      "find": "Some((Status::Excluded, false)),",
+      "replace": "Some((Status::Excluded, phone)),"
+    },
+    {
+      "label": "compact 必要な空きが等倍",
+      "file": "crates/core/src/erase.rs",
+      "find": "size.checked_mul(2)",
+      "replace": "size.checked_mul(1)"
+    },
+    {
+      "label": "compact 忙しさの判定",
+      "file": "crates/core/src/schema/checkpoint.rs",
+      "find": "if busy == 0 {",
+      "replace": "if busy == 1 {"
+    },
+    {
+      "label": "compact 全文索引の再構築を省く",
+      "file": "crates/core/src/erase.rs",
+      "find": "fts::rebuild(db.conn())?;",
+      "replace": "();"
+    },
+    {
+      "label": "bulk 大量追加の閾値",
+      "file": "crates/core/src/bulk.rs",
+      "find": "n >= opt.bulk_threshold",
+      "replace": "n > opt.bulk_threshold"
+    },
+    {
+      "label": "bulk 空きの見積りが小さい",
+      "file": "crates/core/src/bulk.rs",
+      "find": ".and_then(|n| n.checked_mul(5))",
+      "replace": ".and_then(|n| n.checked_mul(3))"
+    },
+    {
+      "label": "bulk 取り消しを受け付ける",
+      "file": "crates/core/src/bulk.rs",
+      "find": "if a.kind == ActivityKind::Cancel {",
+      "replace": "if false {"
+    },
+    {
+      "label": "bulk 除外後の状態変更を受け付ける",
+      "file": "crates/core/src/bulk.rs",
+      "find": "a.status_after.is_some_and(|s| s != Status::Excluded)",
+      "replace": "a.status_after.is_some_and(|s| s == Status::Excluded)"
+    },
+    {
+      "label": "bulk 二次索引を作り直さない",
+      "file": "crates/core/src/bulk.rs",
+      "find": "tx.execute_batch(sql).map_err(storage)?;",
+      "replace": "let _ = sql;"
+    },
+    {
+      "label": "bulk 全文索引を再構築しない",
+      "file": "crates/core/src/bulk.rs",
+      "find": "fts::rebuild(tx)?;",
+      "replace": "();"
+    },
+    {
+      "label": "bulk 件数表を再集計しない",
+      "file": "crates/core/src/bulk.rs",
+      "find": "counts::recount(tx)?;",
+      "replace": "();"
+    },
+    {
+      "label": "counts 差分の符号が逆",
+      "file": "crates/core/src/schema/counts.rs",
+      "find": "[(old, -1), (new, 1)]",
+      "replace": "[(old, 1), (new, -1)]"
+    },
+    {
+      "label": "counts 負になる更新を許す",
+      "file": "crates/core/src/schema/counts.rs",
+      "find": " AND n+?1>=0",
+      "replace": ""
+    },
+    {
+      "label": "counts 再集計が状態を1つ落とす",
+      "file": "crates/core/src/schema/counts.rs",
+      "find": "for s in 0..6 {",
+      "replace": "for s in 0..5 {"
+    },
+    {
+      "label": "types 電話の演算に in を許す",
+      "file": "crates/core/src/types.rs",
+      "find": "Self::HasPhone => &[\"eq\"],",
+      "replace": "Self::HasPhone => &[\"eq\", \"in\"],"
+    },
+    {
+      "label": "types 次回対応日の演算が eq",
+      "file": "crates/core/src/types.rs",
+      "find": "Self::NextActionBefore => &[\"lte\"],",
+      "replace": "Self::NextActionBefore => &[\"eq\"],"
+    },
+    {
+      "label": "wal 背圧が効かない",
+      "file": "crates/core/src/schema.rs",
+      "find": "if u64::try_from(log).unwrap_or(0) >= limit {",
+      "replace": "if u64::try_from(log).unwrap_or(0) >= u64::MAX {"
+    },
+    {
+      "label": "wal 上限の単位が違う",
+      "file": "crates/core/src/schema.rs",
+      "find": "u64::from(self.opt.wal_limit_mib) * 1024 * 1024;",
+      "replace": "u64::from(self.opt.wal_limit_mib) * 1024 * 1024 * 1024;"
+    },
+    {
+      "label": "wal settle が何もしない",
+      "file": "crates/core/src/schema.rs",
+      "find": "return checkpoint::retry(&self.conn, checkpoint::Mode::Restart);",
+      "replace": "let _ = &self.conn;"
+    },
+    {
+      "label": "wal 上限の下限検査が1つ厳しい",
+      "file": "crates/core/src/schema.rs",
+      "find": "if opt.wal_limit_mib < 8 {",
+      "replace": "if opt.wal_limit_mib < 9 {"
+    },
+    {
+      "label": "wal 上限の下限検査が1つ緩い",
+      "file": "crates/core/src/schema.rs",
+      "find": "if opt.wal_limit_mib < 8 {",
+      "replace": "if opt.wal_limit_mib < 7 {"
+    },
+    {
+      "label": "wal 通知が書き戻しを起こさない",
+      "file": "crates/core/src/schema/checkpoint.rs",
+      "find": "if !state(conn).is_ok_and(|(log, done)| log - done >= PENDING_FRAMES) {",
+      "replace": "if !state(conn).is_ok_and(|(log, done)| log - done >= i64::MAX) {"
+    },
+    {
+      "label": "wal スレッドが書き戻さない",
+      "file": "crates/core/src/schema/checkpoint.rs",
+      "find": "        if state(conn).is_ok_and(|(log, done)| log - done >= PENDING_FRAMES) {",
+      "replace": "        if state(conn).is_ok_and(|(log, done)| log - done >= i64::MAX) {"
+    },
+    {
+      "label": "wal 状態の2つの値を取り違える",
+      "file": "crates/core/src/schema/checkpoint.rs",
+      "find": "Ok((r.get(1)?, r.get(2)?))",
+      "replace": "Ok((r.get(2)?, r.get(1)?))"
+    },
+    {
+      "label": "wal 期限が来ても成功と答える",
+      "file": "crates/core/src/schema/checkpoint.rs",
+      "find": "return Ok(false);",
+      "replace": "return Ok(true);"
+    },
+    {
+      "label": "wal 待ち時間を元に戻さない",
+      "file": "crates/core/src/schema/checkpoint.rs",
+      "find": "    conn.busy_timeout(Duration::from_millis(timeout))\n        .map_err(storage)?;\n    result\n",
+      "replace": "    result\n"
+    },
+    {
+      "label": "4I 見積りが社名キーの長さを見ない",
+      "file": "crates/core/src/write.rs",
+      "find": "\n        .saturating_add((normalize::name_key(&c.name).len() as u64).saturating_mul(16))",
+      "replace": ""
+    },
+    {
+      "label": "4I 見積りが旧キーの長さを見ない",
+      "file": "crates/core/src/write.rs",
+      "find": "company_estimate(c).saturating_add((old_key.len() as u64).saturating_mul(16))",
+      "replace": "company_estimate(c)"
+    },
+    {
+      "label": "4I 見積りがリスト名の長さを見ない",
+      "file": "crates/core/src/lists.rs",
+      "find": "\n        .saturating_add((name.len() as u64).saturating_mul(4))",
+      "replace": ""
+    },
+    {
+      "label": "4I 一括変更の見積りが1社512B",
+      "file": "crates/core/src/lists.rs",
+      "find": "4096.max(average_row_bytes.saturating_mul(3))",
+      "replace": "512.max(average_row_bytes.saturating_mul(3))"
+    },
+    {
+      "label": "4I リスト削除の見積りが構成員を見ない",
+      "file": "crates/core/src/lists.rs",
+      "find": "members.saturating_mul(32)",
+      "replace": "members.saturating_mul(0)"
+    },
+    {
+      "label": "4I 消去の見積りが活動の数を見ない",
+      "file": "crates/core/src/erase.rs",
+      "find": "page_size.saturating_mul(activities.saturating_add(8))",
+      "replace": "page_size.saturating_mul(8)"
+    },
+    {
+      "label": "4I 作成が空きを確かめない",
+      "file": "crates/core/src/schema.rs",
+      "find": "ensure_space(path, 4 * WRITE_BASE, opt.space_probe.as_deref())?;",
+      "replace": ""
+    },
+    {
+      "label": "4I settle が期限切れでも true",
+      "file": "crates/core/src/schema.rs",
+      "find": "return checkpoint::retry(&self.conn, checkpoint::Mode::Restart);",
+      "replace": "checkpoint::retry(&self.conn, checkpoint::Mode::Restart)?;\n            return Ok(true);"
+    },
+    {
+      "label": "4I settle が背景なしで false",
+      "file": "crates/core/src/schema.rs",
+      "find": "        Ok(true)\n    }\n\n    pub(crate) const fn origin",
+      "replace": "        Ok(false)\n    }\n\n    pub(crate) const fn origin"
+    },
+    {
+      "label": "4K 軽い書き込みも背圧の対象にする",
+      "file": "crates/core/src/schema.rs",
+      "find": "if self.checkpoint.is_none() || estimate < limit_bytes / 32 {",
+      "replace": "if self.checkpoint.is_none() {"
+    },
+    {
+      "label": "4K 背圧の軽重が逆",
+      "file": "crates/core/src/schema.rs",
+      "find": "estimate < limit_bytes / 32",
+      "replace": "estimate >= limit_bytes / 32"
+    },
+    {
+      "label": "4K 活動の見積りに既存の行を入れない",
+      "file": "crates/core/src/write.rs",
+      "find": "\n        .saturating_add(company_row_bytes(db.conn(), a.company)?.saturating_mul(4));",
+      "replace": ";"
+    },
+    {
+      "label": "4K 除外解除の見積りに既存の行を入れない",
+      "file": "crates/core/src/write.rs",
+      "find": "WRITE_BASE.saturating_add(company_row_bytes(db.conn(), id)?.saturating_mul(4));",
+      "replace": "WRITE_BASE;"
+    },
+    {
+      "label": "4K 一括変更の見積りが平均の行を見ない",
+      "file": "crates/core/src/lists.rs",
+      "find": "4096.max(average_row_bytes.saturating_mul(3))",
+      "replace": "4096.max(0 * average_row_bytes)"
+    },
+    {
+      "label": "4K 平均の行の大きさの分母が1",
+      "file": "crates/core/src/lists.rs",
+      "find": "/ companies.max(1))",
+      "replace": "/ 1)"
+    }
+  ]
+}

@@ -1,0 +1,34 @@
+target/
+**/*.rs.bk
+.DS_Store
+.idea/
+.vscode/
+.env
+.env.*
+
+# ローカルの依存キャッシュとビルド出力
+/.cargo-home
+/.cargo-target
+/.cargo-target-*
+/.local-demo/
+
+# 営業データ・測定用のDB・CSVをうっかりコミットしないための網。
+# 試験の見本は tests/fixtures/synthetic/ に置く合成データだけにする。
+*.csv
+*.CSV
+*.tsv
+*.xlsx
+*.xls
+*.sqlite
+*.sqlite3
+*.db
+*.db-wal
+*.db-shm
+/data/
+/.bench-data/
+!tests/fixtures/synthetic/**
+!**/tests/fixtures/synthetic/**
+
+# ローカルの生ログ・調査資料・作業コピーと、導入用テンプレート
+/.agent-harness/
+/.kiro/settings/
