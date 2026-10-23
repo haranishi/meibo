@@ -1,7 +1,7 @@
 {
   "feature_name": "crm-essentials",
   "language": "ja",
-  "phase": "crm-verified-ready-for-local-reflection",
+  "phase": "crm-completed-company-expansion-in-progress",
   "approvals": {
     "requirements": {
       "generated": true,
@@ -33,5 +33,16 @@
     "ui_score": 17,
     "experience_score": 17,
     "hosted_ci": "not_started_account_billing_or_spending_limit"
+  },
+  "reflection": {
+    "url": "http://127.0.0.1:4317",
+    "preserved_companies": 100,
+    "preserved_activities": 57,
+    "pull_requests": [
+      1,
+      2,
+      3
+    ],
+    "company_data_expansion_repository": "haranishi/company-data-platform"
   }
 }
