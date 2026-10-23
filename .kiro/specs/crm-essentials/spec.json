@@ -1,7 +1,7 @@
 {
   "feature_name": "crm-essentials",
   "language": "ja",
-  "phase": "crm-completed-company-expansion-in-progress",
+  "phase": "completed",
   "approvals": {
     "requirements": {
       "generated": true,
@@ -26,13 +26,15 @@
   "verification": {
     "rust_tests_passed": 240,
     "ignored_existing_benchmarks": 3,
-    "check_all": "passed",
+    "check_all": "passed_before_final_default_sort_regression_fix",
     "advisories": "passed",
     "msrv": "1.88",
     "browser": "passed",
     "ui_score": 17,
     "experience_score": 17,
-    "hosted_ci": "not_started_account_billing_or_spending_limit"
+    "hosted_ci": "not_started_account_billing_or_spending_limit",
+    "final_app_tests_passed": 30,
+    "final_default_sort_regression": "red_to_green_and_browser_passed"
   },
   "reflection": {
     "url": "http://127.0.0.1:4317",
@@ -44,5 +46,20 @@
       3
     ],
     "company_data_expansion_repository": "haranishi/company-data-platform"
+  },
+  "company_data_result": {
+    "repository": "haranishi/company-data-platform",
+    "pull_requests": [
+      6,
+      7,
+      8
+    ],
+    "baseline_count": 4445898,
+    "current_count": 4450944,
+    "net_increase": 5046,
+    "as_of": "2026-10-23",
+    "independent_replay": "PASS",
+    "crm_real_data_connected": false,
+    "evidence": "https://github.com/haranishi/company-data-platform/pull/8"
   }
 }
