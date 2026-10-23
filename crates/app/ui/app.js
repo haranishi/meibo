@@ -105,7 +105,7 @@ function navigate(name) {
     showWorkspace("home"); renderRecent(); loadSummary(); loadHomeDue(); return;
   }
   if (state.listContext !== name) {
-    state.listContext = name; state.view = name === "tasks" ? "scheduled" : "all";
+    state.listContext = name; state.sort = name === "tasks" ? "next_action" : "default"; state.view = name === "tasks" ? "scheduled" : "all";
     state.query = ""; state.filters = {}; resetPages(); syncControls();
   }
   showWorkspace(name); loadList();

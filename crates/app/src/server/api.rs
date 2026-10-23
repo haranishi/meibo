@@ -155,8 +155,7 @@ fn list_filters(parameters: &HashMap<String, String>) -> Option<(Filters, Sort)>
         Sort::ShapeDefault
     };
     let sort = match parameters.get("sort").map(String::as_str) {
-        None => sort,
-        Some("default") => Sort::ShapeDefault,
+        None | Some("default") => sort,
         Some("next_action") => Sort::NextAction,
         Some("last_activity") => Sort::LastActivityDesc,
         _ => return None,

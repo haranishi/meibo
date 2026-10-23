@@ -992,3 +992,33 @@ fn csv_route_requires_same_origin_and_keeps_json_limits_separate() {
         );
     }
 }
+
+#[test]
+fn scheduled_default_sort_keeps_next_action_order() {
+    let (_dir, mut engine, first) = fixture();
+    let second = engine.register_company(&company("合成期限順確認")).unwrap();
+    for (id, due) in [(first, 2_100_000_000_i64), (second, 2_000_000_000_i64)] {
+        let path = format!("/api/companies/{}/activities", id.0);
+        assert_eq!(
+            dispatch(
+                &mut engine,
+                &input(
+                    "POST",
+                    &path,
+                    &json!({"note":"合成予定","next_action_at":due})
+                ),
+                PORT
+            )
+            .status,
+            200
+        );
+    }
+    for target in [
+        "/api/companies?view=scheduled",
+        "/api/companies?view=scheduled&sort=default",
+    ] {
+        let reply = dispatch(&mut engine, &input("GET", target, &json!(null)), PORT);
+        assert_eq!(reply.status, 200);
+        assert_eq!(json_reply(&reply)["rows"][0]["id"], second.0, "{target}");
+    }
+}
