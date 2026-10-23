@@ -1,0 +1,57 @@
+.list-tools-bar { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 12px 18px; padding: 12px 20px; border-top: 1px solid #e0e7ef; border-bottom: 1px solid #d5dfe9; background: #fafbfd; }
+.list-tools-saved { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 8px; }
+.list-tools-bar .form-field label { margin-bottom: 5px; font-size: 11px; }
+.list-tools-bar select { min-height: 34px; max-width: 260px; border: 1px solid #aebdcc; border-radius: 4px; background: #fff; color: #304c66; padding: 5px 9px; font-size: 12px; }
+.list-tools-bar .button { min-height: 34px; font-size: 12px; padding: 6px 11px; }
+.list-tools-note { flex-basis: 100%; font-size: 11px; line-height: 1.6; color: #61758a; margin: 0; }
+.list-column-control { position: relative; align-self: flex-end; color: #355d83; font-size: 12px; }
+.list-column-control > summary { cursor: pointer; min-height: 34px; padding: 8px 11px; border: 1px solid #aebdcc; border-radius: 4px; background: #fff; }
+.list-column-choices { position: absolute; z-index: 30; top: 38px; right: 0; width: 205px; margin: 0; padding: 10px 14px; border: 1px solid #bdcad8; border-radius: 4px; background: #fff; box-shadow: 0 4px 14px #18395924; }
+.list-column-choices label { display: flex; align-items: center; gap: 8px; min-height: 31px; color: #425c74; }
+.list-column-choices input { accent-color: #0176d3; }
+.list-columns-container { overflow-x: auto; }
+.company-table.list-columns-configured { --list-row: 43px; --list-region: 80px; --list-phone: 110px; --list-status: 84px; --list-owner: 80px; --list-next: 140px; --list-number: 145px; table-layout: fixed; min-width: calc(220px + var(--list-row) + var(--list-region) + var(--list-phone) + var(--list-status) + var(--list-owner) + var(--list-next) + var(--list-number)); }
+.company-table.list-columns-configured .row-number { width: var(--list-row); }
+.company-table.list-columns-configured .name-column { width: auto; }
+.company-table.list-columns-configured .region-column { width: var(--list-region); }
+.company-table.list-columns-configured .phone-column { width: var(--list-phone); }
+.company-table.list-columns-configured .status-column { width: var(--list-status); }
+.company-table.list-columns-configured .owner-column { width: var(--list-owner); }
+.company-table.list-columns-configured .next-column { width: var(--list-next); }
+.company-table.list-columns-configured .number-column { width: var(--list-number); }
+.company-table.list-hide-row { --list-row: 0px; }
+.company-table.list-hide-region { --list-region: 0px; }
+.company-table.list-hide-phone { --list-phone: 0px; }
+.company-table.list-hide-status { --list-status: 0px; }
+.company-table.list-hide-owner { --list-owner: 0px; }
+.company-table.list-hide-next { --list-next: 0px; }
+.company-table.list-hide-number { --list-number: 0px; }
+.company-table.list-columns-configured th, .company-table.list-columns-configured td { display: table-cell !important; }
+.company-table.list-hide-row th:nth-child(1), .company-table.list-hide-row td:nth-child(1),
+.company-table.list-hide-name th:nth-child(2), .company-table.list-hide-name td:nth-child(2),
+.company-table.list-hide-region th:nth-child(3), .company-table.list-hide-region td:nth-child(3),
+.company-table.list-hide-phone th:nth-child(4), .company-table.list-hide-phone td:nth-child(4),
+.company-table.list-hide-status th:nth-child(5), .company-table.list-hide-status td:nth-child(5),
+.company-table.list-hide-owner th:nth-child(6), .company-table.list-hide-owner td:nth-child(6),
+.company-table.list-hide-next th:nth-child(7), .company-table.list-hide-next td:nth-child(7),
+.company-table.list-hide-number th:nth-child(8), .company-table.list-hide-number td:nth-child(8) { display: none !important; }
+.csv-import-guide { margin: 0 23px 18px; padding: 12px; border: 1px solid #d4dfe9; border-radius: 4px; color: #4b6279; background: #f8fafc; font-size: 12px; line-height: 1.7; }
+.csv-import-guide > summary { cursor: pointer; color: #355d83; }
+.csv-import-guide pre { overflow-x: auto; max-width: 100%; padding: 9px; background: #eef2f7; font-size: 11px; }
+.csv-import-guide .button { font-size: 12px; }
+.csv-import-result { margin: 0 23px 20px; padding: 12px; color: #21613a; background: #edf8f0; border: 1px solid #b9dcc6; border-radius: 4px; font-size: 13px; line-height: 1.8; overflow-wrap: anywhere; }
+.csv-import-result.is-error { color: #923923; border-color: #e2c3ba; background: #fff2ee; }
+.list-tool-dialog .dialog-fields { padding-bottom: 18px; }
+.list-tool-dialog input[type=file] { max-width: 100%; font-size: 12px; }
+@media (min-width: 701px) and (max-width: 960px) {
+  #accounts-workspace .object-header { flex-wrap: wrap; }
+  #accounts-workspace .object-actions { margin-left: auto; }
+}
+@media (max-width: 700px) {
+  .list-tools-bar { gap: 10px 12px; padding: 12px 15px; }
+  .list-tools-saved { width: 100%; }
+  .list-tools-saved .form-field { flex: 1; min-width: 140px; }
+  .list-tools-saved select { width: 100%; max-width: none; }
+  .list-tools-note { font-size: 10px; }
+  .csv-import-guide, .csv-import-result { margin-left: 18px; margin-right: 18px; }
+}

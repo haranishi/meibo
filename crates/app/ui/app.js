@@ -12,6 +12,7 @@ const state = {
   rows: [], next: null, count: null, query: "", view: "all", filters: {}, cursors: [null], page: 0,
   selected: null, detail: null, listVersion: 0, detailVersion: 0, summaryVersion: 0, homeVersion: 0,
   listController: null, detailController: null, loading: false, saving: false, creating: false,
+  contactRevealCompany: null, editingCompany: null, contactSaving: false,
   drafts: new Map(), noticeTimer: null, summary: null, recent: readRecent(), recordTab: "details"
 };
 
@@ -58,7 +59,7 @@ async function request(url, options = {}) {
   return response;
 }
 function busy() {
-  if (state.saving || state.creating) { notify("保存しています。完了してから操作してください。"); return true; }
+  if (state.saving || state.creating || state.contactSaving || window.crmWorkspace?.busy()) { notify("保存しています。完了してから操作してください。"); return true; }
   return false;
 }
 function closeAppMenu() {
@@ -66,6 +67,7 @@ function closeAppMenu() {
 }
 function showWorkspace(name) {
   state.workspace = name;
+  window.crmWorkspace?.onWorkspace(name);
   $("home-workspace").hidden = name !== "home";
   $("accounts-workspace").hidden = name !== "accounts" && name !== "tasks";
   $("record-workspace").hidden = name !== "record";
@@ -93,10 +95,12 @@ function syncControls() {
   if ($("object-title")) $("object-title").textContent = state.listContext === "tasks" ? "次回対応" : "取引先";
   $("accounts-title").textContent = state.listContext === "tasks" ? "次回対応" : "取引先";
   $("view-title").textContent = state.query ? `社名検索: ${state.query}` : $("list-view").selectedOptions[0].textContent + (Object.keys(state.filters).length ? " · 絞り込みあり" : "");
+  window.MeiboListTools?.sync();
 }
 function navigate(name) {
   if (busy()) return;
   ++state.detailVersion; state.detailController?.abort();
+  if (window.crmWorkspace?.recognizes(name)) { window.crmWorkspace.open(name); return; }
   if (name === "home") {
     showWorkspace("home"); renderRecent(); loadSummary(); loadHomeDue(); return;
   }
@@ -210,7 +214,7 @@ async function loadList() {
   $("list-state").replaceChildren(el("span", "loading-spinner"), el("p", "", "取引先を読み込んでいます…")); $("list-state").hidden = false; renderPagination();
   const params = new URLSearchParams({ limit: "25" });
   if (state.query) params.set("q", state.query); else {
-    params.set("view", state.view); Object.entries(state.filters).forEach(([key, value]) => params.set(key, value));
+    params.set("sort", state.sort || "default"); params.set("view", state.view); Object.entries(state.filters).forEach(([key, value]) => params.set(key, value));
   }
   if (state.cursors[state.page]) params.set("after", state.cursors[state.page]);
   try {
@@ -245,8 +249,11 @@ function applyFilters(clear = false) {
 }
 
 function getDraft(company) {
-  if (!state.drafts.has(company.id)) state.drafts.set(company.id, { note: "", status: String(company.status), nextMode: "keep", nextDate: "" });
-  return state.drafts.get(company.id);
+  if (!state.drafts.has(company.id)) state.drafts.set(company.id, { note: "", status: String(company.status), baselineStatus: String(company.status), nextMode: "keep", nextDate: "", kind: "1", contact: "", at: "" });
+  const draft = state.drafts.get(company.id);
+  if (draft.status === draft.baselineStatus) draft.status = String(company.status);
+  draft.baselineStatus = String(company.status);
+  return draft;
 }
 
 function addFact(facts, label, value) {
@@ -267,13 +274,25 @@ function fieldLabel(label, id) {
 
 function renderActivityForm(company) {
   const draft = getDraft(company);
-  const container = section("架電を記録する", "phone");
+  const container = section("活動を記録する", "phone");
   const form = el("form", "activity-form"); form.id = "activity-form";
   const fields = el("fieldset"); fields.disabled = state.saving;
   const note = el("textarea"); note.id = "activity-note"; note.name = "note"; note.required = true; note.maxLength = 10000;
   note.placeholder = "話した内容や、次回確認したいことをメモ…"; note.value = draft.note; note.rows = 3;
   note.addEventListener("input", () => { draft.note = note.value; });
-  fields.append(fieldLabel("架電メモ", note.id), note);
+  const kind = el("select"); kind.id = "activity-kind";
+  for (const code of [1, 2, 3, 4]) { const option = el("option", "", activityKinds[code]); option.value = String(code); kind.append(option); }
+  kind.value = draft.kind || "1"; kind.addEventListener("change", () => { draft.kind = kind.value; emailHelp.hidden = kind.value !== "3"; const label = form.querySelector(".save-button span"); if (label) label.textContent = `${activityKinds[kind.value]}の記録を保存`; });
+  fields.append(fieldLabel("活動の種類", kind.id), kind);
+  const contact = el("select"); contact.id = "activity-contact";
+  const unassigned = el("option", "", "担当者を指定しない"); unassigned.value = ""; contact.append(unassigned);
+  for (const person of state.detail?.contacts || []) { const option = el("option", "", person.name || `担当者 ID ${person.id}（非表示）`); option.value = String(person.id); contact.append(option); }
+  if (draft.contact && !(state.detail?.contacts || []).some((person) => String(person.id) === draft.contact)) draft.contact = "";
+  contact.value = draft.contact || ""; contact.addEventListener("change", () => { draft.contact = contact.value; });
+  const at = el("input"); at.type = "datetime-local"; at.id = "activity-at"; at.value = draft.at || "";
+  at.addEventListener("input", () => { draft.at = at.value; });
+  fields.append(fieldLabel("関連する担当者", contact.id), contact, fieldLabel("活動日時（空欄は現在）", at.id), at, fieldLabel("活動メモ", note.id), note);
+  const emailHelp = el("p", "form-help", "メールは実施した内容の記録です。ここから送信は行いません。"); emailHelp.hidden = (draft.kind || "1") !== "3"; fields.append(emailHelp);
   const row = el("div", "form-row");
   const statusField = el("div");
   const status = el("select"); status.id = "activity-status"; status.name = "status";
@@ -295,7 +314,7 @@ function renderActivityForm(company) {
   next.addEventListener("change", () => { draft.nextMode = next.value; dateField.hidden = next.value !== "set"; nextDate.required = next.value === "set"; if (next.value === "set") nextDate.focus(); });
   fields.append(help);
   const error = el("div", "field-error"); error.id = "activity-error"; error.hidden = true; error.setAttribute("role", "alert");
-  const save = el("button", "button button-primary save-button"); save.type = "submit"; save.append(icon("check"), el("span", "", state.saving ? "保存しています…" : "架電の記録を保存"));
+  const save = el("button", "button button-primary save-button"); save.type = "submit"; save.append(icon("check"), el("span", "", state.saving ? "保存しています…" : `${activityKinds[draft.kind || "1"]}の記録を保存`));
   fields.append(error, save); form.append(fields);
   form.addEventListener("submit", (event) => { event.preventDefault(); saveActivity(company.id, form, draft); });
   container.append(form); return container;
@@ -326,7 +345,7 @@ function recordTabs(company, activities, contacts) {
     });
     details.hidden = name !== "details"; related.hidden = name !== "related";
   }
-  for (const [name, label] of [["details", "詳細"], ["related", `関連 (${contacts.length + activities.length})`]]) {
+  for (const [name, label] of [["details", "詳細"], ["related", "関連"]]) {
     const control = button(label, "record-tab", () => selectTab(name)); control.id = `record-tab-${name}`;
     control.dataset.recordTab = name; control.setAttribute("role", "tab"); control.setAttribute("aria-controls", `record-${name}`);
     control.addEventListener("keydown", (event) => {
@@ -345,14 +364,27 @@ function recordTabs(company, activities, contacts) {
   ]) { const field = el("div", "detail-field"); field.append(el("dt", "", label), el("dd", "", value)); facts.append(field); }
   details.append(el("h2", "card-heading", "取引先情報"), facts);
   if (company.is_sole_proprietor) details.append(el("p", "contacts-note", "個人事業の名称・電話番号・Webサイトは、この画面では非表示です。"));
-  const contactCard = el("section", "related-card"); contactCard.append(el("h2", "card-heading", `担当者 (${contacts.length})`));
+  const contactCard = el("section", "related-card");
+  const contactHeading = el("div", "contact-heading");
+  contactHeading.append(el("h2", "card-heading", `担当者 (${contacts.length})`), button("担当者を追加", "button button-secondary", () => openContactDialog(company)));
+  contactCard.append(contactHeading);
+  const revealed = state.contactRevealCompany === company.id;
+  if (contacts.length) contactCard.append(button(revealed ? "個人情報を隠す" : "担当者の個人情報を表示", "text-button", () => {
+    if (busy()) return;
+    state.contactRevealCompany = revealed ? null : company.id; openCompany(company.id, false);
+  }));
   if (!contacts.length) contactCard.append(el("p", "empty-state", "登録されている担当者はありません。"));
   else {
     const list = el("ul", "related-records");
     for (const contact of contacts) {
-      const item = el("li", "related-record"); item.append(el("strong", "", contact.name || "個人情報は非表示"), el("span", "", contact.email || contact.phone || "連絡先は非表示")); list.append(item);
+      const item = el("li", "related-record"); item.dataset.contactId = String(contact.id);
+      item.append(el("strong", "", contact.name || "個人情報は非表示"), el("span", "", [contact.email, contact.phone].filter(Boolean).join(" · ") || "連絡先は非表示"));
+      const actions = el("div", "contact-actions");
+      if (revealed) actions.append(button("編集", "text-button", () => openContactDialog(company, contact)));
+      actions.append(button("消去", "text-button danger-text", () => openEraseContactDialog(company, contact)));
+      item.append(actions); list.append(item);
     }
-    contactCard.append(list, el("p", "contacts-note", "担当者の個人情報は既定で非表示です。"));
+    contactCard.append(list, el("p", "contacts-note", revealed ? "担当者情報を表示中です。この画面内だけで扱い、ブラウザ保存には含めません。" : "担当者の個人情報は既定で非表示です。編集するには個人情報を表示してください。"));
   }
   const activityCard = el("section", "related-card"); activityCard.append(el("h2", "card-heading", `活動 (${activities.length})`));
   if (!activities.length) activityCard.append(el("p", "empty-state", "まだ活動がありません。右のフォームから架電を記録できます。"));
@@ -362,9 +394,10 @@ function recordTabs(company, activities, contacts) {
       const item = el("li", "related-record"); item.append(el("strong", "", activityKinds[activity.kind] || "活動"), el("span", "", formatDate(activity.at)), el("p", "", activity.note ?? "メモなし / 非表示")); list.append(item);
     }); activityCard.append(list);
   }
-  related.append(contactCard, activityCard); main.append(tabs, details, related); selectTab(state.recordTab); return main;
+  related.append(contactCard, activityCard); window.crmWorkspace?.related(company, related); main.append(tabs, details, related); selectTab(state.recordTab); return main;
 }
 function renderTimeline(activities) {
+  const reversed = new Set(activities.filter((value) => value.reverses_id).map((value) => value.reverses_id));
   const history = section(`活動履歴 (${activities.length})`, "clock");
   if (!activities.length) { history.append(el("p", "no-activity", "まだ活動の記録がありません。最初の架電を記録しましょう。")); return history; }
   const timeline = el("ol", "timeline");
@@ -373,6 +406,8 @@ function renderTimeline(activities) {
     meta.append(el("span", "timeline-kind", activityKinds[activity.kind] || "活動"), el("time", "", formatDate(activity.at)));
     item.append(meta, el("p", "timeline-note", activity.note ?? "メモなし / 非表示"));
     if (activity.status_after !== null && activity.status_after !== undefined) item.append(el("p", "timeline-status", `営業状態を「${statuses[activity.status_after] || "不明"}」に変更`));
+    if (reversed.has(activity.id)) item.append(el("span", "timeline-cancelled", "取消済み"));
+    else if (activity.kind !== 9) item.append(button("この活動を取り消す", "text-button", () => cancelActivity(state.selected, activity.id)));
     timeline.append(item);
   }
   history.append(timeline); return history;
@@ -385,6 +420,7 @@ function renderDetail(data, focusHeading = false) {
   const title = el("h1", "", companyName(company)); title.id = "selected-company-title"; title.tabIndex = -1;
   const titleText = el("div"); titleText.append(el("p", "object-label", "取引先"), title); identity.append(avatar, titleText);
   const actions = el("div", "record-actions"); actions.append(button("一覧に戻る", "button button-secondary", closeCompany), button("架電を記録", "button button-primary", () => { $("activity-note").focus(); $("activity-form").scrollIntoView({ block: "center", behavior: "smooth" }); }));
+  actions.prepend(button("取引先を編集", "button button-secondary", () => editCompany(company.id)));
   titleRow.append(identity, actions);
   const highlights = el("dl", "record-highlights");
   for (const [label, value] of [["法人番号", company.corporate_number || "未登録"], ["電話番号", company.phone || "未登録"], ["所在地", prefectures[company.prefecture] || "未設定"], ["担当", company.owner === null || company.owner === undefined ? "未割当" : `担当 ${company.owner}`], ["営業状態", statuses[company.status] || "不明"]]) {
@@ -404,13 +440,13 @@ function renderDetail(data, focusHeading = false) {
 async function openCompany(id, focusHeading = true) {
   if (busy()) return;
   const previous = state.selected; if (state.workspace !== "record") state.returnWorkspace = state.workspace;
-  if (previous !== id) { state.recordTab = "details"; state.detail = null; }
+  if (previous !== id) { state.recordTab = "details"; state.detail = null; state.contactRevealCompany = null; }
   const version = ++state.detailVersion; state.detailController?.abort(); state.detailController = new AbortController();
   state.selected = id; showWorkspace("record"); $("record-workspace").setAttribute("aria-busy", "true");
   const loading = el("div", "panel-state detail-loading"); loading.setAttribute("role", "status");
   loading.append(el("p", "", "取引先の詳細を読み込んでいます…"), button("一覧へ戻る", "button button-secondary", closeCompany)); $("detail-content").replaceChildren(loading);
   try {
-    const data = await (await request(`/api/companies/${encodeURIComponent(id)}`, { signal: state.detailController.signal })).json();
+    const data = await (await request(`/api/companies/${encodeURIComponent(id)}${state.contactRevealCompany === id ? "?include_contacts=1" : ""}`, { signal: state.detailController.signal })).json();
     if (version !== state.detailVersion || state.selected !== id) return;
     state.detail = data; rememberCompany(data.company); renderDetail(data, focusHeading); showWorkspace("record");
     if (focusHeading) window.scrollTo({ top: 0, behavior: "instant" });
@@ -438,8 +474,9 @@ async function saveActivity(id, form, draft) {
   try {
     const status = Number(draft.status);
     if (!Number.isInteger(status) || status < 0 || status > 5) throw new Error("営業状態を選び直してください。");
-    if (!draft.note.trim()) throw new Error("架電メモを入力してください。");
-    body = { note: draft.note.trim(), status };
+    if (!draft.note.trim()) throw new Error("活動メモを入力してください。");
+    body = { note: draft.note.trim(), status, kind: Number(draft.kind || "1"), contact_id: draft.contact ? Number(draft.contact) : null };
+    if (draft.at) body.at = parseLocalDate(draft.at);
     if (draft.nextMode === "set") body.next_action_at = parseLocalDate(draft.nextDate);
     else if (draft.nextMode === "clear") body.next_action_at = null;
     else if (draft.nextMode !== "keep") throw new Error("次回対応の設定を選び直してください。");
@@ -461,7 +498,7 @@ async function saveActivity(id, form, draft) {
   } finally {
     state.saving = false;
     form.querySelector("fieldset").disabled = false;
-    saveLabel.textContent = "架電の記録を保存";
+    saveLabel.textContent = `${activityKinds[draft.kind || "1"]}の記録を保存`;
     form.setAttribute("aria-busy", "false");
   }
 }
@@ -475,6 +512,9 @@ function populatePrefectures() {
 }
 function openCompanyDialog() {
   if (busy()) return;
+  state.editingCompany = null; $("company-form").reset();
+  $("company-dialog-title").textContent = "新規取引先";
+  $("company-dialog-description").textContent = "追加する内容は、合成デモの取引先として保存されます。";
   $("company-form-error").hidden = true;
   $("company-dialog").showModal(); $("company-name").focus();
 }
@@ -491,26 +531,95 @@ async function createCompany(event) {
     errorBox.textContent = "取引先名と都道府県を入力してください。"; errorBox.hidden = false; return;
   }
   const body = { name, prefecture };
-  for (const [key, id] of [["corporate_number", "company-number"], ["phone", "company-phone"], ["website", "company-website"]]) {
-    const value = $(id).value.trim(); if (value) body[key] = value;
+  for (const [key, id] of [["corporate_number", "company-number"], ["municipality", "company-municipality"], ["phone", "company-phone"], ["website", "company-website"]]) {
+    const value = $(id).value.trim(); if (value || state.editingCompany !== null) body[key] = value || null;
   }
   state.creating = true; errorBox.hidden = true; $("company-fields").disabled = true;
   $("company-submit").disabled = true; $("company-submit").textContent = "保存しています…";
   $("company-cancel").disabled = true; $("company-dialog-close").disabled = true; form.setAttribute("aria-busy", "true");
   try {
-    const data = await (await request("/api/companies", { method: "POST", headers: { "Content-Type": "application/json", "X-Meibo-Local": "1" }, body: JSON.stringify(body) })).json();
+    const data = await (await request(state.editingCompany === null ? "/api/companies" : `/api/companies/${state.editingCompany}`, { method: "POST", headers: { "Content-Type": "application/json", "X-Meibo-Local": "1" }, body: JSON.stringify(body) })).json();
     if (!Number.isSafeInteger(data.id) || data.id <= 0) throw new Error("保存結果を確認できません。更新してからご確認ください。");
     $("company-dialog").close(); form.reset();
-    notify("取引先を登録しました。");
+    notify(state.editingCompany === null ? "取引先を登録しました。" : "取引先を更新しました。");
     await Promise.all([loadSummary(), loadHomeDue(), loadList()]);
-    state.creating = false; await openCompany(data.id);
+    state.editingCompany = null; state.creating = false; await openCompany(data.id);
   } catch (error) {
-    errorBox.textContent = `登録できませんでした。${error.message} 入力内容を残しています。`; errorBox.hidden = false;
+    errorBox.textContent = `保存できませんでした。${error.message} 入力内容を残しています。`; errorBox.hidden = false;
   } finally {
     state.creating = false; $("company-fields").disabled = false; $("company-submit").disabled = false;
     $("company-submit").textContent = "保存"; $("company-cancel").disabled = false; $("company-dialog-close").disabled = false;
     form.setAttribute("aria-busy", "false");
   }
+}
+
+async function editCompany(id) {
+  if (busy()) return;
+  const company = state.detail?.company;
+  if (!company || company.id !== id) return;
+  state.creating = true;
+  try {
+    const data = company.is_sole_proprietor ? await (await request(`/api/companies/${id}?include_private=1`)).json() : { company };
+    if (state.selected !== id) return;
+    const value = data.company; state.editingCompany = id;
+    $("company-dialog-title").textContent = "取引先を編集";
+    $("company-dialog-description").textContent = company.is_sole_proprietor ? "編集のため個人事業の情報を表示しています。出典・業種・営業状態は保持されます。" : "出典・業種・担当・営業状態を保持して取引先情報を更新します。";
+    for (const [key, field] of [["name", "company-name"], ["prefecture", "company-prefecture"], ["corporate_number", "company-number"], ["municipality", "company-municipality"], ["phone", "company-phone"], ["website", "company-website"]]) $(field).value = value[key] ?? "";
+    $("company-form-error").hidden = true; $("company-dialog").showModal(); $("company-name").focus();
+  } catch (error) { notify(error.message, true); }
+  finally { state.creating = false; }
+}
+function makeDialog(id, title) {
+  const dialog = el("dialog", "company-dialog"); dialog.id = id; dialog.setAttribute("aria-labelledby", `${id}-title`);
+  const form = el("form"); const header = el("header", "dialog-header"), heading = el("h2", "", title); heading.id = `${id}-title`; header.append(heading);
+  const fields = el("fieldset", "dialog-fields"), error = el("div", "field-error dialog-error"); error.setAttribute("role", "alert"); error.hidden = true;
+  const footer = el("footer", "dialog-footer"), cancel = button("キャンセル", "button button-secondary", () => { if (!state.contactSaving) dialog.close(); });
+  const save = el("button", "button button-primary", "保存"); save.type = "submit"; footer.append(cancel, save); form.append(header, fields, error, footer); dialog.append(form); document.body.append(dialog);
+  dialog.addEventListener("cancel", (event) => { if (state.contactSaving) event.preventDefault(); });
+  dialog.addEventListener("close", () => { if (!state.contactSaving) dialog.remove(); });
+  return { dialog, form, fields, error, save, cancel };
+}
+async function submitContactDialog(view, company, url, body, message) {
+  if (state.contactSaving || !view.form.reportValidity()) return;
+  state.contactSaving = true; view.fields.disabled = true; view.save.disabled = true; view.cancel.disabled = true; view.error.hidden = true;
+  view.form.setAttribute("aria-busy", "true");
+  try {
+    await request(url, { method: "POST", headers: { "Content-Type": "application/json", "X-Meibo-Local": "1" }, body: JSON.stringify(body) });
+    if (url.endsWith("/cancel")) await Promise.all([loadSummary(), loadHomeDue(), loadList()]);
+    state.contactSaving = false; view.dialog.close(); view.dialog.remove(); notify(message);
+    if (state.selected === company.id && state.workspace === "record") await openCompany(company.id, false);
+  } catch (error) { view.error.textContent = `保存できませんでした。${error.message} 入力内容を残しています。`; view.error.hidden = false; }
+  finally { state.contactSaving = false; view.fields.disabled = false; view.save.disabled = false; view.cancel.disabled = false; view.form.setAttribute("aria-busy", "false"); }
+}
+function openContactDialog(company, contact = null) {
+  if (busy()) return;
+  const view = makeDialog("contact-dialog", contact ? "担当者を編集" : "担当者を追加");
+  const controls = {};
+  for (const [key, label, type, limit] of [["name", "氏名", "text", 250], ["phone", "電話番号", "tel", 100], ["email", "メールアドレス", "email", 320]]) {
+    const field = el("div", "form-field full-width"), input = el("input"); input.id = `contact-${key}`; input.type = type; input.maxLength = limit; input.value = contact?.[key] || ""; input.required = key === "name";
+    field.append(fieldLabel(label, input.id), input); view.fields.append(field); controls[key] = input;
+  }
+  view.form.addEventListener("submit", (event) => {
+    event.preventDefault(); const body = { name: controls.name.value.trim(), phone: controls.phone.value.trim() || null, email: controls.email.value.trim() || null };
+    submitContactDialog(view, company, `/api/companies/${company.id}/contacts${contact ? `/${contact.id}` : ""}`, body, contact ? "担当者を更新しました。" : "担当者を追加しました。");
+  });
+  view.dialog.showModal(); controls.name.focus();
+}
+function openEraseContactDialog(company, contact) {
+  if (busy()) return;
+  const view = makeDialog("erase-contact-dialog", "担当者情報を消去"); view.save.textContent = "消去する";
+  view.fields.append(el("p", "full-width", "氏名・電話番号・メールアドレスと、この担当者に関連するToDo・予定・商談を消去します。活動には消去済みの担当者として残ります。この操作は取り消せません。"));
+  const label = el("label", "full-width erase-notes-option"), checkbox = el("input"); checkbox.type = "checkbox"; checkbox.id = "erase-contact-notes";
+  label.append(checkbox, document.createTextNode(" この担当者に紐づく活動メモも消去する")); view.fields.append(label);
+  view.form.addEventListener("submit", (event) => { event.preventDefault(); submitContactDialog(view, company, `/api/companies/${company.id}/contacts/${contact.id}/erase`, { wipe_notes: checkbox.checked }, "担当者情報を消去しました。"); });
+  view.dialog.showModal(); view.cancel.focus();
+}
+function cancelActivity(companyId, activityId) {
+  if (busy() || !companyId) return;
+  const view = makeDialog("cancel-activity-dialog", "活動を取り消す"); view.save.textContent = "取り消す";
+  view.fields.append(el("p", "full-width", "取消の履歴を追加し、この活動による営業状態・次回対応の変更を戻します。元の活動は履歴に残ります。"));
+  view.form.addEventListener("submit", (event) => { event.preventDefault(); submitContactDialog(view, { id: companyId }, `/api/companies/${companyId}/activities/${activityId}/cancel`, {}, "活動を取り消しました。"); });
+  view.dialog.showModal(); view.cancel.focus();
 }
 
 populatePrefectures(); syncControls(); showWorkspace("accounts"); renderRecent();

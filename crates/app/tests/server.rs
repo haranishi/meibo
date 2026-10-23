@@ -53,9 +53,11 @@ impl Running {
         let stdout = child.stdout.take().unwrap();
         let (sender, receiver) = mpsc::channel();
         std::thread::spawn(move || {
+            let mut reader = BufReader::new(stdout);
             let mut line = String::new();
-            let _ = BufReader::new(stdout).read_line(&mut line);
+            let _ = reader.read_line(&mut line);
             let _ = sender.send(line);
+            let _ = std::io::copy(&mut reader, &mut std::io::sink());
         });
         let mut running = Self {
             child,
@@ -88,11 +90,24 @@ impl Running {
             .unwrap();
         write!(connection, "{method} {path} HTTP/1.1\r\nHost: {host}\r\nConnection: close\r\nContent-Length: {}\r\n{headers}\r\n{body}", body.len()).unwrap();
         connection.flush().unwrap();
-        let mut response = String::new();
-        connection.read_to_string(&mut response).unwrap();
-        let (head, body) = response.split_once("\r\n\r\n").expect("HTTP response");
+        let mut response = Vec::new();
+        connection.read_to_end(&mut response).unwrap();
+        let boundary = response
+            .windows(4)
+            .position(|v| v == b"\r\n\r\n")
+            .expect("HTTP response");
+        let head = String::from_utf8(response[..boundary].to_vec()).unwrap();
+        let raw = &response[boundary + 4..];
+        let body = if head
+            .to_ascii_lowercase()
+            .contains("transfer-encoding: chunked")
+        {
+            decode_chunks(raw)
+        } else {
+            raw.to_vec()
+        };
         let status = head.split_whitespace().nth(1).unwrap().parse().unwrap();
-        (status, head.to_owned(), body.to_owned())
+        (status, head, String::from_utf8(body).unwrap())
     }
 
     fn get(&self, path: &str) -> (u16, String, String) {
@@ -103,6 +118,32 @@ impl Running {
         let (status, _, body) = self.get(path);
         assert_eq!(status, 200, "{body}");
         serde_json::from_str(&body).unwrap()
+    }
+}
+
+fn decode_chunks(mut raw: &[u8]) -> Vec<u8> {
+    let mut body = Vec::new();
+    loop {
+        let boundary = raw
+            .windows(2)
+            .position(|v| v == b"\r\n")
+            .expect("chunk size");
+        let size = usize::from_str_radix(
+            std::str::from_utf8(&raw[..boundary])
+                .unwrap()
+                .split(';')
+                .next()
+                .unwrap(),
+            16,
+        )
+        .unwrap();
+        if size == 0 {
+            return body;
+        }
+        raw = &raw[boundary + 2..];
+        body.extend_from_slice(&raw[..size]);
+        assert_eq!(&raw[size..size + 2], b"\r\n");
+        raw = &raw[size + 2..];
     }
 }
 

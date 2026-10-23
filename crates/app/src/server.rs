@@ -1,5 +1,7 @@
 //! 同梱画面から合成デモを操作する、loopback専用のHTTP入口。
 mod api;
+mod crm;
+mod import_ui;
 
 use std::{
     error::Error,
@@ -12,6 +14,14 @@ use serde_json::{Value, json};
 use tiny_http::{Header, Request, Response, Server, StatusCode};
 
 const MAX_BODY: usize = 1024 * 1024;
+fn body_limit(input: &Input) -> usize {
+    if input.target.split('?').next() == Some("/api/import") {
+        import_ui::MAX_IMPORT_BODY
+    } else {
+        MAX_BODY
+    }
+}
+
 const MAX_EXPORT: usize = 32 * 1024 * 1024;
 const SECURITY_HEADERS: [(&str, &str); 5] = [
     (
@@ -120,13 +130,16 @@ fn handle_http(engine: &mut Engine, mut request: Request, port: u16) {
         reply
     } else {
         if input.method == "POST" {
-            if request.body_length().is_some_and(|size| size > MAX_BODY) {
+            if request
+                .body_length()
+                .is_some_and(|size| size > body_limit(&input))
+            {
                 send_reply(request, Reply::error(413, "送信内容が上限を超えています。"));
                 return;
             }
             let result = request
                 .as_reader()
-                .take((MAX_BODY + 1) as u64)
+                .take((body_limit(&input) + 1) as u64)
                 .read_to_end(&mut input.body);
             if result.is_err() {
                 send_reply(request, Reply::error(400, "送信内容を読み取れません。"));
@@ -182,8 +195,13 @@ fn validate_boundary(input: &Input, port: u16) -> Result<(), Reply> {
             .single_header("Content-Type")
             .and_then(|value| value.split(';').next())
             .map(str::trim);
-        if !content_type.is_some_and(|value| value.eq_ignore_ascii_case("application/json")) {
-            return Err(Reply::error(415, "JSON形式で送信してください。"));
+        let expected = if input.target.split('?').next() == Some("/api/import") {
+            "text/csv"
+        } else {
+            "application/json"
+        };
+        if !content_type.is_some_and(|value| value.eq_ignore_ascii_case(expected)) {
+            return Err(Reply::error(415, "送信形式を確認してください。"));
         }
     }
     Ok(())
@@ -193,13 +211,19 @@ fn dispatch(engine: &mut Engine, input: &Input, port: u16) -> Reply {
     if let Err(reply) = validate_boundary(input, port) {
         return reply;
     }
-    if input.body.len() > MAX_BODY {
+    if input.body.len() > body_limit(input) {
         return Reply::error(413, "送信内容が上限を超えています。");
     }
     if input.method != "GET" && input.method != "POST" {
         return Reply::error(405, "この操作には対応していません。");
     }
     let (path, query) = input.target.split_once('?').unwrap_or((&input.target, ""));
+    if input.method == "POST" && path == "/api/import" {
+        return import_ui::import_csv_request(engine, query, &input.body);
+    }
+    if let Some(reply) = crm::dispatch(engine, input, path, query) {
+        return reply;
+    }
     if input.method == "POST" && path == "/api/companies" {
         return api::create_company(engine, &input.body);
     }
@@ -207,6 +231,27 @@ fn dispatch(engine: &mut Engine, input: &Input, port: u16) -> Reply {
         match path {
             "/" => {
                 return Reply::text("text/html; charset=utf-8", include_str!("../ui/index.html"));
+            }
+            "/list-tools.js" => {
+                return Reply::text(
+                    "text/javascript; charset=utf-8",
+                    include_str!("../ui/list-tools.js"),
+                );
+            }
+            "/list-tools.css" => {
+                return Reply::text(
+                    "text/css; charset=utf-8",
+                    include_str!("../ui/list-tools.css"),
+                );
+            }
+            "/crm.js" => {
+                return Reply::text(
+                    "text/javascript; charset=utf-8",
+                    include_str!("../ui/crm.js"),
+                );
+            }
+            "/crm.css" => {
+                return Reply::text("text/css; charset=utf-8", include_str!("../ui/crm.css"));
             }
             "/style.css" => {
                 return Reply::text("text/css; charset=utf-8", include_str!("../ui/style.css"));
@@ -224,13 +269,55 @@ fn dispatch(engine: &mut Engine, input: &Input, port: u16) -> Reply {
             _ => {}
         }
     }
+    company_route(engine, input, path, query)
+}
+
+fn company_route(engine: &mut Engine, input: &Input, path: &str, query: &str) -> Reply {
     if let Some(rest) = path.strip_prefix("/api/companies/") {
         if input.method == "POST" {
+            let parts = rest.split('/').collect::<Vec<_>>();
+            if let Some(id) = parts.first().and_then(|v| company_id(v)) {
+                match parts.as_slice() {
+                    [_] => return api::update_company(engine, id, &input.body),
+                    [_, "contacts"] => return api::contact(engine, id, None, &input.body),
+                    [_, "contacts", contact] => {
+                        if let Some(contact) = company_id(contact) {
+                            return api::contact(
+                                engine,
+                                id,
+                                Some(meibo_core::types::ContactId(contact.0)),
+                                &input.body,
+                            );
+                        }
+                    }
+                    [_, "contacts", contact, "erase"] => {
+                        if let Some(contact) = company_id(contact) {
+                            return api::erase_contact(
+                                engine,
+                                id,
+                                meibo_core::types::ContactId(contact.0),
+                                &input.body,
+                            );
+                        }
+                    }
+                    [_, "activities", activity, "cancel"] => {
+                        if let Some(activity) = company_id(activity) {
+                            return api::cancel_activity(
+                                engine,
+                                id,
+                                meibo_core::types::ActivityId(activity.0),
+                                &input.body,
+                            );
+                        }
+                    }
+                    _ => {}
+                }
+            }
             if let Some(id) = rest.strip_suffix("/activities").and_then(company_id) {
                 return api::activity(engine, id, &input.body);
             }
         } else if let Some(id) = company_id(rest) {
-            return api::detail(engine, id);
+            return api::detail(engine, id, query);
         }
     }
     Reply::error(404, "対象が見つかりません。")
