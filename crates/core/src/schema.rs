@@ -185,6 +185,9 @@ impl Db {
                 tx.execute("INSERT INTO meta(key,value) VALUES(?1,?2)", (key, value))
                     .map_err(storage)?;
             }
+            if origin == DataOrigin::Synthetic {
+                crate::crm::initialize(&tx)?;
+            }
             counts::recount(&tx)?;
             tx.commit().map_err(storage)?;
             let checkpoint = checkpoint::Checkpoint::start(path, opt)?;
@@ -203,7 +206,7 @@ impl Db {
 
     pub(crate) fn open(path: &Path, opt: &OpenOptions) -> Result<Self, EngineError> {
         let check = should_check(path, opt.integrity)?;
-        let conn = connect(path, opt)?;
+        let mut conn = connect(path, opt)?;
         validate_header(&conn)?;
         check_version(version(&conn)?, VERSION)?;
         if check {
@@ -211,6 +214,23 @@ impl Db {
         }
         let origin = read_origin(&conn)?;
         configure(&conn, opt)?;
+        if origin == DataOrigin::Synthetic {
+            let needs_extension: bool = conn
+                .query_row(
+                    "SELECT NOT EXISTS(SELECT 1 FROM meta WHERE key='crm_schema_version')",
+                    [],
+                    |row| row.get(0),
+                )
+                .map_err(storage)?;
+            if needs_extension {
+                ensure_space(path, 4 * WRITE_BASE, opt.space_probe.as_deref())?;
+            }
+            let tx = conn
+                .transaction_with_behavior(TransactionBehavior::Immediate)
+                .map_err(storage)?;
+            crate::crm::initialize(&tx)?;
+            tx.commit().map_err(storage)?;
+        }
         let checkpoint = checkpoint::Checkpoint::start(path, opt)?;
         Ok(Self {
             conn,

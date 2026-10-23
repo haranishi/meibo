@@ -74,7 +74,7 @@ fn version_one_objects_and_connection_settings() -> TestResult {
             &db.conn,
             "SELECT count(*) FROM sqlite_schema WHERE type='trigger'"
         ),
-        2
+        4
     );
     assert_eq!(
         scalar(&db.conn, "SELECT count(*) FROM counts WHERE n=0"),
