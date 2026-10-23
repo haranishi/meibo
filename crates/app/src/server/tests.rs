@@ -580,3 +580,415 @@ fn account_creation_keeps_the_same_origin_and_body_boundaries() {
     assert_eq!(dispatch(&mut engine, &large, PORT).status, 413);
     assert_eq!(engine.count(&Filters::default()).unwrap().n, 1);
 }
+
+#[test]
+fn account_edits_preserve_hidden_metadata_and_report_atomic_failures() {
+    let (_dir, mut engine, id) = fixture();
+    let mut original = company("合成元情報");
+    original.owner = Some(meibo_core::types::UserId(41));
+    original.industry = Some(meibo_core::types::Industry::A);
+    original.source_id = Some("synthetic-source".into());
+    original.source_as_of = Some("2026-09-30".into());
+    engine.update_company(id, &original).unwrap();
+    let target = format!("/api/companies/{}", id.0);
+    let body = json!({"name":"合成編集後","prefecture":13,"website":"https://synthetic.invalid"});
+    assert_eq!(
+        dispatch(&mut engine, &input("POST", &target, &body), PORT).status,
+        200
+    );
+    let saved = engine.company_detail(id, &vec![]).unwrap().company;
+    assert_eq!(saved.name.as_deref(), Some("合成編集後"));
+    assert_eq!(saved.phone, original.phone);
+    assert_eq!(saved.municipality, original.municipality);
+    assert_eq!(saved.owner, original.owner);
+    assert_eq!(saved.industry, original.industry);
+    assert_eq!(saved.source_id, original.source_id);
+    assert_eq!(saved.source_as_of, original.source_as_of);
+    assert_eq!(saved.status, Status::Untouched);
+    for body in [
+        json!({"name":"cannot move prefecture silently","prefecture":27}),
+        json!({"name":"bad","prefecture":13,"status":3}),
+        json!({"name":"bad","prefecture":13,"municipality":"27001"}),
+        json!({"name":"bad","prefecture":13,"phone":false}),
+    ] {
+        assert_eq!(
+            dispatch(&mut engine, &input("POST", &target, &body), PORT).status,
+            400
+        );
+        assert_eq!(engine.company_detail(id, &vec![]).unwrap().company, saved);
+    }
+    assert_eq!(
+        dispatch(
+            &mut engine,
+            &input(
+                "POST",
+                &target,
+                &json!({"name":"合成移転","prefecture":27,"municipality":"27100","phone":null})
+            ),
+            PORT
+        )
+        .status,
+        200
+    );
+    let saved = engine.company_detail(id, &vec![]).unwrap().company;
+    assert_eq!(saved.prefecture, 27);
+    assert_eq!(saved.municipality.as_deref(), Some("27100"));
+    assert_eq!(saved.phone, None);
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn contacts_require_explicit_reveal_and_cannot_be_moved_or_revived() {
+    let (dir, mut engine, id) = fixture();
+    let second = engine.register_company(&company("合成他社")).unwrap();
+    let path = format!("/api/companies/{}/contacts", id.0);
+    let response = dispatch(
+        &mut engine,
+        &input(
+            "POST",
+            &path,
+            &json!({"name":"合成担当者","phone":"０３-１２３４","email":"person@example.test"}),
+        ),
+        PORT,
+    );
+    assert_eq!(response.status, 201);
+    let contact = json_reply(&response)["id"].as_i64().unwrap();
+    let detail_path = format!("/api/companies/{}", id.0);
+    let hidden = json_reply(&dispatch(
+        &mut engine,
+        &input("GET", &detail_path, &Value::Null),
+        PORT,
+    ));
+    assert_eq!(hidden["contacts"][0]["name"], Value::Null);
+    let revealed = json_reply(&dispatch(
+        &mut engine,
+        &input(
+            "GET",
+            &format!("{detail_path}?include_contacts=1"),
+            &Value::Null,
+        ),
+        PORT,
+    ));
+    assert_eq!(revealed["contacts"][0]["name"], "合成担当者");
+    assert_eq!(revealed["contacts"][0]["phone"], "03-1234");
+    for query in [
+        "include_contacts=true",
+        "include_contacts=1&include_contacts=1",
+        "include_private=0",
+        "other=1",
+    ] {
+        assert_eq!(
+            dispatch(
+                &mut engine,
+                &input("GET", &format!("{detail_path}?{query}"), &Value::Null),
+                PORT
+            )
+            .status,
+            400
+        );
+    }
+    let changed = json!({"name":"合成更新担当者","phone":null,"email":"new@example.test"});
+    assert_eq!(
+        dispatch(
+            &mut engine,
+            &input(
+                "POST",
+                &format!("/api/companies/{}/contacts/{contact}", second.0),
+                &changed
+            ),
+            PORT
+        )
+        .status,
+        404
+    );
+    assert_eq!(
+        dispatch(
+            &mut engine,
+            &input("POST", &format!("{path}/{contact}"), &changed),
+            PORT
+        )
+        .status,
+        200
+    );
+    let activity = format!("/api/companies/{}/activities", id.0);
+    assert_eq!(
+        dispatch(
+            &mut engine,
+            &input(
+                "POST",
+                &activity,
+                &json!({"note":"合成メール記録","kind":3,"contact_id":contact,"at":100})
+            ),
+            PORT
+        )
+        .status,
+        200
+    );
+    assert_eq!(
+        dispatch(
+            &mut engine,
+            &input(
+                "POST",
+                &format!("/api/companies/{}/contacts/{contact}/erase", second.0),
+                &json!({"wipe_notes":true})
+            ),
+            PORT
+        )
+        .status,
+        404
+    );
+    assert_eq!(
+        dispatch(
+            &mut engine,
+            &input(
+                "POST",
+                &format!("{path}/{contact}/erase"),
+                &json!({"wipe_notes":true})
+            ),
+            PORT
+        )
+        .status,
+        200
+    );
+    assert_eq!(
+        dispatch(
+            &mut engine,
+            &input("POST", &format!("{path}/{contact}"), &changed),
+            PORT
+        )
+        .status,
+        404
+    );
+    assert_eq!(
+        dispatch(
+            &mut engine,
+            &input(
+                "POST",
+                &activity,
+                &json!({"note":"must not attach","kind":1,"contact_id":contact})
+            ),
+            PORT
+        )
+        .status,
+        400
+    );
+    drop(engine);
+    let mut engine = open_demo(&dir.path().join("demo.db")).unwrap();
+    let detail = json_reply(&dispatch(
+        &mut engine,
+        &input(
+            "GET",
+            &format!("{detail_path}?include_contacts=1"),
+            &Value::Null,
+        ),
+        PORT,
+    ));
+    assert_eq!(detail["contacts"], json!([]));
+    assert_eq!(detail["activities"][0]["note"], Value::Null);
+    let mut personal = company("合成個人事業");
+    personal.is_sole_proprietor = true;
+    let person = engine.register_company(&personal).unwrap();
+    assert_eq!(
+        json_reply(&dispatch(
+            &mut engine,
+            &input("GET", &format!("/api/companies/{}", person.0), &Value::Null),
+            PORT
+        ))["company"]["name"],
+        Value::Null
+    );
+    assert_eq!(
+        json_reply(&dispatch(
+            &mut engine,
+            &input(
+                "GET",
+                &format!("/api/companies/{}?include_private=1", person.0),
+                &Value::Null
+            ),
+            PORT
+        ))["company"]["name"],
+        "合成個人事業"
+    );
+    engine.erase_company(person).unwrap();
+    assert_eq!(
+        dispatch(
+            &mut engine,
+            &input(
+                "POST",
+                &format!("/api/companies/{}/contacts", person.0),
+                &changed
+            ),
+            PORT
+        )
+        .status,
+        404
+    );
+}
+
+#[test]
+fn activity_kinds_and_appended_cancellation_preserve_history_and_folds() {
+    let (_dir, mut engine, id) = fixture();
+    let path = format!("/api/companies/{}/activities", id.0);
+    for (kind, at) in [(2, 100), (3, 200), (4, 300)] {
+        assert_eq!(
+            dispatch(
+                &mut engine,
+                &input(
+                    "POST",
+                    &path,
+                    &json!({"note":"合成活動","kind":kind,"at":at,"status":2,"next_action_at":999})
+                ),
+                PORT
+            )
+            .status,
+            200
+        );
+    }
+    let before = engine.company_detail(id, &vec![]).unwrap();
+    assert_eq!(before.activities.len(), 3);
+    assert_eq!(before.company.last_activity_at, 300);
+    for body in [
+        json!({"kind":9,"note":"bad"}),
+        json!({"kind":5,"note":"bad"}),
+        json!({"kind":2,"note":"bad","at":-1}),
+        json!({"kind":2,"note":"bad","at":253_402_300_800_i64}),
+        json!({"kind":1,"note":"bad","contact_id":999}),
+        json!({"kind":1,"note":" "}),
+    ] {
+        assert_eq!(
+            dispatch(&mut engine, &input("POST", &path, &body), PORT).status,
+            400
+        );
+    }
+    let target = before.activities[0].id.0;
+    let cancel = format!("{path}/{target}/cancel");
+    assert_eq!(
+        dispatch(&mut engine, &input("POST", &cancel, &json!({})), PORT).status,
+        200
+    );
+    assert_eq!(
+        dispatch(&mut engine, &input("POST", &cancel, &json!({})), PORT).status,
+        400
+    );
+    let after = engine.company_detail(id, &vec![]).unwrap();
+    assert_eq!(after.activities.len(), 4);
+    assert_eq!(after.company.last_activity_at, 200);
+    assert_eq!(after.company.status, Status::Negotiating);
+    assert!(
+        after
+            .activities
+            .iter()
+            .any(|activity| activity.reverses == Some(meibo_core::types::ActivityId(target)))
+    );
+    let verified = engine.verify().unwrap();
+    assert!(verified.integrity_ok && verified.counts_match && verified.folds_match);
+}
+
+#[test]
+fn crm_routes_persist_independent_records_and_validate_changes() {
+    let (_dir, mut engine, id) = fixture();
+    let task = json!({"company_id":id.0,"kind":"task","subject":"合成ToDo","due_at":2_000_000_000});
+    let created = dispatch(&mut engine, &input("POST", "/api/work-items", &task), PORT);
+    assert_eq!(created.status, 201);
+    let task_id = json_reply(&created)["id"].as_i64().unwrap();
+    let complete = input(
+        "POST",
+        &format!("/api/work-items/{task_id}/completion"),
+        &json!({"completed":true}),
+    );
+    assert_eq!(dispatch(&mut engine, &complete, PORT).status, 200);
+    let done = dispatch(
+        &mut engine,
+        &input(
+            "GET",
+            "/api/work-items?kind=task&completed=true",
+            &json!(null),
+        ),
+        PORT,
+    );
+    assert_eq!(json_reply(&done)["items"][0]["subject"], "合成ToDo");
+    let deal = json!({"company_id":id.0,"name":"合成商談","amount_jpy":123_456,"stage":2,"close_date":"2026-12-01"});
+    let created = dispatch(
+        &mut engine,
+        &input("POST", "/api/opportunities", &deal),
+        PORT,
+    );
+    assert_eq!(created.status, 201);
+    let deal_id = json_reply(&created)["id"].as_i64().unwrap();
+    let path = format!("/api/opportunities/{deal_id}/stage");
+    assert_eq!(
+        dispatch(
+            &mut engine,
+            &input("POST", &path, &json!({"stage":6})),
+            PORT
+        )
+        .status,
+        400
+    );
+    assert_eq!(
+        dispatch(
+            &mut engine,
+            &input("POST", &path, &json!({"stage":4})),
+            PORT
+        )
+        .status,
+        200
+    );
+    let deals = dispatch(
+        &mut engine,
+        &input("GET", "/api/opportunities", &json!(null)),
+        PORT,
+    );
+    assert_eq!(json_reply(&deals)["items"][0]["stage"], 4);
+    assert_eq!(
+        engine.company_detail(id, &vec![]).unwrap().company.status,
+        Status::Untouched
+    );
+}
+
+#[test]
+fn csv_route_requires_same_origin_and_keeps_json_limits_separate() {
+    let (_dir, mut engine, _) = fixture();
+    let mut csv = input(
+        "POST",
+        "/api/import?encoding=utf8&duplicate=error",
+        &json!(null),
+    );
+    csv.body = b"origin,name,prefecture\nsynthetic,Added,13\n".to_vec();
+    assert_eq!(dispatch(&mut engine, &csv, PORT).status, 415);
+    csv.headers
+        .iter_mut()
+        .find(|(key, _)| key == "Content-Type")
+        .unwrap()
+        .1 = "text/csv".into();
+    let mut foreign = Input {
+        headers: csv.headers.clone(),
+        body: csv.body.clone(),
+        ..input("POST", &csv.target, &json!(null))
+    };
+    foreign
+        .headers
+        .iter_mut()
+        .find(|(key, _)| key == "Origin")
+        .unwrap()
+        .1 = "https://example.com".into();
+    assert_eq!(dispatch(&mut engine, &foreign, PORT).status, 403);
+    assert_eq!(dispatch(&mut engine, &csv, PORT).status, 200);
+    csv.body = vec![b'x'; import_ui::MAX_IMPORT_BODY + 1];
+    assert_eq!(dispatch(&mut engine, &csv, PORT).status, 413);
+    for sort in ["default", "next_action", "last_activity"] {
+        let target = format!("/api/companies?sort={sort}");
+        assert_eq!(
+            dispatch(&mut engine, &input("GET", &target, &json!(null)), PORT).status,
+            200
+        );
+    }
+    for target in [
+        "/api/companies?sort=unknown",
+        "/api/companies?q=x&sort=last_activity",
+    ] {
+        assert_eq!(
+            dispatch(&mut engine, &input("GET", target, &json!(null)), PORT).status,
+            400
+        );
+    }
+}

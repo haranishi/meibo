@@ -417,3 +417,12 @@ button.status-chart-label:hover { text-decoration: underline; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
 }
+
+.contact-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; padding:14px 16px; background:#f8faff; border-bottom:1px solid #d5dfe9; }
+.contact-heading .card-heading { margin:0; padding:0; border:0; background:transparent; color:#3f5975; font-size:14px; font-weight:600; line-height:1.5; }
+#activity-kind, #activity-contact, #activity-at { margin-bottom:12px; }
+.contact-actions { display:flex; gap:16px; margin-top:6px; }
+.danger-text { color:#a31b2a; }
+.timeline-cancelled { display:inline-block; color:#53657c; font-size:12px; margin-top:6px; }
+.erase-notes-option { display:flex; align-items:center; gap:8px; line-height:1.6; }
+.erase-notes-option input { width:auto; min-height:20px; }

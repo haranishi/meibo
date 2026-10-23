@@ -1,7 +1,37 @@
 {
   "feature_name": "crm-essentials",
   "language": "ja",
-  "phase": "implementation",
-  "approvals": {"requirements": {"generated": true, "approved": true}, "design": {"generated": true, "approved": true}, "tasks": {"generated": true, "approved": true}},
-  "execution_authorization": {"basis": "2026-10-23 user request: compare and extend CRM, then grow original company dataset; commit/push/PR/merge", "git_commit_push": true, "pull_request_merge": true, "public_release": false, "real_data_connection_to_crm": false}
+  "phase": "crm-verified-ready-for-local-reflection",
+  "approvals": {
+    "requirements": {
+      "generated": true,
+      "approved": true
+    },
+    "design": {
+      "generated": true,
+      "approved": true
+    },
+    "tasks": {
+      "generated": true,
+      "approved": true
+    }
+  },
+  "execution_authorization": {
+    "basis": "2026-10-23 user request: compare and extend CRM, then grow original company dataset; commit/push/PR/merge",
+    "git_commit_push": true,
+    "pull_request_merge": true,
+    "public_release": false,
+    "real_data_connection_to_crm": false
+  },
+  "verification": {
+    "rust_tests_passed": 240,
+    "ignored_existing_benchmarks": 3,
+    "check_all": "passed",
+    "advisories": "passed",
+    "msrv": "1.88",
+    "browser": "passed",
+    "ui_score": 17,
+    "experience_score": 17,
+    "hosted_ci": "not_started_account_billing_or_spending_limit"
+  }
 }

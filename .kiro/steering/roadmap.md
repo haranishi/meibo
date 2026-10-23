@@ -34,11 +34,11 @@
 - [ ] custom-fields -- 利用者が項目を足し、必要な項目だけ速さを宣言（索引を作成）できる。list-engine は固定の項目だけを持つ。Dependencies: list-engine
 - [x] csv-import-export -- CSV（UTF-8・Shift_JIS）の取込と書出、法人番号での重複検出、巨大ファイルの逐次処理、ローカルCLI。Dependencies: list-engine
 - [ ] call-mode -- 活動の記録と次回対応、キーボードだけで進める架電モード。Dependencies: list-engine
-- [ ] web-ui -- 初回の一覧・詳細・架電記録・CSV書出画面とローカル起動は完了（2026-10-23）。専用架電モードとCSV取込画面は後続。Dependencies: list-engine, call-mode, csv-import-export
+- [ ] web-ui -- 初回の一覧・詳細・架電記録・CSV書出画面とローカル起動は完了（2026-10-23）。取引先/担当者編集、活動種別/取消、独立ToDo/予定/商談、画面CSV取込、保存ビューは実装済み。専用架電モードは後続。Dependencies: list-engine, call-mode, csv-import-export
 - [ ] api-mcp -- 画面用のloopback APIは追加済み。汎用APIとMCPは後続。Dependencies: list-engine
 - [ ] public-data-importers -- 国税庁の法人番号など公的データの取込器。データは同梱しない。Dependencies: csv-import-export
 - [ ] team-access -- 複数の利用者、権限、監査ログ。Dependencies: web-ui, api-mcp
 
 ## 次の一手
 
-list-engine と csv-import-export は完了し、2026-10-23に合成デモのローカル画面を起動した。次は営業の基本操作とUIの不足を仕様化し、小さなPRで実装・検証・マージを進める。外部公開の保留と、合成データだけでの検証は継続する。
+list-engine と csv-import-export は完了し、2026-10-23に合成デモのローカル画面を起動した。営業の基本操作は crm-essentials の仕様に沿って実装・検証し、PRに分けて反映する。次は元の企業DBの日次差分更新を別リポジトリで進める。外部公開の保留と、合成データだけでの検証は継続する。

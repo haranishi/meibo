@@ -7,8 +7,9 @@ use std::{
 use meibo_core::{
     Engine,
     types::{
-        ActivityInput, ActivityKind, Company, CompanyId, CompanyInput, Cursor, DataOrigin,
-        EngineError, Filters, ListQuery, NextAction, Region, SearchOptions, Sort, Status,
+        ActivityId, ActivityInput, ActivityKind, Company, CompanyId, CompanyInput, ContactId,
+        ContactInput, Cursor, DataOrigin, EngineError, Field, Filters, ListQuery, NextAction,
+        Region, SearchOptions, Sort, Status,
     },
 };
 use meibo_import::{ExportOptions, export_csv};
@@ -90,7 +91,9 @@ pub(super) fn companies(engine: &Engine, query: &str) -> Reply {
         || ["status", "prefecture", "has_phone"]
             .iter()
             .any(|key| parameters.contains_key(*key));
-    if !term.is_empty() && filtered {
+    if !term.is_empty()
+        && (filtered || parameters.get("sort").is_some_and(|sort| sort != "default"))
+    {
         return Reply::error(
             400,
             "社名検索はすべての取引先が対象です。ビューと絞り込みを解除してください。",
@@ -151,6 +154,13 @@ fn list_filters(parameters: &HashMap<String, String>) -> Option<(Filters, Sort)>
     } else {
         Sort::ShapeDefault
     };
+    let sort = match parameters.get("sort").map(String::as_str) {
+        None => sort,
+        Some("default") => Sort::ShapeDefault,
+        Some("next_action") => Sort::NextAction,
+        Some("last_activity") => Sort::LastActivityDesc,
+        _ => return None,
+    };
     Some((filters, sort))
 }
 
@@ -173,12 +183,15 @@ fn parse_company(body: &[u8]) -> Option<CompanyInput> {
     if object.keys().any(|key| {
         !matches!(
             key.as_str(),
-            "name" | "prefecture" | "corporate_number" | "phone" | "website"
+            "name" | "prefecture" | "municipality" | "corporate_number" | "phone" | "website"
         )
     }) {
         return None;
     }
     let name = object.get("name")?.as_str()?.trim().to_owned();
+    if name.is_empty() || name.len() > 4000 || name.contains('\0') {
+        return None;
+    }
     let prefecture = u8::try_from(object.get("prefecture")?.as_u64()?)
         .ok()
         .filter(|code| (1..=47).contains(code))?;
@@ -186,6 +199,15 @@ fn parse_company(body: &[u8]) -> Option<CompanyInput> {
         match object.get(field) {
             None | Some(Value::Null) => Some(None),
             Some(Value::String(value)) => {
+                let limit = match field {
+                    "phone" => 100,
+                    "website" => 2000,
+                    "municipality" => 5,
+                    _ => 13,
+                };
+                if value.len() > limit || value.contains('\0') {
+                    return None;
+                }
                 Some((!value.trim().is_empty()).then(|| value.trim().to_owned()))
             }
             _ => None,
@@ -196,7 +218,7 @@ fn parse_company(body: &[u8]) -> Option<CompanyInput> {
         corporate_number: optional("corporate_number")?,
         name,
         prefecture,
-        municipality: None,
+        municipality: optional("municipality")?,
         industry: None,
         phone: optional("phone")?,
         website: optional("website")?,
@@ -208,22 +230,213 @@ fn parse_company(body: &[u8]) -> Option<CompanyInput> {
     })
 }
 
-pub(super) fn detail(engine: &Engine, id: CompanyId) -> Reply {
-    let result = engine.company_detail(id, &vec![]).and_then(|detail| {
-        if detail.company.erased_at.is_some() {
-            return Err(EngineError::NotFound);
+pub(super) fn update_company(engine: &mut Engine, id: CompanyId, body: &[u8]) -> Reply {
+    let Some(mut update) = parse_company(body) else {
+        return Reply::error(400, "取引先の入力内容を確認してください。");
+    };
+    let object: Value = serde_json::from_slice(body).expect("validated JSON");
+    let previous = match engine.company_detail(id, &vec![Field::Name, Field::Phone, Field::Website])
+    {
+        Ok(detail) if detail.company.erased_at.is_none() => detail.company,
+        Ok(_) => return missing(),
+        Err(error) => return engine_error(&error),
+    };
+    update.origin = previous.origin;
+    update.industry = previous.industry;
+    update.owner = previous.owner;
+    update.status = previous.status;
+    update.is_sole_proprietor = previous.is_sole_proprietor;
+    update.source_id = previous.source_id;
+    update.source_as_of = previous.source_as_of;
+    if object.get("corporate_number").is_none() {
+        update.corporate_number = previous.corporate_number;
+    }
+    if object.get("municipality").is_none() {
+        update.municipality = previous.municipality;
+    }
+    if object.get("phone").is_none() {
+        update.phone = previous.phone;
+    }
+    if object.get("website").is_none() {
+        update.website = previous.website;
+    }
+    match engine.update_company(id, &update) {
+        Ok(()) => Reply::json(200, &json!({"id":id.0})),
+        Err(error) => engine_error(&error),
+    }
+}
+
+pub(super) fn detail(engine: &Engine, id: CompanyId, query: &str) -> Reply {
+    let mut fields = vec![];
+    let mut seen = std::collections::HashSet::new();
+    for pair in query.split('&').filter(|pair| !pair.is_empty()) {
+        let Some((key, "1")) = pair.split_once('=') else {
+            return Reply::error(400, "詳細の表示指定を確認してください。");
+        };
+        if !seen.insert(key) {
+            return Reply::error(400, "詳細の表示指定を確認してください。");
         }
+        match key {
+            "include_contacts" => {
+                fields.extend([Field::ContactName, Field::ContactPhone, Field::ContactEmail]);
+            }
+            "include_private" => fields.extend([Field::Name, Field::Phone, Field::Website]),
+            _ => return Reply::error(400, "詳細の表示指定を確認してください。"),
+        }
+    }
+    let result = engine.company_detail(id, &fields).and_then(|detail| {
+        if detail.company.erased_at.is_some() { return Err(EngineError::NotFound); }
         let contacts = detail.contacts.iter().filter(|contact| contact.erased_at.is_none()).map(|contact|json!({
             "id":contact.id.0,"name":contact.name,"phone":contact.phone,"email":contact.email,
         })).collect::<Vec<_>>();
         let activities = detail.activities.iter().map(|activity|json!({
-            "id":activity.id.0,"kind":activity.kind.code(),"at":activity.at,
+            "id":activity.id.0,"kind":activity.kind.code(),"at":activity.at,"contact_id":activity.contact.map(|id|id.0),
             "note":if activity.note_erased_at.is_none() {activity.note.as_deref()} else {None},
-            "status_after":activity.status_after.map(Status::code),
+            "status_after":activity.status_after.map(Status::code),"reverses_id":activity.reverses.map(|id|id.0),
         })).collect::<Vec<_>>();
-        Ok(json!({"company":company_json(&detail.company),"contacts":contacts,"activities":activities}))
+        Ok(json!({"company":company_json(&detail.company),"contacts":contacts,"activities":activities,"contacts_revealed":fields.contains(&Field::ContactName)}))
     });
     respond(result)
+}
+
+fn active_company(
+    engine: &Engine,
+    id: CompanyId,
+) -> Result<meibo_core::types::Detail, EngineError> {
+    let detail = engine.company_detail(id, &vec![])?;
+    if detail.company.erased_at.is_some() {
+        return Err(EngineError::NotFound);
+    }
+    Ok(detail)
+}
+
+pub(super) fn contact(
+    engine: &mut Engine,
+    company: CompanyId,
+    id: Option<ContactId>,
+    body: &[u8],
+) -> Reply {
+    let parsed = (|| {
+        let value: Value = serde_json::from_slice(body).ok()?;
+        let object = value.as_object()?;
+        if object
+            .keys()
+            .any(|key| !matches!(key.as_str(), "name" | "phone" | "email"))
+        {
+            return None;
+        }
+        let name = object.get("name")?.as_str()?.trim().to_owned();
+        if name.is_empty() || name.len() > 1000 || name.contains('\0') {
+            return None;
+        }
+        let optional = |field: &str, limit: usize| -> Option<Option<String>> {
+            match object.get(field) {
+                None | Some(Value::Null) => Some(None),
+                Some(Value::String(value)) if value.len() <= limit && !value.contains('\0') => {
+                    Some((!value.trim().is_empty()).then(|| value.trim().to_owned()))
+                }
+                _ => None,
+            }
+        };
+        Some(ContactInput {
+            company,
+            name,
+            phone: optional("phone", 100)?,
+            email: optional("email", 320)?,
+        })
+    })();
+    let Some(parsed) = parsed else {
+        return Reply::error(400, "担当者の氏名と連絡先を確認してください。");
+    };
+    let detail = match active_company(engine, company) {
+        Ok(detail) => detail,
+        Err(error) => return engine_error(&error),
+    };
+    if let Some(id) = id {
+        if !detail
+            .contacts
+            .iter()
+            .any(|contact| contact.id == id && contact.erased_at.is_none())
+        {
+            return missing();
+        }
+        match engine.update_contact(id, &parsed) {
+            Ok(()) => Reply::json(200, &json!({"id":id.0})),
+            Err(error) => engine_error(&error),
+        }
+    } else {
+        match engine.add_contact(&parsed) {
+            Ok(id) => Reply::json(201, &json!({"id":id.0})),
+            Err(error) => engine_error(&error),
+        }
+    }
+}
+
+pub(super) fn erase_contact(
+    engine: &mut Engine,
+    company: CompanyId,
+    id: ContactId,
+    body: &[u8],
+) -> Reply {
+    let value: Value = match serde_json::from_slice(body) {
+        Ok(value) => value,
+        Err(_) => return Reply::error(400, "消去の指定を確認してください。"),
+    };
+    let Some(object) = value.as_object() else {
+        return Reply::error(400, "消去の指定を確認してください。");
+    };
+    if object.len() != 1 || !object.get("wipe_notes").is_some_and(Value::is_boolean) {
+        return Reply::error(400, "消去の指定を確認してください。");
+    }
+    let detail = match active_company(engine, company) {
+        Ok(detail) => detail,
+        Err(error) => return engine_error(&error),
+    };
+    if !detail
+        .contacts
+        .iter()
+        .any(|contact| contact.id == id && contact.erased_at.is_none())
+    {
+        return missing();
+    }
+    match engine.erase_contact(id, object["wipe_notes"].as_bool().expect("checked bool")) {
+        Ok(()) => Reply::json(200, &json!({"ok":true})),
+        Err(error) => engine_error(&error),
+    }
+}
+
+pub(super) fn cancel_activity(
+    engine: &mut Engine,
+    company: CompanyId,
+    id: ActivityId,
+    body: &[u8],
+) -> Reply {
+    let value: Value = match serde_json::from_slice(body) {
+        Ok(value) => value,
+        Err(_) => return Reply::error(400, "取消の指定を確認してください。"),
+    };
+    if !value.as_object().is_some_and(serde_json::Map::is_empty) {
+        return Reply::error(400, "取消の指定を確認してください。");
+    }
+    if let Err(error) = active_company(engine, company) {
+        return engine_error(&error);
+    }
+    let Some(at) = current_time() else {
+        return Reply::error(500, "現在日時を確認できません。");
+    };
+    match engine.record_activity(&ActivityInput {
+        company,
+        contact: None,
+        kind: ActivityKind::Cancel,
+        at,
+        note: None,
+        status_after: None,
+        next_action: NextAction::Keep,
+        reverses: Some(id),
+    }) {
+        Ok(_) => Reply::json(200, &json!({"ok":true})),
+        Err(error) => engine_error(&error),
+    }
 }
 
 pub(super) fn activity(engine: &mut Engine, id: CompanyId, body: &[u8]) -> Reply {
@@ -236,6 +449,17 @@ pub(super) fn activity(engine: &mut Engine, id: CompanyId, body: &[u8]) -> Reply
         Err(error) => return engine_error(&error),
         _ => {}
     }
+    if let Some(contact) = input.contact {
+        match active_company(engine, id) {
+            Ok(detail)
+                if detail
+                    .contacts
+                    .iter()
+                    .any(|value| value.id == contact && value.erased_at.is_none()) => {}
+            Ok(_) => return Reply::error(400, "この取引先の未消去の担当者を選択してください。"),
+            Err(error) => return engine_error(&error),
+        }
+    }
     match engine.record_activity(&input) {
         Ok(_) => Reply::json(200, &json!({"ok":true})),
         Err(error) => engine_error(&error),
@@ -245,14 +469,16 @@ pub(super) fn activity(engine: &mut Engine, id: CompanyId, body: &[u8]) -> Reply
 fn parse_activity(id: CompanyId, body: &[u8]) -> Option<ActivityInput> {
     let value: Value = serde_json::from_slice(body).ok()?;
     let object = value.as_object()?;
-    if object
-        .keys()
-        .any(|key| !matches!(key.as_str(), "note" | "status" | "next_action_at"))
-    {
+    if object.keys().any(|key| {
+        !matches!(
+            key.as_str(),
+            "note" | "status" | "next_action_at" | "kind" | "contact_id" | "at"
+        )
+    }) {
         return None;
     }
     let note = object.get("note")?.as_str()?.to_owned();
-    if note.contains('\0') {
+    if note.contains('\0') || note.trim().is_empty() || note.chars().count() > 10000 {
         return None;
     }
     let status_after = object
@@ -269,11 +495,34 @@ fn parse_activity(id: CompanyId, body: &[u8]) -> Option<ActivityInput> {
         Some(Value::Null) => NextAction::Clear,
         Some(value) => NextAction::Set(value.as_i64()?),
     };
-    let at = current_time()?;
+    let at = match object.get("at") {
+        None => current_time()?,
+        Some(value) => value
+            .as_i64()
+            .filter(|value| (0..=253_402_300_799).contains(value))?,
+    };
+    let kind = match object.get("kind") {
+        None => ActivityKind::Call,
+        Some(value) => {
+            ActivityKind::from_code(u8::try_from(value.as_u64()?).ok()?).filter(|kind| {
+                matches!(
+                    kind,
+                    ActivityKind::Call
+                        | ActivityKind::Visit
+                        | ActivityKind::Email
+                        | ActivityKind::Memo
+                )
+            })?
+        }
+    };
+    let contact = match object.get("contact_id") {
+        None | Some(Value::Null) => None,
+        Some(value) => Some(ContactId(value.as_i64().filter(|id| *id > 0)?)),
+    };
     Some(ActivityInput {
         company: id,
-        contact: None,
-        kind: ActivityKind::Call,
+        contact,
+        kind,
         at,
         note: Some(note),
         status_after,
@@ -385,7 +634,7 @@ fn query_parameters(query: &str) -> Option<HashMap<String, String>> {
         let value = decode_component(value)?;
         if !matches!(
             key.as_str(),
-            "q" | "after" | "limit" | "view" | "status" | "prefecture" | "has_phone"
+            "q" | "after" | "limit" | "view" | "status" | "prefecture" | "has_phone" | "sort"
         ) || value.len() > 4096
             || value.contains('\0')
         {
