@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  quality:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      RUSTUP_TOOLCHAIN: 1.99.0
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install development toolchain
+        run: rustup toolchain install 1.99.0 --profile minimal --component rustfmt --component clippy
+      - name: Install dependency policy checker
+        run: cargo install cargo-deny --version 0.20.2 --locked
+      - name: Fetch locked dependencies
+        run: cargo fetch --locked
+      - name: Check formatting, lints, tests, links, specification trace, and benchmark docs
+        run: cargo xtask check-all
+      - name: Require license, dependency, and source policies
+        run: cargo deny check licenses bans sources
+
+  msrv:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      RUSTUP_TOOLCHAIN: 1.88.0
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install minimum supported Rust
+        run: rustup toolchain install 1.88.0 --profile minimal
+      - name: Check all workspace targets on MSRV
+        run: cargo check --workspace --all-targets --locked
+
+  advisories:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      RUSTUP_TOOLCHAIN: 1.99.0
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install development toolchain
+        run: rustup toolchain install 1.99.0 --profile minimal
+      - name: Install advisory checker
+        run: cargo install cargo-deny --version 0.20.2 --locked
+      - name: Check dependency advisories using the online database
+        run: cargo deny check advisories

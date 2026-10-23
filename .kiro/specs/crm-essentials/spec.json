@@ -1,0 +1,7 @@
+{
+  "feature_name": "crm-essentials",
+  "language": "ja",
+  "phase": "implementation",
+  "approvals": {"requirements": {"generated": true, "approved": true}, "design": {"generated": true, "approved": true}, "tasks": {"generated": true, "approved": true}},
+  "execution_authorization": {"basis": "2026-10-23 user request: compare and extend CRM, then grow original company dataset; commit/push/PR/merge", "git_commit_push": true, "pull_request_merge": true, "public_release": false, "real_data_connection_to_crm": false}
+}

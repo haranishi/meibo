@@ -1,0 +1,19 @@
+version = 1
+SPDX-PackageName = "meibo"
+
+[[annotations]]
+path = "**"
+SPDX-FileCopyrightText = "2026 Ikki Nishihara and the meibo contributors"
+SPDX-License-Identifier = "MIT OR Apache-2.0"
+
+[[annotations]]
+path = ["*.md", "docs/**", ".kiro/**", ".agent-harness/**", "crates/**/*.md"]
+precedence = "override"
+SPDX-FileCopyrightText = "2026 Ikki Nishihara and the meibo contributors"
+SPDX-License-Identifier = "CC-BY-4.0"
+
+[[annotations]]
+path = [".gitignore", ".gitattributes", "**/Cargo.toml", "Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "deny.toml", "REUSE.toml"]
+precedence = "override"
+SPDX-FileCopyrightText = "2026 Ikki Nishihara and the meibo contributors"
+SPDX-License-Identifier = "CC0-1.0"

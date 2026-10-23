@@ -1,0 +1,46 @@
+{
+  "feature_name": "csv-import-export",
+  "created_at": "2026-10-23T05:33:59.124305+00:00",
+  "updated_at": "2026-10-23T07:12:12.412475+00:00",
+  "language": "ja",
+  "phase": "completed",
+  "approvals": {
+    "requirements": {
+      "generated": true,
+      "approved": true,
+      "approval_basis": "2026-10-23 user continuation request and existing roadmap; autonomous within local development scope"
+    },
+    "design": {
+      "generated": true,
+      "approved": true
+    },
+    "tasks": {
+      "generated": true,
+      "approved": true
+    }
+  },
+  "ready_for_implementation": true,
+  "execution_authorization": {
+    "publication": false,
+    "git_commit_push": true,
+    "real_data_connection": false,
+    "basis": "2026-10-23 explicit user instruction to commit, push, create PRs, and merge in a private repository",
+    "git_pr_merge": true,
+    "repository_visibility": "private"
+  },
+  "sanity_review": {
+    "result": "PASS",
+    "reviewer": "independent read-only subagent",
+    "scope": "requirements/design/tasks"
+  },
+  "verification": {
+    "workspace_tests_passed": 207,
+    "ignored_legacy_large_benchmarks": 3,
+    "requirements": 68,
+    "missing_test_references": 0,
+    "msrv": "1.88",
+    "check_all": "passed",
+    "independent_review_unresolved": 0,
+    "record": ".agent-harness/runs/2026-10-23-csv-import-export/result.md"
+  }
+}

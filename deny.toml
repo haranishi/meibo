@@ -1,0 +1,53 @@
+# 依存ライブラリのライセンスと脆弱性を検査する設定（cargo-deny）。
+# コードに入れてよい依存は、
+# 下の許可リストにあるライセンスのものだけ。
+
+[graph]
+all-features = true
+
+[licenses]
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Zlib",
+    "CC0-1.0",
+]
+confidence-threshold = 0.93
+# 許可リストのうち、今は使われていないライセンスについて警告を出さない。
+unused-allowed-license = "allow"
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+# 外へ通信しない（要件7.4）。通信の部品が依存の木に入ったら、機械で止める。
+deny = [
+    { name = "reqwest" },
+    { name = "hyper" },
+    { name = "h2" },
+    { name = "ureq" },
+    { name = "isahc" },
+    { name = "surf" },
+    { name = "attohttpc" },
+    { name = "curl" },
+    { name = "curl-sys" },
+    { name = "tokio" },
+    { name = "async-std" },
+    { name = "mio" },
+    { name = "socket2" },
+    { name = "native-tls" },
+    { name = "openssl" },
+    { name = "openssl-sys" },
+    { name = "rustls" },
+]
+
+[advisories]
+yanked = "deny"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
