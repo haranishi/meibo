@@ -7,7 +7,10 @@ const ERASE_COMPANY: &str = "UPDATE companies SET name=?3,name_key=?4,corporate_
 use crate::{
     normalize,
     schema::{Db, WRITE_BASE, counts, ensure_space, fts, with_erase_gate},
-    types::{ActivityInput, ActivityKind, CompanyId, ContactId, EngineError, NextAction, Status},
+    types::{
+        ActivityInput, ActivityKind, CompanyId, ContactId, DataOrigin, EngineError, NextAction,
+        Status,
+    },
     write::{now_secs, record_activity_tx},
 };
 use rusqlite::OptionalExtension;
@@ -59,6 +62,35 @@ fn company_count(db: &Db, sql: &str, company: i64) -> Result<u64, EngineError> {
     u64::try_from(count).map_err(|_| EngineError::Corrupt)
 }
 
+// CRM消去triggerが更新する行と旧テキスト、索引/WALを保守的に見込む。
+fn crm_erase_estimate(db: &Db, key: &str, id: i64) -> Result<u64, EngineError> {
+    if db.origin() != DataOrigin::Synthetic {
+        return Ok(0);
+    }
+    let mut rows = 0_u64;
+    let mut bytes = 0_u64;
+    for (table, text) in [("crm_work_items", "subject"), ("crm_opportunities", "name")] {
+        let (count, length): (i64, i64) = db
+            .conn()
+            .query_row(
+                &format!(
+                    "SELECT count(*),coalesce(sum(length(CAST({text} AS BLOB))),0) FROM {table} WHERE {key}=?1"
+                ),
+                [id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .map_err(storage)?;
+        rows = rows.saturating_add(u64::try_from(count).map_err(|_| EngineError::Corrupt)?);
+        bytes = bytes.saturating_add(u64::try_from(length).map_err(|_| EngineError::Corrupt)?);
+    }
+    if rows == 0 {
+        return Ok(0);
+    }
+    Ok(page_size(db)?
+        .saturating_mul(rows.saturating_mul(8).saturating_add(16))
+        .saturating_add(bytes.saturating_mul(8)))
+}
+
 pub(crate) fn erase_contact(
     db: &mut Db,
     id: ContactId,
@@ -77,7 +109,8 @@ pub(crate) fn erase_contact(
             erase_contact_estimate(page_size(db)?, company_count(db, ACTIVITY_COUNT, company)?)
         }
         None => WRITE_BASE,
-    };
+    }
+    .saturating_add(crm_erase_estimate(db, "contact_id", id.0)?);
     db.write(estimate, |tx| {
         let erased: Option<i64> = tx
             .query_row(CONTACT_ERASED_AT, [id.0], |r| r.get(0))
@@ -117,7 +150,8 @@ pub(crate) fn erase_company(db: &mut Db, id: CompanyId) -> Result<(), EngineErro
             &key,
         ),
         None => WRITE_BASE,
-    };
+    }
+    .saturating_add(crm_erase_estimate(db, "company_id", id.0)?);
     db.write(estimate, |tx| {
         let (sole, erased, key, phone): (bool, Option<i64>, String, bool) = tx
             .query_row(COMPANY_ERASURE_STATE, [id.0], |r| {

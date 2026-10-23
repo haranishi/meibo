@@ -18,7 +18,7 @@ use crate::{
 
 /// 1つの保存先に対する操作。書き込みは可変借用で直列化する。
 pub struct Engine {
-    db: Db,
+    pub(crate) db: Db,
 }
 
 /// 合成データの追加結果。
@@ -104,6 +104,12 @@ impl Engine {
     /// `EmptyName`（空の氏名）、`NotFound`（企業不在・消去済み）、`Corrupt`、`Storage`。
     pub fn add_contact(&mut self, c: &ContactInput) -> Result<ContactId, EngineError> {
         write::add_contact(&mut self.db, c)
+    }
+    /// 所属企業を固定したまま、未消去の担当者の氏名と連絡先を更新する。
+    /// # Errors
+    /// `EmptyName`、`InvalidInput`、`NotFound`、`ForeignContact`、`InsufficientSpace`、`Storage`。
+    pub fn update_contact(&mut self, id: ContactId, c: &ContactInput) -> Result<(), EngineError> {
+        write::update_contact(&mut self.db, id, c)
     }
     /// 活動を追記し、企業の状態・最終活動日・次回対応日を同じ確定で更新する。
     /// # Errors

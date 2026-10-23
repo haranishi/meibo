@@ -1,5 +1,6 @@
 //! 営業リストの型と保存・検索の土台。
 mod bulk;
+pub mod crm;
 pub mod engine;
 mod erase;
 pub mod houjin;

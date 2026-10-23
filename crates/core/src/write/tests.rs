@@ -1509,3 +1509,82 @@ fn bulk_estimates_scale_with_database_average_and_keep_measured_floors() {
     assert!(lists::delete_list_estimate(100_000) >= 100_000 * 16);
     assert_eq!(bulk_update_estimate(u64::MAX, u64::MAX), u64::MAX);
 }
+
+#[test]
+fn contact_update_preserves_membership_and_never_revives_erased_information() {
+    let (_dir, mut db) = database();
+    let first = register_company(&mut db, &company()).unwrap();
+    let second = register_company(&mut db, &company()).unwrap();
+    let mut input = ContactInput {
+        company: first,
+        name: "合成担当者".into(),
+        phone: Some("０３-１２３４".into()),
+        email: Some(" before@example.test ".into()),
+    };
+    let id = add_contact(&mut db, &input).unwrap();
+    let created: i64 = db
+        .conn()
+        .query_row("SELECT created_at FROM contacts WHERE id=?1", [id.0], |r| {
+            r.get(0)
+        })
+        .unwrap();
+    input.name = " 合成更新担当者 ".into();
+    input.phone = Some("０６-５６７８".into());
+    input.email = None;
+    update_contact(&mut db, id, &input).unwrap();
+    let saved: (i64, String, Option<String>, Option<String>, i64) = db
+        .conn()
+        .query_row(
+            "SELECT company_id,name,phone,email,created_at FROM contacts WHERE id=?1",
+            [id.0],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+        )
+        .unwrap();
+    assert_eq!(
+        saved,
+        (
+            first.0,
+            "合成更新担当者".into(),
+            Some("06-5678".into()),
+            None,
+            created
+        )
+    );
+    input.company = second;
+    assert!(matches!(
+        update_contact(&mut db, id, &input),
+        Err(EngineError::ForeignContact)
+    ));
+    input.company = first;
+    input.name = " ".into();
+    assert!(matches!(
+        update_contact(&mut db, id, &input),
+        Err(EngineError::EmptyName)
+    ));
+    input.name = "合成担当者".into();
+    input.email = Some("bad\0@example.test".into());
+    assert!(matches!(
+        update_contact(&mut db, id, &input),
+        Err(EngineError::InvalidInput { .. })
+    ));
+    input.email = None;
+    crate::erase::erase_contact(&mut db, id, false).unwrap();
+    assert!(matches!(
+        update_contact(&mut db, id, &input),
+        Err(EngineError::NotFound)
+    ));
+    let erased: (Option<String>, Option<String>, Option<String>, Option<i64>) = db
+        .conn()
+        .query_row(
+            "SELECT name,phone,email,erased_at FROM contacts WHERE id=?1",
+            [id.0],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+        )
+        .unwrap();
+    assert_eq!((erased.0, erased.1, erased.2), (None, None, None));
+    assert!(erased.3.is_some());
+    assert!(matches!(
+        update_contact(&mut db, ContactId(999), &input),
+        Err(EngineError::NotFound)
+    ));
+}
