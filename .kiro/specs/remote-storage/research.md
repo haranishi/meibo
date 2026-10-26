@@ -41,3 +41,9 @@ Connection/Statement/Row/Transactionの既存使用範囲をadapterへ置く。�
 既存no_network試験はCargo.lockの全packageを走査していた。optionalな公開版依存を足すだけでも失敗するため、通常app/coreのnormal/build graphをdefault features有効のまま調べる形へ修正する。禁止一覧・deny.toml検査を変えず、foundationの全workspace回帰で確認する。cloud用監査policyの追加は4.4が担当する。
 
 ネットワーク遅延のある数百万行のscan/importをローカルの測定値と同一視しない。SDKが全行をbufferする経路はページ化し、未検証の速度を主張しない。Cloudflareの実環境保持と公開ゲートは下流仕様で確認する。
+
+## 初期公開の読取り整合性
+
+- 2026-10-27 JSTの実照会で既存の合成DBはTokyoのprimary1/replica0。CLIのinstance URLへHTTPSのSELECT 1が成功した。これは疎通であり、別streamの更新可視性確認は公開検証で別に行う。
+- [Instances API](https://docs.turso.tech/api-reference/databases/list-instances)と[公式CLI](https://raw.githubusercontent.com/tursodatabase/turso-cli/main/internal/cmd/db_show.go)はinstanceの役割/hostnameと選択URLを提供する。初期対応をprimary固定・replicaなしへ制限し、配置変更時は再検証する。
+- 同一primaryの新しい読取りtransactionで確定済み更新を読むという判断は[SQLiteの分離仕様](https://sqlite.org/isolation.html)に基づく推論であり、任意replicaの一貫性を保証するものではない。現adapterのfresh streamへreplica対応の承認を流用しない。

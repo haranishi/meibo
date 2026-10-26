@@ -31,7 +31,7 @@
 - [ ] 2. 公開ゲートと実環境への統合を行う
 - [ ] 2.1 事前検査と対象を固定した公開操作を用意する
   - 境界部品とcoordinatorを実際のWorker/DO exportへ結合する。remote-storage完了後、cloud featureのLinux/amd64 imageをbuild・inspect・実起動し、Worker bundleと対応付ける。
-  - 明示したアカウントと期待ID、公開URL、Containers契約/権限、Turso保存先/容量、秘密名と提供者の設定上限、amd64 artifactを検査する。
+  - 明示したアカウントと期待ID、公開URL、Containers契約/権限、Turso保存先/容量/単一primaryかつreplicaなしのinstance URL一致、秘密名と提供者の設定上限、amd64 artifactを検査する。control・全tenant・復旧先を照合し、primary一致が未検証のURL/不明な役割/照会失敗を拒否する。
   - 別アカウント・不足した契約・不足した秘密をfixtureで拒否し、変更を始める前に理由を示す。既定先へのfallbackや新規契約を行わない。
   - 秘密は標準入力から登録し、実行物digest/Worker version/公開先と公開操作を対応付ける。private設定や秘密を通常ログへ出さない。
   - ローカルdry-runと検査済みの起動/復旧入口を揃え、条件が満たされれば対象だけへ公開できる実行経路を得る。

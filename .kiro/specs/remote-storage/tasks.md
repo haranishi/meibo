@@ -32,7 +32,7 @@
   - _Requirements: 1.1, 5.4_
 - [ ] 2.2 remoteの初期化と識別を追加する
   - Engine create_remote/open_remoteとmarker/版/DB識別/種別を追加する。実sqldの空DBだけを初期化し、欠落・未来版・不一致・既存内容を拒否し、手元へfallbackしないことを確認する。
-  - _Boundary: core engine, schema/remote, cloud-only Engine exports and explicit real-server integration test setup_
+  - _Boundary: core engine, schema/remote, extension version constant visibility/reuse, cloud-only Engine exports and explicit real-server integration test setup_
   - _Depends: 2.1, 1.5_
   - _Requirements: 1.2, 1.3, 1.4_
 - [ ] 2.3 remoteの更新・snapshot方針へ業務処理を接続する

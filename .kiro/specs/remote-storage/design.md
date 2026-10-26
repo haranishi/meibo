@@ -1,7 +1,7 @@
 # Design: 外部DBを正本にした招待制ベータ
 
 ## Overview
-既存の業務SQLと同期Engine APIを共有し、公開版だけTurso CloudのlibSQL engineへ直接接続する。通常buildはrusqliteを直接使い、保存形式・SQL経路・測定条件を変えない。新しいRust製Turso engineとローカル複製は採らない。
+既存の業務SQLと同期Engine APIを共有し、公開版だけTurso CloudのlibSQL engineへ直接接続する。初期公開は単一primary・replicaなしの検証済みinstance endpointに限り、配置変更は公開ゲートで再検証する。通常buildはrusqliteを直接使い、保存形式・SQL経路・測定条件を変えない。新しいRust製Turso engineとローカル複製は採らない。
 
 ## Boundary Commitments
 - This Spec Owns: optional SQL adapter、coreのremote保存方針、hostedの認証/組織対応/永続排他、remote CLIと論理保存・復旧。
@@ -48,7 +48,7 @@ Rowsは上限内で受信した単一応答の行を反復し、無制限の全�
 
 ### 2. Core policy
 `Engine::{create_remote(endpoint,identity,origin,options),open_remote(endpoint,identity,options)}`をcloud限定で追加する。`RemoteIdentity`はdatabase_idと種別を持ち、HTTP要求から作らない。cloud限定の`Engine::is_poisoned`で上位が処理終端の接続状態を確認できる。通常のcreate/open/migrate/公開APIは変えない。
-createは空の新DBだけを初期化する。`meta`へremote format marker、schema_version、database_id、data_originと既存拡張版を記録する。openは全markerと期待ID/版/種別を照合し、未知・欠落・未来版を拒否する。remoteはapplication_id/user_versionを書かず、手元版は従来PRAGMAを維持する。
+createは空の新DBだけを初期化する。`meta`へremote format marker、schema_version、database_id、data_originと既存拡張版を記録する。openは必須markerと期待ID/版/種別を照合し、不正値・欠落・未来版を拒否する。無関係な追加meta keyはopaqueな値として保ち、設定やSQLに解釈しない。remoteはapplication_id/user_versionを書かず、手元版は従来PRAGMAを維持する。
 remote writeは同じBEGIN IMMEDIATEで業務処理を確定する。fs容量見積り・WAL・checkpointを呼ばず、外部DBの容量/制約エラーを失敗として返す。読み取りsnapshotも同streamで維持する。既存SQLのFTS5 trigram・生成列・trigger・件数更新は共有する。
 論理消去/tombstoneは共有する。手元専用compact/WAL/ファイルbackupはremoteで明示Unsupportedとし、物理消去を保証しない。remote保存/復旧は以下の別入口を使う。全件verify/CSVと保存のscanはbounded keysetへ分け、途中を黙って省略しない。
 

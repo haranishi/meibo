@@ -1,7 +1,7 @@
 {
   "feature_name": "remote-storage",
   "created_at": "2026-10-26T12:00:00Z",
-  "updated_at": "2026-10-26T16:37:16.378853+00:00",
+  "updated_at": "2026-10-26T17:08:04.384733+00:00",
   "language": "ja",
   "phase": "implementing",
   "approvals": {
@@ -48,7 +48,10 @@
     "parallel_snapshot_codec_delta": "APPROVED_independent_2.4_depends_2.1_core_CRM_registry_shared_codec_sequences_only_2.5_depends_2.3_and_2.4_control_registry_owned_app_4.1",
     "snapshot_format_contract_delta": "APPROVED_independent_canonical_v1_rows_exact_typed_values_bounds_explicit_sequence_high_water_no_snapshot_missing_default_no_schema_SQL",
     "task_1_5_readonly_seam": "APPROVED_independent_private_Describe_readonly_metadata_write_OutcomeUnknown_preserve_read_limit_diagnostics",
-    "core_terminal_observability_setup": "PASS_inline_cloud_Engine_is_poisoned_and_explicit_real_server_test_setup_for2.2"
+    "core_terminal_observability_setup": "PASS_inline_cloud_Engine_is_poisoned_and_explicit_real_server_test_setup_for2.2",
+    "primary_profile_delta": "APPROVED_independent_initial_single_primary_no_replica_verified_instance_endpoint_for_HTTP_CLI_backup_restore_topology_change_requires_revalidation_replica_support_not_claimed",
+    "opaque_meta_delta": "PASS_inline_validate_required_markers_and_versions_preserve_unrelated_meta_keys_without_interpreting_as_configuration_or_SQL",
+    "extension_constant_setup_delta": "PASS_inline_existing_extension_version_visibility_and_public_data_constant_reuse_only_no_business_DDL_behavior_change"
   },
   "transport_preflight": {
     "stack": "libsql-hrana =0.10.0 + reqwest =0.13.5 default-features=false json/native-tls-no-alpn + shared Tokio",
