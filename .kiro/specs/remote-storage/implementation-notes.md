@@ -11,3 +11,5 @@
 2.3のfault fixtureはDB側の既存helperを再利用する。必要なTokio・reqwest=0.13.5（defaultなし、既存TLS/json）・libsql-hrana=0.10.0の既存lock内edgeはintegration-testsだけで有効にし、default graphと禁止symbol検査を保つ。
 
 4.1はsource `ee237b2`（統合`a016c02`）を独立レビューで受け入れた。13ファイルのSHA照合、app default/cloud/integration 59/69/105件、strict Clippy、実Rust 1.88両profile、通信禁止guard、リンク、秘密検査を確認した。CLIのproduction OFFによるREDとGREENの記録はあるが、RED時の旧source archiveはなくtool記録で追跡した。復旧・全体process/browser・提供者環境の確認は4.2/4.3と配備仕様に残る。
+
+4.2は11ファイルのSHAと独立した親レビュー、app全構成59/70/112件・strict Clippy/fmt・実Rust 1.88等で受け入れた。ホストのagent thread上限によりkiro-implの明示fallbackを使った。初回の既存CLI通信失敗は原因未確定のまま記録し、単独の全件実行では再現しなかった。Macの一時pathはsymlinkを含むため、厳密な保存先検査の試験には実体のあるSSD TMPDIRを明示する。

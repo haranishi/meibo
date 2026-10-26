@@ -1,7 +1,7 @@
 {
   "feature_name": "remote-storage",
   "created_at": "2026-10-26T12:00:00Z",
-  "updated_at": "2026-10-26T21:14:45.668900+00:00",
+  "updated_at": "2026-10-26T21:33:31.865209+00:00",
   "language": "ja",
   "phase": "implementing",
   "approvals": {
@@ -83,6 +83,7 @@
     "3.2",
     "3.3",
     "4.1",
+    "4.2",
     "4.4"
   ],
   "verification": {
@@ -268,6 +269,24 @@
       "red_evidence": "real production OFF CLI exit101 then GREEN; historical source traced via tool record, no separate old source archive",
       "evidence_run": "2026-10-27-remote-backup/review",
       "restore_and_full_service_verification": "pending4.2_and4.3"
+    },
+    "4.2": {
+      "isolated_source_commit": "4a3779a",
+      "review": "APPROVED_parent_independent_manual_fallback_host_agent_thread_limit",
+      "source_files": 11,
+      "aggregate_sha256": "520058b0d15067a1090166543eee001dc7915565cdd6632e79b000c813097d53",
+      "parent_default_cloud_integration_passed": [
+        59,
+        70,
+        112
+      ],
+      "parent_failed": 0,
+      "strict_clippy_fmt": "passed",
+      "actual_msrv_default_integration_workspace_guards_links_scoped_secrets": "passed evidence checked against frozen source",
+      "red": "preimplementation production OFF realCLI exit101,3fullsourcearchives_and_SHA; thenGREEN/flagremoved",
+      "initial_failures": "author3existingCLI transport failures and parentmissingTMPDIR preserved; isolated complete parent112pass, no production/timeout/retry changes",
+      "evidence_run": "2026-10-27-remote-restore/review",
+      "full_process_browser": "pending4.3"
     }
   }
 }
