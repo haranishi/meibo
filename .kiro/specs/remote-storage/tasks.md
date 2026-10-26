@@ -36,7 +36,7 @@
   - _Boundary: core engine, schema/remote, extension version constant visibility/reuse, cloud-only Engine exports and explicit real-server integration test setup/no_network exact fixture gate_
   - _Depends: 2.1, 1.5_
   - _Requirements: 1.1, 1.2, 1.3, 1.4, 5.4_
-- [ ] 2.3 remoteの更新・snapshot方針へ業務処理を接続する
+- [x] 2.3 remoteの更新・snapshot方針へ業務処理を接続する
   - fs/WALに依存しないremote transactionを使い、CRUD・取消・件数・索引・独自項目・一括処理・論理消去とtombstoneの実sqld回帰、制約失敗時の全取消を通す。
   - _Boundary: core schema/write and growth-estimate policy, domain estimate callers/logical erase policy, Engine synthetic-load native post-write checkpoint, real domain regression/integration-only fixture dependency setup and exact no_network feature-map proof_
   - _Requirements: 2.1, 2.2, 2.3, 5.1_
@@ -54,7 +54,7 @@
 - [ ] 3. Hostedの組織対応と共有排他
 - [ ] 3.1 (P) remote controlと認証・設定を接続する
   - CONFIG版/env参照/slugとDB識別を実装し、storage層の2組織3権限・session失効・再起動試験を通す。不正な版、1000組織超、秘密の欠落、重複/違うDBを拒否する。serveは3.3まで有効化しない。
-  - _Boundary: app hosted remote/store/auth, app manifest_
+  - _Boundary: app hosted remote/store/auth and shared control/sql registration, app manifest, backup.rs SQL import-only local consumer compatibility_
   - _Depends: 2.2, 1.5_
   - _Requirements: 1.2, 1.3, 1.4, 3.1, 3.2_
 - [ ] 3.2 非失効gateの取得・所有照合・復旧を実装する

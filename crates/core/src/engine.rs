@@ -267,10 +267,12 @@ impl Engine {
             &BulkOptions::default(),
         )?;
         // 読み取り中の接続があっても追加の成功は取り消さない。
-        let _ = self
-            .db
-            .conn()
-            .execute_batch("PRAGMA wal_checkpoint(TRUNCATE)");
+        if self.db.has_local_storage() {
+            let _ = self
+                .db
+                .conn()
+                .execute_batch("PRAGMA wal_checkpoint(TRUNCATE)");
+        }
         Ok(LoadReport {
             companies: report.companies,
             activities: report.activities,

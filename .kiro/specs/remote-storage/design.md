@@ -54,7 +54,7 @@ remote writeは同じBEGIN IMMEDIATEで業務処理を確定する。fs容量見
 
 ### 3. Hosted storeとOperation gate
 `hosted-remote CONFIG COMMAND`を追加し、既存hostedのinit/tenant-add/user-add/password-set/user-disable/member-set/revoke/audit/backup/restore/serve/sync-ntaと同じ許可・password-stdin規則を適用する。外部DB作成やプラン変更は行わない。追加の`gate-status`と`gate-recover OWNER --prior-work-terminated`は運用専用である。
-3.1はcontrol/authと検証済みtenant登録の実APIを完成させる。positiveなdemo-rows投入と登録順序は2.3完了後の3.3が統合し、3.1へ失敗するdemo分岐や仮実装を置かない。実fixtureの事前投入を使っても、tenant対応・利用者・所属・login/sessionは実APIで検証する。
+3.1は[control保存形式](control-format.md)に従いcontrol/authと検証済みtenant登録の実APIを完成させる。positiveなdemo-rows投入と登録順序は2.3完了後の3.3が統合し、3.1へ失敗するdemo分岐や仮実装を置かない。実fixtureの事前投入を使っても、tenant対応・利用者・所属・login/sessionは実APIで検証する。
 CONFIGはversion、controlのURL/token環境変数名、tenant slugごとの環境変数名を持つ。実URL/tokenを保存形式や目録へ埋めない。重複slug/接続先、未設定、1000組織超を拒否する。control内の登録`remote_tenants(slug,database_id)`と各DB markerを照合し、同じDBを2組織へ割り当てない。
 JSON形は`{"version":1,"control":{"url_env":"MEIBO_DB_CONTROL_URL","token_env":"MEIBO_DB_CONTROL_TOKEN"},"tenants":{"alpha":{"url_env":"MEIBO_DB_ALPHA_URL","token_env":"MEIBO_DB_ALPHA_TOKEN"}}}`とする。未知fieldを拒否し、参照名は`MEIBO_DB_[A-Z0-9_]+`、値は空でない文字列、tenant slugは既存の1〜48文字規則を使う。0組織の初期化設定も許し、controlとtenantの参照名/接続先の重複を拒否する。Cloudflare部品はこの形と必要secretの存在を起動前に確認し、DBの識別・準備状態はRustが確認する。
 `remote_gate(slot INTEGER PRIMARY KEY CHECK(slot=1), owner BLOB NOT NULL, at INTEGER NOT NULL, operation TEXT NOT NULL)`をcontrolに置く。ownerはOS乱数32bytesのdigestで、唯一slotへのINSERTの成功応答だけが取得成功を意味する。既存行があれば503。TTLや自動takeoverは無い。

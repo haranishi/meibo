@@ -233,7 +233,7 @@ pub(crate) fn load(
     total_hint: Option<u64>,
     opt: &BulkOptions,
 ) -> Result<BulkReport, EngineError> {
-    let needed = estimated_space(total_hint, opt)?;
+    let needed = db.local_growth_estimate(|| estimated_space(total_hint, opt))?;
     // write は可変借用するため、種別の照合結果を先に固定する。
     let synthetic_ok = db.check_origin(DataOrigin::Synthetic).is_ok();
     let real_ok = db.check_origin(DataOrigin::Real).is_ok();

@@ -96,21 +96,23 @@ pub(crate) fn erase_contact(
     id: ContactId,
     wipe_notes: bool,
 ) -> Result<(), EngineError> {
-    // contact_idには索引がないため、企業の活動数で上限を見込む。
-    let company: Option<i64> = db
-        .conn()
-        .query_row("SELECT company_id FROM contacts WHERE id=?1", [id.0], |r| {
-            r.get(0)
-        })
-        .optional()
-        .map_err(storage)?;
-    let estimate = match company {
-        Some(company) => {
-            erase_contact_estimate(page_size(db)?, company_count(db, ACTIVITY_COUNT, company)?)
+    let estimate = db.local_growth_estimate(|| {
+        // contact_idには索引がないため、企業の活動数で上限を見込む。
+        let company: Option<i64> = db
+            .conn()
+            .query_row("SELECT company_id FROM contacts WHERE id=?1", [id.0], |r| {
+                r.get(0)
+            })
+            .optional()
+            .map_err(storage)?;
+        Ok(match company {
+            Some(company) => {
+                erase_contact_estimate(page_size(db)?, company_count(db, ACTIVITY_COUNT, company)?)
+            }
+            None => WRITE_BASE,
         }
-        None => WRITE_BASE,
-    }
-    .saturating_add(crm_erase_estimate(db, "contact_id", id.0)?);
+        .saturating_add(crm_erase_estimate(db, "contact_id", id.0)?))
+    })?;
     db.write(estimate, |tx| {
         let erased: Option<i64> = tx
             .query_row(CONTACT_ERASED_AT, [id.0], |r| r.get(0))
@@ -135,24 +137,26 @@ pub(crate) fn erase_contact(
 }
 
 pub(crate) fn erase_company(db: &mut Db, id: CompanyId) -> Result<(), EngineError> {
-    let key: Option<String> = db
-        .conn()
-        .query_row("SELECT name_key FROM companies WHERE id=?1", [id.0], |r| {
-            r.get(0)
-        })
-        .optional()
-        .map_err(storage)?;
-    let estimate = match key {
-        Some(key) => erase_company_estimate(
-            page_size(db)?,
-            company_count(db, ACTIVITY_COUNT, id.0)?,
-            company_count(db, CONTACT_COUNT, id.0)?,
-            &key,
-        ),
-        None => WRITE_BASE,
-    }
-    .saturating_add(crm_erase_estimate(db, "company_id", id.0)?)
-    .saturating_add(crate::custom_fields::erase_estimate(db, id)?);
+    let estimate = db.local_growth_estimate(|| {
+        let key: Option<String> = db
+            .conn()
+            .query_row("SELECT name_key FROM companies WHERE id=?1", [id.0], |r| {
+                r.get(0)
+            })
+            .optional()
+            .map_err(storage)?;
+        Ok(match key {
+            Some(key) => erase_company_estimate(
+                page_size(db)?,
+                company_count(db, ACTIVITY_COUNT, id.0)?,
+                company_count(db, CONTACT_COUNT, id.0)?,
+                &key,
+            ),
+            None => WRITE_BASE,
+        }
+        .saturating_add(crm_erase_estimate(db, "company_id", id.0)?)
+        .saturating_add(crate::custom_fields::erase_estimate(db, id)?))
+    })?;
     db.write(estimate, |tx| {
         let (sole, erased, key, phone): (bool, Option<i64>, String, bool) = tx
             .query_row(COMPANY_ERASURE_STATE, [id.0], |r| {

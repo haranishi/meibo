@@ -285,14 +285,16 @@ pub(crate) fn update_company(
     c: &CompanyInput,
 ) -> Result<(), EngineError> {
     let origin_check = db.check_origin(c.origin);
-    let old_key: Option<String> = db
-        .conn()
-        .query_row("SELECT name_key FROM companies WHERE id=?1", [id.0], |r| {
-            r.get(0)
-        })
-        .optional()
-        .map_err(storage)?;
-    let estimate = update_company_estimate(c, old_key.as_deref().unwrap_or(""));
+    let estimate = db.local_growth_estimate(|| {
+        let old_key: Option<String> = db
+            .conn()
+            .query_row("SELECT name_key FROM companies WHERE id=?1", [id.0], |r| {
+                r.get(0)
+            })
+            .optional()
+            .map_err(storage)?;
+        Ok(update_company_estimate(c, old_key.as_deref().unwrap_or("")))
+    })?;
     db.write(estimate, |tx| {
         let old = company_state(tx, id)?;
         if old.erased { return Err(invalid("id", "erased")); }
@@ -354,45 +356,45 @@ pub(crate) fn update_contact(
     if c.name.trim().is_empty() {
         return Err(EngineError::EmptyName);
     }
-    let previous_bytes: i64 = db.conn().query_row(
-        "SELECT coalesce(length(CAST(name AS BLOB)),0)+coalesce(length(CAST(phone AS BLOB)),0)+coalesce(length(CAST(email AS BLOB)),0) FROM contacts WHERE id=?1",
-        [id.0], |r| r.get(0),
-    ).optional().map_err(storage)?.unwrap_or(0);
-    let previous_bytes = u64::try_from(previous_bytes).map_err(|_| EngineError::Corrupt)?;
-    db.write(
-        contact_estimate(c).saturating_add(previous_bytes.saturating_mul(4)),
-        |tx| {
-            if company_state(tx, c.company)?.erased {
-                return Err(EngineError::NotFound);
-            }
-            let (company, erased): (i64, Option<i64>) = tx
-                .query_row(
-                    "SELECT company_id,erased_at FROM contacts WHERE id=?1",
-                    [id.0],
-                    |r| Ok((r.get(0)?, r.get(1)?)),
-                )
-                .optional()
-                .map_err(storage)?
-                .ok_or(EngineError::NotFound)?;
-            if company != c.company.0 {
-                return Err(EngineError::ForeignContact);
-            }
-            if erased.is_some() {
-                return Err(EngineError::NotFound);
-            }
-            tx.execute(
-                "UPDATE contacts SET name=?2,phone=?3,email=?4 WHERE id=?1",
-                params![
-                    id.0,
-                    c.name.trim(),
-                    phone(c.phone.as_deref()),
-                    optional_text(c.email.as_deref())
-                ],
+    let estimate = db.local_growth_estimate(|| {
+        let previous_bytes: i64 = db.conn().query_row(
+            "SELECT coalesce(length(CAST(name AS BLOB)),0)+coalesce(length(CAST(phone AS BLOB)),0)+coalesce(length(CAST(email AS BLOB)),0) FROM contacts WHERE id=?1",
+            [id.0], |r| r.get(0),
+        ).optional().map_err(storage)?.unwrap_or(0);
+        let previous_bytes = u64::try_from(previous_bytes).map_err(|_| EngineError::Corrupt)?;
+        Ok(contact_estimate(c).saturating_add(previous_bytes.saturating_mul(4)))
+    })?;
+    db.write(estimate, |tx| {
+        if company_state(tx, c.company)?.erased {
+            return Err(EngineError::NotFound);
+        }
+        let (company, erased): (i64, Option<i64>) = tx
+            .query_row(
+                "SELECT company_id,erased_at FROM contacts WHERE id=?1",
+                [id.0],
+                |r| Ok((r.get(0)?, r.get(1)?)),
             )
-            .map_err(storage)?;
-            Ok(())
-        },
-    )
+            .optional()
+            .map_err(storage)?
+            .ok_or(EngineError::NotFound)?;
+        if company != c.company.0 {
+            return Err(EngineError::ForeignContact);
+        }
+        if erased.is_some() {
+            return Err(EngineError::NotFound);
+        }
+        tx.execute(
+            "UPDATE contacts SET name=?2,phone=?3,email=?4 WHERE id=?1",
+            params![
+                id.0,
+                c.name.trim(),
+                phone(c.phone.as_deref()),
+                optional_text(c.email.as_deref())
+            ],
+        )
+        .map_err(storage)?;
+        Ok(())
+    })
 }
 
 fn apply(value: &mut Folded, a: FoldInput) {
@@ -453,8 +455,10 @@ fn refold(conn: &Connection, id: CompanyId, base: Status) -> Result<Folded, Engi
 }
 
 pub(crate) fn record_activity(db: &mut Db, a: &ActivityInput) -> Result<ActivityId, EngineError> {
-    let estimate = activity_estimate(a)
-        .saturating_add(company_row_bytes(db.conn(), a.company)?.saturating_mul(4));
+    let estimate = db.local_growth_estimate(|| {
+        Ok(activity_estimate(a)
+            .saturating_add(company_row_bytes(db.conn(), a.company)?.saturating_mul(4)))
+    })?;
     db.write(estimate, |tx| record_activity_tx(tx, a, false))
 }
 
@@ -556,7 +560,9 @@ pub(crate) fn release_exclusion(
     id: CompanyId,
     to: Status,
 ) -> Result<ActivityId, EngineError> {
-    let estimate = WRITE_BASE.saturating_add(company_row_bytes(db.conn(), id)?.saturating_mul(4));
+    let estimate = db.local_growth_estimate(|| {
+        Ok(WRITE_BASE.saturating_add(company_row_bytes(db.conn(), id)?.saturating_mul(4)))
+    })?;
     db.write(estimate, |tx| {
         if company_state(tx, id)?.folded.status != Status::Excluded {
             return Err(invalid("status", "not excluded"));

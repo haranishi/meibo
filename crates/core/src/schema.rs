@@ -25,6 +25,8 @@ pub(crate) struct Migration {
     pub(crate) apply: fn(&Transaction<'_>) -> Result<(), EngineError>,
 }
 
+#[cfg(all(test, feature = "integration-tests"))]
+mod remote_write_tests;
 #[cfg(test)]
 mod tests;
 
@@ -252,17 +254,44 @@ impl Db {
         &self.conn
     }
 
+    // Without cloud, every Db uses the native file policy.
+    #[cfg_attr(not(feature = "cloud"), allow(clippy::unused_self))]
+    pub(crate) fn has_local_storage(&self) -> bool {
+        #[cfg(feature = "cloud")]
+        {
+            !self.conn.is_remote()
+        }
+        #[cfg(not(feature = "cloud"))]
+        {
+            true
+        }
+    }
+
+    /// File-growth estimates can query local page layout, but have no remote meaning.
+    pub(crate) fn local_growth_estimate(
+        &self,
+        estimate: impl FnOnce() -> Result<u64, EngineError>,
+    ) -> Result<u64, EngineError> {
+        if self.has_local_storage() {
+            estimate()
+        } else {
+            Ok(0)
+        }
+    }
+
     pub(crate) fn write<T>(
         &mut self,
         estimate: u64,
         f: impl FnOnce(&Transaction<'_>) -> Result<T, EngineError>,
     ) -> Result<T, EngineError> {
-        let path = self.conn.path().ok_or_else(|| EngineError::InvalidInput {
-            field: "path".into(),
-            reason: "file-backed database required".into(),
-        })?;
-        ensure_space(Path::new(path), estimate, self.space_probe())?;
-        self.apply_backpressure(estimate)?;
+        if self.has_local_storage() {
+            let path = self.conn.path().ok_or_else(|| EngineError::InvalidInput {
+                field: "path".into(),
+                reason: "file-backed database required".into(),
+            })?;
+            ensure_space(Path::new(path), estimate, self.space_probe())?;
+            self.apply_backpressure(estimate)?;
+        }
         let tx = self
             .conn
             .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -276,6 +305,12 @@ impl Db {
                 Ok(value)
             }
             Err(err) => {
+                // A lost write response already forbids further requests. Keep
+                // its original cause rather than replacing it during cleanup.
+                #[cfg(feature = "cloud")]
+                if tx.is_poisoned() {
+                    return Err(err);
+                }
                 tx.rollback().map_err(storage)?;
                 Err(err)
             }
@@ -356,6 +391,10 @@ pub(crate) fn with_erase_gate<T>(
         .map_err(storage)?;
     let row = tx.last_insert_rowid();
     let result = f(tx);
+    #[cfg(feature = "cloud")]
+    if tx.is_poisoned() {
+        return result;
+    }
     tx.execute("DELETE FROM erase_gate WHERE rowid=?1", [row])
         .map_err(storage)?;
     result

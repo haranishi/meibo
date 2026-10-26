@@ -103,16 +103,19 @@ pub(crate) fn create_list_from_select(
 }
 
 pub(crate) fn delete_list(db: &mut Db, id: ListId) -> Result<(), EngineError> {
-    let members: i64 = db
-        .conn()
-        .query_row(
-            "SELECT count(*) FROM list_members WHERE list_id=?1",
-            [id.0],
-            |r| r.get(0),
-        )
-        .map_err(storage)?;
-    let members = u64::try_from(members).map_err(|_| EngineError::Corrupt)?;
-    db.write(delete_list_estimate(members), |tx| {
+    let estimate = db.local_growth_estimate(|| {
+        let members: i64 = db
+            .conn()
+            .query_row(
+                "SELECT count(*) FROM list_members WHERE list_id=?1",
+                [id.0],
+                |r| r.get(0),
+            )
+            .map_err(storage)?;
+        let members = u64::try_from(members).map_err(|_| EngineError::Corrupt)?;
+        Ok(delete_list_estimate(members))
+    })?;
+    db.write(estimate, |tx| {
         if tx.execute(DELETE_LIST, [id.0]).map_err(storage)? == 0 {
             return Err(EngineError::NotFound);
         }
@@ -204,16 +207,21 @@ pub(crate) fn bulk_update(
     list: ListId,
     change: &BulkChange,
 ) -> Result<u64, EngineError> {
-    let members: i64 = db
-        .conn()
-        .query_row(
-            "SELECT count(*) FROM list_members WHERE list_id=?1",
-            [list.0],
-            |r| r.get(0),
-        )
-        .map_err(storage)?;
-    let members = u64::try_from(members).map_err(|_| EngineError::Corrupt)?;
-    let estimate = bulk_update_estimate(members, average_company_row_bytes(db)?);
+    let estimate = db.local_growth_estimate(|| {
+        let members: i64 = db
+            .conn()
+            .query_row(
+                "SELECT count(*) FROM list_members WHERE list_id=?1",
+                [list.0],
+                |r| r.get(0),
+            )
+            .map_err(storage)?;
+        let members = u64::try_from(members).map_err(|_| EngineError::Corrupt)?;
+        Ok(bulk_update_estimate(
+            members,
+            average_company_row_bytes(db)?,
+        ))
+    })?;
     db.write(estimate, |tx| {
         tx.query_row(FIND_LIST, [list.0], |r| r.get::<_, i64>(0))
             .optional()

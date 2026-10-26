@@ -45,7 +45,7 @@ fn explicitly_gated_remote_fixture(root: &Path, file: &Path, text: &str) -> bool
     }
     let features = manifest.split("[features]").nth(1).unwrap();
     assert!(features.lines().any(|line| {
-        setting(line) == "integration-tests=[\"cloud\",\"meibo-db/integration-tests\"]"
+        setting(line) == "integration-tests=[\"cloud\",\"meibo-db/integration-tests\",\"dep:tokio\",\"dep:reqwest\",\"dep:libsql-hrana\"]"
     }));
     true
 }

@@ -12,11 +12,16 @@ workspace = true
 [features]
 default = []
 cloud = ["dep:meibo-db", "dep:base64", "dep:serde", "dep:serde_json"]
-integration-tests = ["cloud", "meibo-db/integration-tests"]
+integration-tests = ["cloud", "meibo-db/integration-tests", "dep:tokio", "dep:reqwest", "dep:libsql-hrana"]
 
 [[test]]
 name = "remote_lifecycle"
 path = "tests/remote_lifecycle.rs"
+required-features = ["integration-tests"]
+
+[[test]]
+name = "remote_domain"
+path = "tests/remote_domain.rs"
 required-features = ["integration-tests"]
 
 [dependencies]
@@ -24,6 +29,9 @@ meibo-db = { path = "../db", version = "0.1.0", optional = true }
 base64 = { version = "=0.23.1", optional = true }
 serde = { version = "1", optional = true }
 serde_json = { version = "1", optional = true }
+tokio = { version = "1.54.1", features = ["rt-multi-thread", "net", "time", "io-util", "sync"], optional = true }
+reqwest = { version = "=0.13.5", default-features = false, features = ["json", "native-tls-no-alpn"], optional = true }
+libsql-hrana = { version = "=0.10.0", optional = true }
 sha2 = "0.10.9"
 rusqlite = { version = "0.40.2", features = ["bundled", "backup"] }
 unicode-normalization = "0.1.26"

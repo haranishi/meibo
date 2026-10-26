@@ -455,6 +455,10 @@ fn matching_type(kind: CustomFieldKind, value: &CustomFieldValue) -> Result<(), 
 }
 
 fn deletion_estimate(db: &Db, sql: &str, id: i64) -> Result<u64, EngineError> {
+    db.local_growth_estimate(|| local_deletion_estimate(db, sql, id))
+}
+
+fn local_deletion_estimate(db: &Db, sql: &str, id: i64) -> Result<u64, EngineError> {
     let (rows, bytes): (i64, i64) = db
         .conn()
         .query_row(sql, [id], |r| Ok((r.get(0)?, r.get(1)?)))
