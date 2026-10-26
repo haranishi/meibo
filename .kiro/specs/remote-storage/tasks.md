@@ -57,14 +57,14 @@
   - _Boundary: app hosted remote/store/auth and shared control/sql registration, app manifest, backup.rs SQL import-only local consumer compatibility_
   - _Depends: 2.2, 1.5_
   - _Requirements: 1.2, 1.3, 1.4, 3.1, 3.2_
-- [ ] 3.2 非失効gateの取得・所有照合・復旧を実装する
+- [x] 3.2 非失効gateの取得・所有照合・復旧を実装する
   - 永続gateを条件付きで取得/解除する。別processの競合、panic/再起動/取得応答消失で占有を維持し、owner違いの解除と自動takeoverを拒否する。以前の処理終了を指定した復旧を監査する。
   - _Boundary: app hosted remote_gate, remote control schema/module/check_ready visibility, gated tests/integration-only locked fixture dependencies, db/tests/support/proxy.rs generic matching-write response-loss fixture only_
   - _Depends: 1.5, 3.1_
   - _Requirements: 2.5, 3.3, 3.4, 3.5_
 - [ ] 3.3 HTTPとremote CLIを統合する
   - backup/restore以外のhosted-remote CONFIG管理操作とHTTPを同じgate/認証境界へ接続する。tenant-addのpositive demo-rows投入と登録順序も統合する。Replyへ変換された障害も接続poisonから確認し、503/outcome_unknownを返す。password-stdinと通常hostedの回帰を通す。backup/restoreの分岐・help・placeholderはここで作らず4.1/4.2が実装時に追加する。
-  - _Boundary: app main, hosted cli/http/remote, stable error response integration_
+  - _Boundary: app main/args/commands, hosted cli/http/remote and stable error responses, real command/HTTP regression tests and remote usage instructions_
   - _Depends: 2.3, 2.5, 3.2_
   - _Requirements: 2.4, 2.5, 3.1, 3.3_
 
@@ -86,7 +86,7 @@
   - _Requirements: 5.3_
 - [ ] 4.4 (P) 公開版を継続検証する入口とCIを接続する
   - 合成serverを起動するcloud test/build/lint/CIがintegration-tests featureを明示実行するよう接続する。default-localの通信禁止bansを保つgraphとcloud用監査policyを分け、双方のadvisory/license/source門、default check-all/MSRVとcloud検査を通す。未実施の提供者環境確認を合格扱いにしない。
-  - _Boundary: xtask, CI and default/cloud dependency policy validation integration_
+  - _Boundary: xtask, CI/setup helper, default/cloud dependency policies and contributor validation instructions_
   - _Depends: 1.5, 3.1; integrated and final revalidation after later source changes_
   - _Requirements: 1.1, 5.4_
 
