@@ -6,6 +6,15 @@ target/
 .env
 .env.*
 
+# Cloudflare の依存・一時出力・private 設定
+node_modules
+.wrangler/
+.dev.vars*
+/.private/
+/cloudflare/.private/
+meibo-remote*.json
+*.secrets.json
+
 # ローカルの依存キャッシュとビルド出力
 /.cargo-home
 /.cargo-target

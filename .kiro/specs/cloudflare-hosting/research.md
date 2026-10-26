@@ -23,3 +23,5 @@ JSON本文1MiB、CSV import32MiB、export32MiB、固定Host/Origin、__Host sess
 
 ## 未確認
 Cloudflare上の実image起動・実secret受渡し・公開HTTPS到達・再作成保持と復旧はまだ行っていない。仕様・dry-run・ローカルruntimeだけでこれらを合格扱いしない。
+
+Wrangler 4.151.1のMiniflare限定でUndiciを7.30.1へoverrideし、既知の依存脆弱性を修正した。npm ci・型/schema/shell・全依存auditを再検証し、独立再レビューAPPROVED。実imageの起動とは区別する。

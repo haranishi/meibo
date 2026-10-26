@@ -1,0 +1,38 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "meibo-beta",
+  // The real Worker/DO composition is added after remote-storage in task 2.1.
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-26",
+  "workers_dev": true,
+  "preview_urls": false,
+  "vars": {
+    // A private deployment setting must supply the actual HTTPS origin.
+    "MEIBO_ORIGIN": ""
+  },
+  "containers": [
+    {
+      "class_name": "MeiboContainer",
+      "scheduling_policy": "default",
+      "image": "./Dockerfile",
+      "image_build_context": "..",
+      "instance_type": "lite",
+      // Concurrency control reduces usage; this is not a billing cap.
+      "max_instances": 1
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "MEIBO_CONTAINER",
+        "class_name": "MeiboContainer"
+      }
+    ]
+  },
+  "exports": {
+    "MeiboContainer": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    }
+  }
+}

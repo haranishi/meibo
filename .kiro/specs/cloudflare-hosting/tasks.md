@@ -3,7 +3,7 @@
 本人承認に基づく実装計画。1.1は静的なruntime準備、1.2/1.3はそれを使う独立したWorker部品の単体検査であり、remote-storageと並行して進められる。実HTTP入口の結合とLinux/amd64のbuild・inspect・実起動は、remote-storage完了後の2.1で行う。準備済みの設定や単体試験をアプリ起動済みと扱わない。新規の有料契約は承認範囲に含めず、公開ゲートで不足を示す。
 
 - [ ] 1. 配備用runtimeと公開通信を準備する
-- [ ] 1.1 依存・型契約・設定の土台を用意する
+- [x] 1.1 依存・型契約・設定の土台を用意する
   - 固定したNode/Workers/Wranglerのmanifest、lock、実際のWorker部品が共有するEnv/要求の型契約、型検査と試験入口を用意する。仮のHTTP応答や未実装アプリの代用は作らない。
   - cloud専用imageと起動処理を追加し、buildのpkg-config/libssl-dev、runtimeのlibssl3/ca-certificates、non-root、一時CONFIGと環境変数による秘密の参照を揃える。既存の自己ホスト構成は維持する。
   - Git/build contextから秘密を除外し、設定schema・型契約・shell構文の検査を通す。Dockerfileの準備をimageのbuild/起動成功とは記録しない。
