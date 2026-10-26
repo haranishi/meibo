@@ -74,6 +74,16 @@ pub(in crate::hosted) struct RemoteStore {
 
 impl RemoteStore {
     pub(in crate::hosted) fn initialize(endpoints: Endpoints) -> HostedResult<Self> {
+        let store = Self::initialize_state(endpoints, "ready")?;
+        store.audit("maintenance", None, "initialize", "success")?;
+        Ok(store)
+    }
+
+    pub(in crate::hosted) fn initialize_restoring(endpoints: Endpoints) -> HostedResult<Self> {
+        Self::initialize_state(endpoints, "restoring")
+    }
+
+    fn initialize_state(endpoints: Endpoints, state: &str) -> HostedResult<Self> {
         let mut conn = Connection::open_remote(endpoints.control.clone())?;
         let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let occupied: bool = tx.query_row(
@@ -98,7 +108,7 @@ impl RemoteStore {
             ("database_id", identity.database_id.clone()),
             ("database_kind", "control".to_owned()),
             ("instance", identity.instance.clone()),
-            ("state", "ready".to_owned()),
+            ("state", state.to_owned()),
             ("dummy_hash", dummy),
         ] {
             tx.execute(
@@ -112,8 +122,11 @@ impl RemoteStore {
             control: ControlStore { conn },
             identity,
         };
-        store.audit("maintenance", None, "initialize", "success")?;
         Ok(store)
+    }
+
+    pub(in crate::hosted) fn distinct_targets(&self, targets: &Endpoints) -> bool {
+        self.endpoints.disjoint(targets)
     }
 
     pub(in crate::hosted) fn open(endpoints: Endpoints) -> HostedResult<Self> {

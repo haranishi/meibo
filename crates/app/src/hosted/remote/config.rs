@@ -9,6 +9,7 @@ use std::net::IpAddr;
 
 use meibo_db::RemoteOptions;
 use serde::{Deserialize, Deserializer, de};
+use sha2::{Digest, Sha256};
 use url::Url;
 
 use super::super::{HostedResult, store::valid_slug};
@@ -62,8 +63,15 @@ impl<'de> Deserialize<'de> for TenantReferences {
 
 #[derive(Clone)]
 pub(in crate::hosted) struct Endpoints {
-    pub(super) control: RemoteOptions,
-    pub(super) tenants: BTreeMap<String, RemoteOptions>,
+    pub(in crate::hosted) control: RemoteOptions,
+    pub(in crate::hosted) tenants: BTreeMap<String, RemoteOptions>,
+    identities: BTreeSet<[u8; 32]>,
+}
+
+impl Endpoints {
+    pub(in crate::hosted) fn disjoint(&self, other: &Self) -> bool {
+        self.identities.is_disjoint(&other.identities)
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -130,7 +138,15 @@ impl RemoteConfig {
             .iter()
             .map(|(slug, references)| Ok((slug.clone(), resolve(references)?)))
             .collect::<HostedResult<_>>()?;
-        Ok(Endpoints { control, tenants })
+        let identities = seen
+            .into_iter()
+            .map(|endpoint| Sha256::digest(endpoint.as_bytes()).into())
+            .collect();
+        Ok(Endpoints {
+            control,
+            tenants,
+            identities,
+        })
     }
 }
 
@@ -335,6 +351,63 @@ mod tests {
             normalized_endpoint("libsql://EXAMPLE.test:443", EndpointPolicy::Production).as_deref(),
             Some("https://example.test/")
         );
+    }
+
+    #[test]
+    fn restore_disjointness_checks_all_cross_config_pairs_after_normalization() {
+        let config = RemoteConfig::parse(config().as_bytes()).unwrap();
+        let source = config
+            .resolve_with(lookup, EndpointPolicy::Production)
+            .unwrap();
+        let independent = config
+            .resolve_with(
+                |name| {
+                    lookup(name).map(|value| {
+                        if name.ends_with("URL") {
+                            value.replace("example.test", "new.example.test")
+                        } else {
+                            value
+                        }
+                    })
+                },
+                EndpointPolicy::Production,
+            )
+            .unwrap();
+        assert!(source.disjoint(&independent));
+        let keys = [
+            "MEIBO_DB_CONTROL_URL",
+            "MEIBO_DB_ALPHA_URL",
+            "MEIBO_DB_BETA_URL",
+        ];
+        for source_key in keys {
+            for target_key in keys {
+                let target = config
+                    .resolve_with(
+                        |name| {
+                            if name == target_key {
+                                Some(
+                                    lookup(source_key)
+                                        .unwrap()
+                                        .replace("https://", "libsql://")
+                                        .replace("example.test", "EXAMPLE.TEST:443/"),
+                                )
+                            } else {
+                                lookup(name).map(|value| {
+                                    if name.ends_with("URL") {
+                                        value.replace("example.test", "new.example.test")
+                                    } else {
+                                        value
+                                    }
+                                })
+                            }
+                        },
+                        EndpointPolicy::Production,
+                    )
+                    .unwrap();
+                assert!(!source.disjoint(&target));
+                assert!(!target.disjoint(&source));
+            }
+        }
     }
 
     #[cfg(feature = "integration-tests")]

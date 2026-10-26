@@ -38,6 +38,8 @@ const TOKEN: &str = "synthetic-backup-token-only";
 const HIGH_WATER: i64 = 9_007_199_254_740_993;
 static FIXTURES: Mutex<()> = Mutex::new(());
 
+mod restore;
+
 fn endpoints(control: &str, alpha: &str, beta: &str) -> Endpoints {
     RemoteConfig::parse(br#"{"version":1,"control":{"url_env":"MEIBO_DB_CONTROL_URL","token_env":"MEIBO_DB_CONTROL_TOKEN"},"tenants":{"alpha":{"url_env":"MEIBO_DB_ALPHA_URL","token_env":"MEIBO_DB_ALPHA_TOKEN"},"beta":{"url_env":"MEIBO_DB_BETA_URL","token_env":"MEIBO_DB_BETA_TOKEN"}}}"#).unwrap().resolve_with(|key| Some(if key.ends_with("TOKEN") { TOKEN.into() } else if key.contains("CONTROL") { control.into() } else if key.contains("ALPHA") { alpha.into() } else { beta.into() }), EndpointPolicy::LoopbackTests).unwrap()
 }

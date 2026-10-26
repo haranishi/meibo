@@ -159,6 +159,60 @@ impl Drop for Web {
         let _ = self.child.wait();
     }
 }
+
+#[test]
+fn remote_restore_command_uses_explicit_empty_targets_and_new_service_identity() {
+    let _guard = FIXTURES
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let source = Fixture::new();
+    source.setup();
+    let target = Fixture::new();
+    let target_config = target.directory.path().join("target.json");
+    let references = std::fs::read_to_string(&target.config)
+        .unwrap()
+        .replace("MEIBO_DB_", "MEIBO_DB_RESTORE_");
+    std::fs::write(&target_config, references).unwrap();
+    let snapshot = source.directory.path().join("restore-backup");
+    source.cli(&["backup", snapshot.to_str().unwrap()], None);
+    let output = source
+        .command(&[
+            "restore",
+            snapshot.to_str().unwrap(),
+            "--target-config",
+            target_config.to_str().unwrap(),
+        ])
+        .env("MEIBO_DB_RESTORE_CONTROL_URL", target.control.endpoint())
+        .env("MEIBO_DB_RESTORE_CONTROL_TOKEN", TOKEN)
+        .env("MEIBO_DB_RESTORE_ALPHA_URL", target.alpha.endpoint())
+        .env("MEIBO_DB_RESTORE_ALPHA_TOKEN", TOKEN)
+        .env("MEIBO_DB_RESTORE_BETA_URL", target.beta.endpoint())
+        .env("MEIBO_DB_RESTORE_BETA_TOKEN", TOKEN)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "restore failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(String::from_utf8(output.stdout).unwrap().trim(), "restored");
+    let identity = |fixture: &Fixture| {
+        fixture
+            .connection()
+            .query_row("SELECT value FROM meta WHERE key='instance'", [], |row| {
+                row.get::<_, String>(0)
+            })
+            .unwrap()
+    };
+    assert_ne!(identity(&source), identity(&target));
+    assert_eq!(
+        target
+            .connection()
+            .query_row("SELECT count(*) FROM users", [], |row| row.get::<_, i64>(0))
+            .unwrap(),
+        3
+    );
+}
 impl Web {
     fn start(fixture: &Fixture) -> Self {
         let mut child = fixture
@@ -703,8 +757,9 @@ fn loopback_database_policy_is_explicit_and_help_has_only_implemented_commands()
         "tenant-add",
         "sync-nta",
         "backup NEW_DIRECTORY",
+        "restore SNAPSHOT_DIRECTORY --target-config TARGET_CONFIG",
     ] {
         assert!(help.contains(word));
     }
-    assert!(!help.contains("restore") && !help.contains("MEIBO_TEST_REMOTE_LOOPBACK"));
+    assert!(!help.contains("MEIBO_TEST_REMOTE_LOOPBACK"));
 }

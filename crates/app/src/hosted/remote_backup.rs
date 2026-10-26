@@ -10,6 +10,7 @@ mod create;
 mod files;
 mod manifest;
 mod profile;
+mod restore;
 mod validate;
 
 pub(in crate::hosted) use manifest::{Manifest, SnapshotDatabase as Database, Table, Tenant};
@@ -44,6 +45,15 @@ pub(in crate::hosted) fn create(
     destination: &Path,
 ) -> HostedResult<ValidatedSnapshot> {
     redacted(create::run(store, operation, destination))
+}
+
+pub(in crate::hosted) fn restore(
+    store: &RemoteStore,
+    operation: &mut RemoteOperation,
+    snapshot: &Path,
+    target: super::remote::config::Endpoints,
+) -> HostedResult<()> {
+    redacted(restore::run(store, operation, snapshot, target))
 }
 
 #[cfg(test)]

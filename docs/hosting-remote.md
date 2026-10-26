@@ -46,6 +46,19 @@ session・gate・接続URL・token・CONFIGの環境変数名は含まれない�
 meibo hosted-remote /private/remote.json backup /private/backups/service-20261027
 ```
 
+復旧では元CONFIGと新しいtarget CONFIGを明示する。targetには保存された組織と
+同じslugを設定し、controlを含む全接続先に未使用の空DBを割り当てる。
+元・先の接続先重複、改変された保存物、1つでも空でないtargetを拒否する。
+
+```sh
+meibo hosted-remote /private/remote.json restore /private/backups/service-20261027 --target-config /private/restored.json
+```
+
+全DBの行・検索索引・件数・活動状態を照合してから利用可能にする。
+新しいサービス/DB識別を発行し、旧sessionは引き継がない。復旧後は再ログインする。
+途中失敗の候補は`restoring`のまま利用を拒否し、元のDBを保持する。
+復旧は設定や稼働先を自動で切り替えない。成功したtarget CONFIGへ運用を切り替える。
+
 Webと通常の管理操作は、controlの共通gateで直列化する。
 `outcome_unknown`では確定を確認できないため、再送せず管理者へ連絡する。
 管理者は以前のプロセスと進行中の処理を終了してから状態を確認する。
