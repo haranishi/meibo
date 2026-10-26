@@ -1,7 +1,7 @@
 {
   "feature_name": "cloudflare-hosting",
   "created_at": "2026-10-26T12:20:00Z",
-  "updated_at": "2026-10-26T14:25:34.741201+00:00",
+  "updated_at": "2026-10-26T14:50:40.409887+00:00",
   "language": "ja",
   "phase": "implementing",
   "approvals": {
@@ -65,5 +65,8 @@
       "independent_review": "APPROVED_after_scoped_dependency_fix",
       "actual_worker_entry_image_build_and_boot": "pending_task_2.1"
     }
+  },
+  "reviews": {
+    "runtime_config_contract_delta": "PASS_inline_existing_CONFIG_v1_env_references_explicit_shape_before_independent_coordinator_and_hosted_implementation"
   }
 }

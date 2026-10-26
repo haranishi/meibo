@@ -33,7 +33,7 @@ graph LR
 ## Components and Interfaces
 ### 1. SQL adapter
 `Connection`はlocal/remoteの識別、同期runtimeと接続状態を持つ。`RemoteOptions`はURL/token/要求期限/応答上限を持ち、Debugは秘密を伏せる。本番はHTTPS/libsqlの許可形式だけ、HTTPは明示したloopback試験だけ許す。
-実装1.4は独立した実用の`RemoteConnection`で非transaction操作を完成させ、1.5で共有Connectionとtransactionへ統合する。1.4の各操作は同じpipeline内でforeign_keysを有効化し、要求後にstreamを閉じる。未実装transactionの代用を置かない。
+実装1.4は独立した実用の`RemoteConnection`で非transaction操作を完成させ、1.5で共有Connectionとtransactionへ統合する。1.4の各操作は同じstream内でforeign_keysを有効化・照合してから業務SQLを送り、要求後にstreamを閉じる。v2は先行要求のSQL失敗でも後続を実行するため、設定と照合の成功応答を受けてから次のpipelineで業務SQLを送る。未実装transactionの代用を置かない。
 `Connection::{execute,execute_batch,query_row,prepare,prepare_cached,transaction,unchecked_transaction,transaction_with_behavior,last_insert_rowid,is_autocommit}`、`Statement::{execute,query,query_map,exists}`、`Rows::next`、`Row::get<I,T>`、`Transaction::{commit,rollback}`とConnectionへのDerefを提供する。params!/params_from_iter、OptionalExtension、Result/Error/ErrorCode、Value/ToSql/FromSqlの既存使用範囲を維持する。
 cloud buildも従来の手元CLIをcompileできるよう、local Connectionのopen/open_with_flags/path/busy_timeout/pragma_update/pragma_query_value/backupとOpenFlags/TransactionBehavior/MAIN_DBをforwardする。remote側では明示Unsupportedを返し、Core policyが呼ばない。無関係なrusqlite全APIは再実装しない。
 `Value`はNull/Integer(i64)/Real(f64)/Text/Blobを区別し、整数をf64経由で変換しない。Row変換失敗とSQL制約/重複/not-foundを既存の業務エラーへ結び付ける。last_insert_rowidは書込み応答に紐付く値であり、別接続で問い合わせない。
@@ -53,6 +53,7 @@ remote writeは同じBEGIN IMMEDIATEで業務処理を確定する。fs容量見
 ### 3. Hosted storeとOperation gate
 `hosted-remote CONFIG COMMAND`を追加し、既存hostedのinit/tenant-add/user-add/password-set/user-disable/member-set/revoke/audit/backup/restore/serve/sync-ntaと同じ許可・password-stdin規則を適用する。外部DB作成やプラン変更は行わない。追加の`gate-status`と`gate-recover OWNER --prior-work-terminated`は運用専用である。
 CONFIGはversion、controlのURL/token環境変数名、tenant slugごとの環境変数名を持つ。実URL/tokenを保存形式や目録へ埋めない。重複slug/接続先、未設定、1000組織超を拒否する。control内の登録`remote_tenants(slug,database_id)`と各DB markerを照合し、同じDBを2組織へ割り当てない。
+JSON形は`{"version":1,"control":{"url_env":"MEIBO_DB_CONTROL_URL","token_env":"MEIBO_DB_CONTROL_TOKEN"},"tenants":{"alpha":{"url_env":"MEIBO_DB_ALPHA_URL","token_env":"MEIBO_DB_ALPHA_TOKEN"}}}`とする。未知fieldを拒否し、参照名は`MEIBO_DB_[A-Z0-9_]+`、値は空でない文字列、tenant slugは既存の1〜48文字規則を使う。0組織の初期化設定も許し、controlとtenantの参照名/接続先の重複を拒否する。Cloudflare部品はこの形と必要secretの存在を起動前に確認し、DBの識別・準備状態はRustが確認する。
 `remote_gate(slot INTEGER PRIMARY KEY CHECK(slot=1), owner BLOB NOT NULL, at INTEGER NOT NULL, operation TEXT NOT NULL)`をcontrolに置く。ownerはOS乱数32bytesのdigestで、唯一slotへのINSERTの成功応答だけが取得成功を意味する。既存行があれば503。TTLや自動takeoverは無い。
 HTTP/管理/保存/復旧はすべて同じgateを取得する。既知の正常/業務失敗が完了したときだけ`DELETE ... WHERE slot=1 AND owner=?`で解除する。GateGuardのDropは解除しない。panic、切断、結果不明、所有不一致は取得状態を残す。poisonを返り値で失わないよう、hostedは使用した全接続の状態を終端で確認する。
 gate取得自体の応答消失も失敗として取得を試し直さない。再起動は占有gateを解除しない。operatorは以前のprocess/containerと進行中要求の終了を確認し、gate-statusのowner/operationを照合して明示復旧する。期限や古さだけで解除せず、復旧を監査する。

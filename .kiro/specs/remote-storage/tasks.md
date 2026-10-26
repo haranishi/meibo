@@ -16,7 +16,7 @@
   - _Requirements: 1.1, 2.1_
 - [ ] 1.4 外部Connectionと上限付きの受信を実装する
   - 公式型のv2/pipelineで上限付き応答を読み、HTTP1/redirectなし/retryなし/TLS1.2以上、schemeとbase_urlのorigin制限を実装する。成功・error bodyのchunkをVec/JSON確保前に制限し、過大応答・期限・別host・URL/秘密の診断漏れを実fixtureで拒否する。
-  - 実用の非transaction RemoteConnectionを先に完成させ、各操作でforeign_keysを有効化してstreamを閉じる。公式型decode前に構造と作業領域を検査し、正当な500行ページを維持しつつ小さなJSONの過剰なVec確保を拒否する。共有Connectionへの統合は1.5で行う。
+  - 実用の非transaction RemoteConnectionを先に完成させ、同じstreamでforeign_keysの有効化・照合に成功してから業務SQLを送り、streamを閉じる。公式型decode前に構造と作業領域を検査し、正当な500行ページを維持しつつ小さなJSONの過剰なVec確保を拒否する。共有Connectionへの統合は1.5で行う。
   - _Boundary: crates/db remote, statement, rows, remote tests, direct serde manifest edge/lock_
   - _Requirements: 2.1, 2.6_
 - [ ] 1.5 同streamのtransactionと結果不明を扱う

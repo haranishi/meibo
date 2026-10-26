@@ -44,6 +44,7 @@ Worker varsは`MEIBO_ORIGIN`と設定の参照名だけ、URL/tokenはWorker sec
 Worker entryはboundary部品で要求URLのHTTPS originとHostを設定値に照合する。preview/未知Host、userinfo/fragment等の不正設定を拒否する。GET/POST以外は405。本文は実際に読みながらJSON1MiB、既存CSV import経路32MiBまでとし、Content-Lengthが無い場合も上限を維持する。既存のより細かいContent-Type/Origin/CSRF/context検査はRustが行う。
 Workerは`MEIBO_CONTAINER.getByName("meibo-beta-v1")`だけへ送る。外部入力や組織名をDO IDへ使わない。indexのDO exportでも同じboundary部品で検査してからcoordinatorへ渡す。queueは最大16要求、待ち時間30秒、過大な並行要求は503とする。queue中の本文を先読みbufferせず、byte上限付きstreamをforward時に消費する。`blockConcurrencyWhile`を全処理の長時間lockには使わず、既知のPromise queueでforwardを一度だけ行う。
 未起動時は同じstartup Promiseを共有し、`ctx.container.start({env: runtimeEnv,enableInternet: true})`を呼ぶ。default policyではimage/instanceをstartへ重複指定しない。runtimeEnvは明示したorigin/configと`MEIBO_DB_`接頭辞の文字列secretだけで、env全体を渡したり表示したりしない。秘密不足や不正設定ではstartしない。
+起動前にremote-storage設計3のCONFIG version=1の形・参照名・必須secretの存在を検査する。0組織の初期化設定は許容する。接続先の識別・ready判定・認証はRustの責務とし、WorkerはDBへ接続しない。
 readinessはport4317への`GET /health`を30秒以内で検査する。これはDB初期化ではなく既存serviceの起動確認で、readiness再試行から更新は発行しない。稼働中は休止期限180秒、処理完了後は無要求60秒で休止させる。DO再起動時も稼働containerへ休止条件を再設定する。
 転送先は`getTcpPort(4317)`。内部URLのschemeだけHTTPへ変え、公開authority/path/query/method/body、Origin・Cookie・CSRF/context headerを維持する。検査済みの公開Hostを設定し、Forwarded/X-Forwarded-*は除く。公式例の`Host: container`への変更や、外部forwarded headerに基づくOriginの許可は採らない。
 forwardの応答期限は180秒。応答本文は既存export上限32MiBを含めて最大33MiBまで確認してqueueを解放する。起動失敗は503、転送開始後のtimeout/切断は503/outcome_unknownであり、更新を再送しない。containerの停止/killや永続gateの解除をerror handlerから行わない。Set-Cookie、no-store/CSP等の既存headerを維持し、edge側エラーもno-storeで秘密を含まない。
