@@ -11,7 +11,8 @@ workspace = true
 
 [features]
 default = []
-cloud = ["meibo-core/cloud", "dep:meibo-db"]
+cloud = ["meibo-core/cloud", "dep:meibo-db", "dep:serde", "dep:url"]
+integration-tests = ["cloud", "meibo-db/integration-tests"]
 
 [[bin]]
 name = "meibo"
@@ -19,6 +20,8 @@ path = "src/main.rs"
 
 [dependencies]
 meibo-db = { path = "../db", version = "0.1.0", optional = true }
+serde = { version = "1", features = ["derive"], optional = true }
+url = { version = "=2.5.8", optional = true }
 meibo-core = { path = "../core", version = "0.1.0" }
 meibo-import = { path = "../import", version = "0.1.0" }
 serde_json = "1"

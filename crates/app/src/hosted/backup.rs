@@ -5,8 +5,8 @@ use std::{
     path::Path,
 };
 
+use super::sql::{Connection, MAIN_DB, OpenFlags};
 use meibo_core::Engine;
-use rusqlite::{Connection, MAIN_DB, OpenFlags};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 

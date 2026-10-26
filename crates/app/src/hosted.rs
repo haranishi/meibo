@@ -2,7 +2,14 @@
 mod auth;
 mod backup;
 mod cli;
+mod control;
 mod http;
+#[cfg(feature = "cloud")]
+#[allow(
+    dead_code,
+    reason = "Remote storage APIs are connected to CLI/HTTP in task 3.3."
+)]
+mod remote;
 mod store;
 
 #[cfg(test)]
@@ -17,6 +24,11 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 use store::Store;
+
+#[cfg(feature = "cloud")]
+use meibo_db as sql;
+#[cfg(not(feature = "cloud"))]
+use rusqlite as sql;
 
 type HostedResult<T> = std::result::Result<T, Box<dyn Error>>;
 
