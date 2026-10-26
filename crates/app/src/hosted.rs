@@ -10,6 +10,12 @@ mod http;
     reason = "Remote storage APIs are connected to CLI/HTTP in task 3.3."
 )]
 mod remote;
+#[cfg(feature = "cloud")]
+#[allow(
+    dead_code,
+    reason = "Remote operation gate APIs are connected to CLI/HTTP in task 3.3."
+)]
+mod remote_gate;
 mod store;
 
 #[cfg(test)]

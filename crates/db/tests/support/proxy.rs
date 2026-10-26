@@ -33,6 +33,8 @@ pub enum Fault {
     LoseRollbackResponse,
     #[allow(dead_code)]
     LoseWriteResponse,
+    #[allow(dead_code)] // Selected by application-level integration contracts.
+    LoseMatchingWriteResponse(&'static str),
     #[allow(dead_code)]
     RoutePrefix,
 }
@@ -183,6 +185,11 @@ async fn forward(
             Some(Fault::LoseCommitResponse) if !commit => None,
             Some(Fault::LoseRollbackResponse) if !rollback => None,
             Some(Fault::LoseWriteResponse) if !write => None,
+            Some(Fault::LoseMatchingWriteResponse(prefix))
+                if !matching_execute(&request.body, prefix) =>
+            {
+                None
+            }
             _ => armed.take(),
         }
     };
@@ -214,8 +221,9 @@ async fn forward(
                 "synthetic commit response loss",
             ));
         }
-        Some(Fault::LoseWriteResponse) => {
-            if !status.is_success() || !write_accepted(&body) {
+        Some(Fault::LoseWriteResponse | Fault::LoseMatchingWriteResponse(_)) => {
+            let accepted = lost_write_accepted(fault, &body);
+            if !status.is_success() || !accepted {
                 return Err(io::Error::other("fixture write was rejected"));
             }
             state.triggered.fetch_add(1, Ordering::SeqCst);
@@ -348,6 +356,37 @@ fn is_insert(bytes: &[u8]) -> bool {
             sql.is_some_and(|sql| sql.trim_start().starts_with("INSERT INTO synthetic"))
         })
     })
+}
+
+fn matching_execute(bytes: &[u8], prefix: &str) -> bool {
+    serde_json::from_slice::<PipelineReqBody>(bytes).is_ok_and(|body| {
+        body.requests.iter().any(|request| {
+            matches!(request, StreamRequest::Execute(request)
+                if request.stmt.sql.as_deref().is_some_and(|sql| sql.trim_start().starts_with(prefix)))
+        })
+    })
+}
+
+fn execute_accepted(bytes: &[u8]) -> bool {
+    serde_json::from_slice::<PipelineRespBody>(bytes).is_ok_and(|body| {
+        matches!(
+            body.results.first(),
+            Some(StreamResult::Ok {
+                response: StreamResponse::Execute(_)
+            })
+        ) && body
+            .results
+            .iter()
+            .all(|result| matches!(result, StreamResult::Ok { .. }))
+    })
+}
+
+fn lost_write_accepted(fault: Option<Fault>, bytes: &[u8]) -> bool {
+    match fault {
+        Some(Fault::LoseWriteResponse) => write_accepted(bytes),
+        Some(Fault::LoseMatchingWriteResponse(_)) => execute_accepted(bytes),
+        _ => false,
+    }
 }
 
 fn write_accepted(bytes: &[u8]) -> bool {

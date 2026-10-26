@@ -35,8 +35,9 @@ const SCHEMA_PROBE: &str = "SELECT users.id,users.username,users.password_hash,u
     sessions.last_seen,sessions.expires_at,login_attempts.bucket,
     login_attempts.window_start,login_attempts.failures,audit.id,audit.at,
     audit.actor,audit.tenant,audit.operation,audit.outcome,
-    remote_tenants.slug,remote_tenants.database_id
-    FROM users,tenants,memberships,sessions,login_attempts,audit,remote_tenants WHERE 0";
+    remote_tenants.slug,remote_tenants.database_id,
+    remote_gate.slot,remote_gate.owner,remote_gate.at,remote_gate.operation
+    FROM users,tenants,memberships,sessions,login_attempts,audit,remote_tenants,remote_gate WHERE 0";
 
 // The source is retained for operation-gate classification, while every
 // metadata/shape diagnostic stays fixed and excludes database contents.
@@ -85,6 +86,7 @@ impl RemoteStore {
         }
         tx.execute_batch(DDL)?;
         tx.execute_batch(REMOTE_DDL)?;
+        tx.execute_batch(crate::hosted::remote_gate::DDL)?;
         let identity = ServiceIdentity {
             database_id: auth::random_hex(16)?,
             instance: auth::random_hex(16)?,
@@ -135,7 +137,7 @@ impl RemoteStore {
         &self.identity.instance
     }
 
-    fn check_ready(&self) -> HostedResult<()> {
+    pub(in crate::hosted) fn check_ready(&self) -> HostedResult<()> {
         let identity = validate_control(&self.conn)?;
         if identity.database_id != self.identity.database_id
             || identity.instance != self.identity.instance

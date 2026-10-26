@@ -749,15 +749,18 @@ dependencies = [
  "argon2",
  "fs4",
  "getrandom 0.4.3",
+ "libsql-hrana",
  "meibo-core",
  "meibo-db",
  "meibo-import",
+ "reqwest",
  "rusqlite",
  "serde",
  "serde_json",
  "sha2",
  "tempfile",
  "tiny_http",
+ "tokio",
  "url",
 ]
 
