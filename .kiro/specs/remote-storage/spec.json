@@ -1,7 +1,7 @@
 {
   "feature_name": "remote-storage",
   "created_at": "2026-10-26T12:00:00Z",
-  "updated_at": "2026-10-26T13:22:31.828192+00:00",
+  "updated_at": "2026-10-26T13:58:20.937276+00:00",
   "language": "ja",
   "phase": "implementing",
   "approvals": {
@@ -46,7 +46,8 @@
     "source_implementation_review": "pending task 1.1 retry; preflight is not implementation approval"
   },
   "completed_tasks": [
-    "1.1"
+    "1.1",
+    "1.2"
   ],
   "verification": {
     "1.1": {
@@ -61,6 +62,15 @@
       "independent_review": "APPROVED",
       "production_remote_adapter": "pending_tasks_1.2_to_1.5",
       "cloud_policy_ci": "pending_task_4.4"
+    },
+    "1.2": {
+      "primitive_tests": 14,
+      "runtime_tests": 1,
+      "real_fixtures_regression": 7,
+      "tuple_arities_checked": "1 through 5; actual erasure/list shapes",
+      "clippy_fmt_msrv_cloud_check": "passed",
+      "independent_review": "APPROVED_after_tuple_compatibility_fix",
+      "evidence": ".agent-harness/runs/2026-10-26-cloudflare-turso/task-1.2/"
     }
   }
 }

@@ -1,4 +1,14 @@
-//! Synchronous runtime foundation for the optional SQL adapter.
+//! Typed SQL primitives and a shared runtime for the optional SQL adapter.
+
+mod error;
+mod params;
+mod row;
+
+pub use error::{Error, ErrorCode, OptionalExtension, Result};
+pub use params::{Params, ParamsFromIter, params_from_iter};
+pub use row::{Row, RowIndex};
+pub use rusqlite::{params, types};
+pub use types::{FromSql, ToSql, Value, ValueRef};
 
 use std::{io, sync::OnceLock};
 use tokio::runtime::{Builder, Runtime};

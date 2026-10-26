@@ -6,7 +6,7 @@
   - 既存no_network試験の全lockfile走査を、default app/coreのnormal/build cargo treeへ限定して直す。default featuresを無効化せず、禁止package一覧とdeny.tomlの検査を保つ。全workspace試験を通してから次へ進む。
   - _Boundary: Cargo manifests/lock, crates/db/lib, tests/support, core/tests/process/no_network.rs default graph assertion integration_
   - _Requirements: 1.1, 2.6, 5.4_
-- [ ] 1.2 SQLの値・引数・行変換を揃える
+- [x] 1.2 SQLの値・引数・行変換を揃える
   - Value/ToSql/FromSql、Row.get、params、OptionalExtension、errorの既存使用範囲を実装し、i64端値・NULL・Blob・有限実数・変換失敗の試験を通す。
   - _Boundary: crates/db params, row, error_
   - _Requirements: 2.1, 2.6_
