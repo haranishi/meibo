@@ -1,0 +1,47 @@
+{
+  "feature_name": "remote-storage",
+  "created_at": "2026-10-26T12:00:00Z",
+  "updated_at": "2026-10-26T12:51:33Z",
+  "language": "ja",
+  "phase": "tasks-generated",
+  "approvals": {
+    "requirements": {
+      "generated": true,
+      "approved": true
+    },
+    "design": {
+      "generated": true,
+      "approved": true
+    },
+    "tasks": {
+      "generated": true,
+      "approved": true
+    }
+  },
+  "ready_for_implementation": true,
+  "authorization": {
+    "basis": "2026-10-26 user accepted Cloudflare business account, Turso Cloud, existing invitation authentication, and continuation",
+    "default_local_sqlite_unchanged": true,
+    "paid_plan_changes": false,
+    "real_data_upload": false
+  },
+  "reviews": {
+    "requirements": "PASS_inline",
+    "design": "APPROVED_independent_after_sqlite_sequence_fix",
+    "task_graph": "PASS_independent_after_task_split_and_fixture_coverage",
+    "final_sanity": "PASS_independent_read_final_requirements_design_tasks",
+    "requirements_covered": 24,
+    "actionable_tasks": 17,
+    "design_transport_refinement": "typed_Hrana_v2_current_reqwest_bounded_body_obsoletes_legacy_SDK_and_metered_connector",
+    "transport_delta": "APPROVED_focused_independent_on_updated_design_research_tasks_and_test_profiles",
+    "task_1_1_next_action": "RETRY_TASK"
+  },
+  "transport_preflight": {
+    "stack": "libsql-hrana =0.10.0 + reqwest =0.13.5 default-features=false json/native-tls-no-alpn + shared Tokio",
+    "msrv": "Rust 1.88 passed",
+    "online_cargo_deny": "advisories/licenses/sources passed",
+    "local_sequence_trigger_rollback": "passed actual sqld synthetic database",
+    "provider_protocol": "passed synthetic Turso Cloud Sequence and approximately 11.75-second transaction",
+    "source_implementation_review": "pending task 1.1 retry; preflight is not implementation approval"
+  }
+}

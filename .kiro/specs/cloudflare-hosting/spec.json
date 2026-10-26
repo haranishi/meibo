@@ -1,0 +1,51 @@
+{
+  "feature_name": "cloudflare-hosting",
+  "created_at": "2026-10-26T12:20:00Z",
+  "updated_at": "2026-10-26T12:46:58.446134Z",
+  "language": "ja",
+  "phase": "tasks-generated",
+  "approvals": {
+    "requirements": {
+      "generated": true,
+      "approved": true
+    },
+    "design": {
+      "generated": true,
+      "approved": true
+    },
+    "tasks": {
+      "generated": true,
+      "approved": true
+    }
+  },
+  "ready_for_implementation": true,
+  "execution_authorization": {
+    "basis": "2026-10-26 user approved Cloudflare business account, Turso Cloud and existing invitation authentication",
+    "public_beta": true,
+    "domain": "workers.dev_until_custom_domain_decided",
+    "new_paid_subscription": false,
+    "upstream": "remote-storage"
+  },
+  "review": {
+    "requirements_gate": "PASS_inline_after_authorized_response_clarification",
+    "design_gate": "PASS_inline_and_independent_sanity_after_queue_memory_rule",
+    "task_graph": "PASS_independent_second_pass",
+    "final_sanity": "PASS_independent_final_on_disk_requirements_design_tasks",
+    "requirements_covered": 22,
+    "actionable_tasks": 5,
+    "upstream": "remote-storage tasks-generated approved",
+    "japanese_lint": {
+      "design": 0,
+      "research": 0,
+      "requirements": {
+        "retained": 2,
+        "reason": "required EARS sentence format; statistical rhythm findings only"
+      },
+      "tasks": {
+        "retained": 1,
+        "reason": "parallel acceptance checklist; statistical rhythm finding only"
+      }
+    },
+    "tls_runtime_prerequisite_delta": "PASS_inline: parent-confirmed libsql-hrana/reqwest native TLS requires build pkg-config/libssl-dev and runtime libssl3/ca-certificates; no public API, task graph, or DO contract change"
+  }
+}
