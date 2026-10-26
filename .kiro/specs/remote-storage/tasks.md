@@ -52,7 +52,7 @@
   - _Requirements: 2.1, 2.6, 5.1, 5.2_
 
 - [ ] 3. Hostedの組織対応と共有排他
-- [ ] 3.1 (P) remote controlと認証・設定を接続する
+- [x] 3.1 (P) remote controlと認証・設定を接続する
   - CONFIG版/env参照/slugとDB識別を実装し、storage層の2組織3権限・session失効・再起動試験を通す。不正な版、1000組織超、秘密の欠落、重複/違うDBを拒否する。serveは3.3まで有効化しない。
   - _Boundary: app hosted remote/store/auth and shared control/sql registration, app manifest, backup.rs SQL import-only local consumer compatibility_
   - _Depends: 2.2, 1.5_
@@ -63,24 +63,26 @@
   - _Depends: 1.5, 3.1_
   - _Requirements: 2.5, 3.3, 3.4, 3.5_
 - [ ] 3.3 HTTPとremote CLIを統合する
-  - hosted-remote CONFIGの全操作とHTTPが同じgate/認証境界を通るよう接続する。tenant-addのpositive demo-rows投入と登録順序もこの段階で統合する。Replyへ変換された障害も接続poisonから確認し、503/outcome_unknownを返す。password-stdinと通常hostedの回帰を通す。
+  - backup/restore以外のhosted-remote CONFIG管理操作とHTTPを同じgate/認証境界へ接続する。tenant-addのpositive demo-rows投入と登録順序も統合する。Replyへ変換された障害も接続poisonから確認し、503/outcome_unknownを返す。password-stdinと通常hostedの回帰を通す。backup/restoreの分岐・help・placeholderはここで作らず4.1/4.2が実装時に追加する。
   - _Boundary: app main, hosted cli/http/remote, stable error response integration_
-  - _Depends: 2.3, 3.2_
+  - _Depends: 2.3, 2.5, 3.2_
   - _Requirements: 2.4, 2.5, 3.1, 3.3_
 
 - [ ] 4. 保存・復旧と全体の検証
 - [ ] 4.1 gate中に型付き保存と目録検証を行う
   - privateな新規directoryへ全DBの最新行を逐次保存し、件数/hash/形式を検証する。sessions/gate/秘密を除き、symlink・不正行・未知sequenceを拒否する実2組織試験を通す。
-  - _Boundary: app hosted remote_backup creation/validation_
+  - _Boundary: app hosted remote_backup creation/validation and real backup CLI dispatch under shared gate_
   - _Depends: 2.5, 3.3_
   - _Requirements: 4.1, 4.2_
 - [ ] 4.2 新しい空DB一式へ検証して復旧する
   - 全targetを先に検査し、restoring→ready、instance/DB対応の再発行、sequence復元、FTS/fold/件数/FK照合を実装する。最大field IDの再利用、改変、既存target、中断を試し、失敗時はsourceを保ってcandidateをofflineにする。
-  - _Boundary: app hosted remote_backup restore and tests_
+  - _Boundary: app hosted remote_backup restore/source validation reuse, real source/target CLI dispatch, control atomic restoring initialization and tests_
+  - _Depends: 2.5, 3.3, 4.1_
   - _Requirements: 4.3, 4.4, 4.5_
 - [ ] 4.3 process・CLI・browserの回帰を確認する
   - 実sqld/fault proxyで2組織3権限のlogin/更新/logout/旧tab、再起動保持、占有gateの復旧、保存先変更後の再loginを確認し、秘密が診断へ出ない証拠を残す。
   - _Boundary: app/tests remote_hosted and browser fixtures, db fault tests integration_
+  - _Depends: 3.3, 4.1, 4.2_
   - _Requirements: 5.3_
 - [ ] 4.4 (P) 公開版を継続検証する入口とCIを接続する
   - 合成serverを起動するcloud test/build/lint/CIがintegration-tests featureを明示実行するよう接続する。default-localの通信禁止bansを保つgraphとcloud用監査policyを分け、双方のadvisory/license/source門、default check-all/MSRVとcloud検査を通す。未実施の提供者環境確認を合格扱いにしない。

@@ -55,6 +55,7 @@ cloud限定の`Engine::visit_crm_snapshot(visitor: FnMut(&CrmTable, &[u8]) -> Re
 
 ### 3. Hosted storeとOperation gate
 `hosted-remote CONFIG COMMAND`を追加し、既存hostedのinit/tenant-add/user-add/password-set/user-disable/member-set/revoke/audit/backup/restore/serve/sync-ntaと同じ許可・password-stdin規則を適用する。外部DB作成やプラン変更は行わない。追加の`gate-status`と`gate-recover OWNER --prior-work-terminated`は運用専用である。
+3.3はbackup/restore以外の実dispatchとHTTPを完成させ、4.1/4.2が実装と同時に保存/復旧コマンドを同じgateへ追加する。initは空DBを原子的に初期化し、gate-statusは上限付きread、gate-recoverは既存ownerの条件付き復旧であり、新しい通常gate取得を機械的に適用しない。
 3.1は[control保存形式](control-format.md)に従いcontrol/authと検証済みtenant登録の実APIを完成させる。positiveなdemo-rows投入と登録順序は2.3完了後の3.3が統合し、3.1へ失敗するdemo分岐や仮実装を置かない。実fixtureの事前投入を使っても、tenant対応・利用者・所属・login/sessionは実APIで検証する。
 CONFIGはversion、controlのURL/token環境変数名、tenant slugごとの環境変数名を持つ。実URL/tokenを保存形式や目録へ埋めない。重複slug/接続先、未設定、1000組織超を拒否する。control内の登録`remote_tenants(slug,database_id)`と各DB markerを照合し、同じDBを2組織へ割り当てない。
 JSON形は`{"version":1,"control":{"url_env":"MEIBO_DB_CONTROL_URL","token_env":"MEIBO_DB_CONTROL_TOKEN"},"tenants":{"alpha":{"url_env":"MEIBO_DB_ALPHA_URL","token_env":"MEIBO_DB_ALPHA_TOKEN"}}}`とする。未知fieldを拒否し、参照名は`MEIBO_DB_[A-Z0-9_]+`、値は空でない文字列、tenant slugは既存の1〜48文字規則を使う。0組織の初期化設定も許し、controlとtenantの参照名/接続先の重複を拒否する。Cloudflare部品はこの形と必要secretの存在を起動前に確認し、DBの識別・準備状態はRustが確認する。
@@ -69,7 +70,7 @@ password/hash/session/期限/role/CSRF/contextは既存実装を共有する。c
 形式version=1、manifestはservice識別/tenant slug/data_origin/schema版/table別行数/SHA-256と相対ファイル名だけを持つ。行は列順付きNull/Integerの10進文字列/RealのIEEE754 bit文字列/Text/Blobのbase64で表す。各行1MiB以下・page500行以下・buffer32MiB以下、manifest1MiB/組織1000以下。秘密、sessions、remote_gateは除外する。
 対象はmeta、companies（生成has_phoneを除く）、contacts、activities、lists、list_members、counts、crm_work_items、crm_opportunities、custom_field_definitions、custom_field_values、erased_corporate_numbersと、controlのmeta/users/tenants/memberships/audit/login_attempts/remote_tenants。erase_gateは空を確認し、FTS shadow tableは保存せず復旧後にrebuildする。
 既知AUTOINCREMENT表のsqlite_sequence high-waterも保存する。現在はcustom_field_definitionsが対象で、値が非負i64かつ現存idの最大値以上であることを検証し、行の投入後に復元する。削除した最大field IDが復旧後に再利用されないことを試験する。未知表のsequenceは拒否する。
-復旧はsource gate下で全hash/型/件数/相対pathとsymlink不使用を先に検証し、sourceと異なる明示target mappingの全DBが空であることを確認する。新しいcontrol markerをrestoringにして既知schemaと行を投入し、tenantの索引/FTS/外部キー/件数/foldを検証する。任意SQL、保存物内URL、既存targetは拒否する。
+復旧CLIはsource/target CONFIGを明示して区別し、source gate下で全hash/型/件数/相対pathとsymlink不使用を先に検証し、sourceと異なるtarget mappingの全DBが空であることを確認する。controlは最初の確定からrestoringとし、保存した旧metaで状態や新しい識別を上書きしない。既知schemaと行を投入し、tenantの索引/FTS/外部キー/件数/foldを検証する。任意SQL、保存物内URL、既存targetは拒否する。
 成功時だけcontrolをreadyへ変更し、instanceとdatabase_id/登録対応をtarget用に再発行、sessions/gateを空にする。途中失敗はrestoringのまま、sourceを変更せず、対象の削除や既存DBへの切替はしない。restoringはserve不可。復旧先gateが空でもready前は使えない。
 
 ## System Flows
