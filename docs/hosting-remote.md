@@ -71,3 +71,15 @@ meibo hosted-remote /private/remote.json gate-recover OWNER --prior-work-termina
 時刻だけで占有を解除しない。解除応答の消失ではDELETE済みの可能性もあるため、
 新しい接続の`gate-status`で確認する。再起動は占有を自動解除しない。
 Cloudflareでの配備と提供者環境の検証は、それぞれの公開ゲートで記録する。
+
+## 合成ブラウザ検証
+
+`crates/app/tests/remote-hosted-browser.mjs`はSQLD6個とHTTPS前段を一時起動し、
+2組織3権限・旧tab・再起動・CLI中断時のgate保持/復旧・新DBへの復元を確認する。
+Playwrightを導入した環境で、`integration-tests` featureのappをbuildし、
+`MEIBO_BINARY`・`MEIBO_SQLD_BINARY`・`PLAYWRIGHT_MODULE`へ絶対pathを指定して
+`node crates/app/tests/remote-hosted-browser.mjs`を実行する。`TMPDIR`にはsymlinkを含まない
+既存の一時directoryを指定する。結果先は`MEIBO_BROWSER_OUTPUT`で指定できる。
+実企業データは使用せず、生成証明書の例外は当該browser contextだけに限定する。
+検証用DB前段には小さな通信遅延を置き、Mac上の一時port枯渇を避ける。SQLの再送はしない。
+この結果はCloudflare/Tursoの提供環境や実端末での検証を示すものではない。
