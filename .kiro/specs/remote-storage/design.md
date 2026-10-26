@@ -50,7 +50,8 @@ Rowsは上限内で受信した単一応答の行を反復し、無制限の全�
 `Engine::{create_remote(endpoint,identity,origin,options),open_remote(endpoint,identity,options)}`をcloud限定で追加する。`RemoteIdentity`はdatabase_idと種別を持ち、HTTP要求から作らない。cloud限定の`Engine::is_poisoned`で上位が処理終端の接続状態を確認できる。通常のcreate/open/migrate/公開APIは変えない。
 createは空の新DBだけを初期化する。`meta`へremote format marker、schema_version、database_id、data_originと既存拡張版を記録する。openは必須markerと期待ID/版/種別を照合し、不正値・欠落・未来版を拒否する。無関係な追加meta keyはopaqueな値として保ち、設定やSQLに解釈しない。remoteはapplication_id/user_versionを書かず、手元版は従来PRAGMAを維持する。
 remote writeは同じBEGIN IMMEDIATEで業務処理を確定する。fs容量見積り・WAL・checkpointを呼ばず、外部DBの容量/制約エラーを失敗として返す。読み取りsnapshotも同streamで維持する。既存SQLのFTS5 trigram・生成列・trigger・件数更新は共有する。
-論理消去/tombstoneは共有する。手元専用compact/WAL/ファイルbackupはremoteで明示Unsupportedとし、物理消去を保証しない。remote保存/復旧は以下の別入口を使う。全件verify/CSVと保存のscanはbounded keysetへ分け、途中を黙って省略しない。
+論理消去/tombstoneは共有する。手元専用compact/WAL（settleを含む）/ファイルbackupはremoteで既存の分類による明示Unsupportedとし、物理消去を保証しない。remote保存/復旧は以下の別入口を使う。全件verify/CSVと保存のscanはbounded keysetへ分け、途中を黙って省略しない。
+cloud限定の`Engine::visit_crm_snapshot(visitor: FnMut(&CrmTable, &[u8]) -> Result<(), EngineError>) -> Result<CrmSequences, EngineError>`は、同streamの読み取りtransactionで12表の型付き行を逐次渡す。各keysetページは500行以下とし、erase_gateが空であることとsequenceも同じsnapshotで確認する。callback失敗を成功へ変えず、手元版の既存APIと保守経路は維持する。保守の拒否はpublicにした既存`RemoteErrorKind::error` constructorを使い、予約code/messageを複製しない。
 
 ### 3. Hosted storeとOperation gate
 `hosted-remote CONFIG COMMAND`を追加し、既存hostedのinit/tenant-add/user-add/password-set/user-disable/member-set/revoke/audit/backup/restore/serve/sync-ntaと同じ許可・password-stdin規則を適用する。外部DB作成やプラン変更は行わない。追加の`gate-status`と`gate-recover OWNER --prior-work-terminated`は運用専用である。

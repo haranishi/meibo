@@ -47,7 +47,7 @@
   - _Requirements: 2.6, 4.2_
 - [ ] 2.5 全件scanとremote保守を接続する
   - verify/CSV/snapshotを500行以下のkeysetページで処理し、ページ境界を越えて抜け・重複がないことを確認する。手元compact/WAL/file backupを保ち、remoteは対応外を明示する。
-  - _Boundary: core scans, erase/engine maintenance, snapshot reader_
+  - _Boundary: core scans, erase/engine maintenance, snapshot reader, db RemoteErrorKind::error constructor visibility/docs only_
   - _Depends: 2.3, 2.4_
   - _Requirements: 2.1, 2.6, 5.1, 5.2_
 
