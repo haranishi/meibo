@@ -309,14 +309,15 @@ impl<S: HostedStorage> Hosted<S> {
 
     fn dispatch_checked(&mut self, input: &Input, at: i64) -> HostedResult<HostedReply> {
         let path = path(input);
+        if input.method == "GET"
+            && let Some(reply) = super::public_entry::asset(path)
+        {
+            return Ok(reply.into());
+        }
         match (input.method.as_str(), path) {
             ("GET", "/health") => return Ok(Reply::json(200, &json!({"ok":true})).into()),
             ("GET", "/login") => {
-                return Ok(Reply::text(
-                    "text/html; charset=utf-8",
-                    include_str!("../../ui/login.html"),
-                )
-                .into());
+                return Ok(super::public_entry::login(&self.config).into());
             }
             ("GET", "/login.js") => {
                 return Ok(Reply::text(

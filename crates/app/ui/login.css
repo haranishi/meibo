@@ -18,6 +18,20 @@
 .login-card fieldset:disabled{opacity:.7}
 .login-error{margin-bottom:16px;padding:10px 12px;background:#fff3f1;border-left:3px solid #b84032;color:#9b2c22;font-size:14px}
 .login-help{margin:24px 0 0;font-size:12px}
+.public-share{margin-top:24px;padding-top:20px;border-top:1px solid #dbe2ea}
+.public-share h2{margin:0;color:#344b62;font-size:14px;font-weight:650}
+.public-share-help{margin:5px 0 12px;color:#526579;font-size:12px}
+.public-share-actions{display:flex;flex-wrap:wrap;gap:8px}
+.public-share-actions a,.public-share-actions button{display:inline-flex;align-items:center;justify-content:center;min-width:44px;min-height:44px;padding:8px 12px;border:1px solid #aebccc;border-radius:5px;background:#fff;color:#244866;font:inherit;font-size:13px;font-weight:600;text-decoration:none}
+.public-share-actions button{width:auto;flex-grow:1}
+.public-share-actions [hidden],.public-share-fallback[hidden]{display:none}
+.public-share-actions a:hover,.public-share-actions button:hover{background:#edf4fb;border-color:#1863a8}
+.public-share-actions a:focus-visible,.public-share-actions button:focus-visible,.public-share-fallback input:focus-visible{outline:3px solid #9acdfb;outline-offset:3px}
+.public-share-actions button:disabled{opacity:.65;cursor:default}
+.public-share-status{min-height:1.7em;margin:8px 0 0;color:#344b62;font-size:12px;overflow-wrap:anywhere}
+.public-share-fallback{margin-top:8px;font-size:12px}
+.public-share-fallback label{display:block;margin-bottom:5px;color:#526579}
+.public-share-fallback input{width:100%;min-height:44px;padding:8px;border:1px solid #aebccc;border-radius:5px;color:#203246;background:#fff;font:inherit}
 .hosted-session{display:flex;align-items:center;justify-content:flex-end;gap:10px;font-size:12px;color:#344b62;min-width:0}
 .hosted-session span{max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .hosted-session button{font:inherit;border:1px solid #bac7d6;border-radius:4px;background:white;padding:7px 9px;color:#244866;cursor:pointer;white-space:nowrap}

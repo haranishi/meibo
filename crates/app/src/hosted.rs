@@ -4,6 +4,7 @@ mod backup;
 mod cli;
 mod control;
 mod http;
+mod public_entry;
 #[cfg(feature = "cloud")]
 mod remote;
 #[cfg(feature = "cloud")]
