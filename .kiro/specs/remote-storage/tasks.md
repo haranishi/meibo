@@ -82,9 +82,10 @@
   - 実sqld/fault proxyで2組織3権限のlogin/更新/logout/旧tab、再起動保持、占有gateの復旧、保存先変更後の再loginを確認し、秘密が診断へ出ない証拠を残す。
   - _Boundary: app/tests remote_hosted and browser fixtures, db fault tests integration_
   - _Requirements: 5.3_
-- [ ] 4.4 公開版を継続検証する入口とCIを接続する
+- [ ] 4.4 (P) 公開版を継続検証する入口とCIを接続する
   - 合成serverを起動するcloud test/build/lint/CIがintegration-tests featureを明示実行するよう接続する。default-localの通信禁止bansを保つgraphとcloud用監査policyを分け、双方のadvisory/license/source門、default check-all/MSRVとcloud検査を通す。未実施の提供者環境確認を合格扱いにしない。
-  - _Boundary: xtask and CI validation integration_
+  - _Boundary: xtask, CI and default/cloud dependency policy validation integration_
+  - _Depends: 1.5, 3.1; integrated and final revalidation after later source changes_
   - _Requirements: 1.1, 5.4_
 
 ## Implementation Notes
