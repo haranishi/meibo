@@ -1,6 +1,6 @@
 use super::client::{BODY_LIMIT, REQUEST_TIMEOUT, bounded_body, http_client};
 use libsql_hrana::proto::{
-    PipelineReqBody, PipelineRespBody, StreamRequest, StreamResponse, StreamResult,
+    CloseStreamReq, PipelineReqBody, PipelineRespBody, StreamRequest, StreamResponse, StreamResult,
 };
 use reqwest::{
     Method,
@@ -36,6 +36,8 @@ pub enum Fault {
     #[allow(dead_code)] // Selected by application-level integration contracts.
     LoseMatchingWriteResponse(&'static str),
     #[allow(dead_code)]
+    EndUnstoredStream,
+    #[allow(dead_code)]
     RoutePrefix,
 }
 
@@ -46,7 +48,33 @@ struct State {
     requests: AtomicUsize,
     commits: AtomicUsize,
     rollbacks: AtomicUsize,
+    fresh_streams: AtomicUsize,
+    stored_sql_uses: AtomicUsize,
     routed: AtomicBool,
+}
+
+impl State {
+    fn observe_stored_sql(&self, bytes: &[u8]) {
+        if let Ok(body) = serde_json::from_slice::<PipelineReqBody>(bytes) {
+            if body.baton.is_none() {
+                self.fresh_streams.fetch_add(1, Ordering::SeqCst);
+            }
+            let uses_stored = body.requests.iter().any(|request| {
+                let StreamRequest::Execute(request) = request else {
+                    return false;
+                };
+                request.stmt.sql.is_none()
+                    && request.stmt.sql_id.is_some_and(|id| {
+                        body.requests.iter().any(|request| {
+                            matches!(request, StreamRequest::StoreSql(request) if request.sql_id == id)
+                        })
+                    })
+            });
+            if uses_stored {
+                self.stored_sql_uses.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+    }
 }
 
 pub struct FaultProxy {
@@ -133,6 +161,16 @@ impl FaultProxy {
     pub fn rollbacks(&self) -> usize {
         self.state.rollbacks.load(Ordering::SeqCst)
     }
+
+    #[allow(dead_code)]
+    pub fn fresh_streams(&self) -> usize {
+        self.state.fresh_streams.load(Ordering::SeqCst)
+    }
+
+    #[allow(dead_code)]
+    pub fn stored_sql_uses(&self) -> usize {
+        self.state.stored_sql_uses.load(Ordering::SeqCst)
+    }
 }
 
 impl Drop for FaultProxy {
@@ -162,6 +200,7 @@ async fn forward(
 ) -> io::Result<()> {
     let mut request = read_request(&mut stream).await?;
     state.requests.fetch_add(1, Ordering::SeqCst);
+    state.observe_stored_sql(&request.body);
     let commit = is_control(&request.body, "COMMIT");
     let rollback = is_control(&request.body, "ROLLBACK");
     let write = is_insert(&request.body);
@@ -197,8 +236,12 @@ async fn forward(
         state.triggered.fetch_add(1, Ordering::SeqCst);
         return oversized_error(&mut stream, length).await;
     }
+    let upstream_url = format!("http://{upstream}{}", request.path);
+    let mut upstream_headers = request.headers.clone();
+    upstream_headers.remove(CONTENT_LENGTH);
+    upstream_headers.remove(TRANSFER_ENCODING);
     let mut response = client
-        .request(request.method, format!("http://{upstream}{}", request.path))
+        .request(request.method, &upstream_url)
         .headers(request.headers)
         .body(request.body)
         .send()
@@ -241,8 +284,24 @@ async fn forward(
             state.routed.store(true, Ordering::SeqCst);
             state.triggered.fetch_add(1, Ordering::SeqCst);
         }
+        Some(Fault::EndUnstoredStream) => {
+            let (updated, ended) =
+                end_unstored_stream(body, &upstream_url, upstream_headers, client).await?;
+            body = updated;
+            if ended {
+                state.triggered.fetch_add(1, Ordering::SeqCst);
+            }
+        }
         _ => {}
     }
+    write_response(&mut stream, status, &body).await
+}
+
+async fn write_response(
+    stream: &mut TcpStream,
+    status: reqwest::StatusCode,
+    body: &[u8],
+) -> io::Result<()> {
     stream
         .write_all(
             format!(
@@ -254,8 +313,58 @@ async fn forward(
             .as_bytes(),
         )
         .await?;
-    stream.write_all(&body).await?;
+    stream.write_all(body).await?;
     stream.shutdown().await
+}
+
+async fn end_unstored_stream(
+    body: Vec<u8>,
+    upstream_url: &str,
+    upstream_headers: HeaderMap,
+    client: &reqwest::Client,
+) -> io::Result<(Vec<u8>, bool)> {
+    let mut decoded: PipelineRespBody = serde_json::from_slice(&body)
+        .map_err(|_| io::Error::other("invalid fixture stream response"))?;
+    if decoded.results.iter().any(|result| {
+        matches!(
+            result,
+            StreamResult::Ok {
+                response: StreamResponse::StoreSql(_)
+            }
+        )
+    }) {
+        return Ok((body, false));
+    }
+    if let Some(baton) = decoded.baton.take() {
+        let close = PipelineReqBody {
+            baton: Some(baton),
+            requests: vec![StreamRequest::Close(CloseStreamReq {})],
+        };
+        let mut closed = client
+            .post(upstream_url)
+            .headers(upstream_headers)
+            .json(&close)
+            .send()
+            .await
+            .map_err(|_| io::Error::other("fixture stream close failed"))?;
+        let closed_body = bounded_body(&mut closed).await?;
+        let closed_body: PipelineRespBody = serde_json::from_slice(&closed_body)
+            .map_err(|_| io::Error::other("invalid fixture stream close"))?;
+        if !closed.status().is_success()
+            || closed_body.baton.is_some()
+            || !matches!(
+                closed_body.results.as_slice(),
+                [StreamResult::Ok {
+                    response: StreamResponse::Close(_)
+                }]
+            )
+        {
+            return Err(io::Error::other("fixture stream close failed"));
+        }
+    }
+    let body = serde_json::to_vec(&decoded)
+        .map_err(|_| io::Error::other("invalid fixture stream response"))?;
+    Ok((body, true))
 }
 
 struct Request {

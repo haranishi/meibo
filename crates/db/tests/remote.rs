@@ -54,6 +54,7 @@ fn setup_body() -> serde_json::Value {
     serde_json::json!({
         "baton": "synthetic-stream", "base_url": null,
         "results": [
+            {"type":"ok","response":{"type":"store_sql"}},
             {"type":"ok","response":{"type":"execute","result":{
                 "cols":[],"rows":[],"affected_row_count":0,"last_insert_rowid":null
             }}},
@@ -489,12 +490,12 @@ remote_test!(
 );
 
 remote_test!(setup_failure_closes_once_without_sending_any_user_sql, {
-    for failed_pragma in [false, true] {
+    for failed_step in 0..4 {
         let mut body = setup_body();
-        if failed_pragma {
-            body["results"][0] = serde_json::json!({"type":"error","error":{"code":"SQLITE_ERROR","message":"raw-body-secret"}});
+        if failed_step < 3 {
+            body["results"][failed_step] = serde_json::json!({"type":"error","error":{"code":"SQLITE_ERROR","message":"raw-body-secret"}});
         } else {
-            body["results"][1]["response"]["result"]["rows"][0][0]["value"] = "0".into();
+            body["results"][2]["response"]["result"]["rows"][0][0]["value"] = "0".into();
         }
         let closed = serde_json::json!({"baton":null,"base_url":null,"results":[{"type":"ok","response":{"type":"close"}}]});
         let server = ResponseServer::script(
@@ -508,7 +509,7 @@ remote_test!(setup_failure_closes_once_without_sending_any_user_sql, {
         assert!(connection.is_poisoned());
         assert_eq!(
             server.request_types(),
-            [vec!["execute", "execute"], vec!["close"]]
+            [vec!["store_sql", "execute", "execute"], vec!["close"]]
         );
         assert!(connection.execute_batch("SELECT 1").is_err());
         assert_eq!(server.count(), 2);
@@ -643,7 +644,10 @@ remote_test!(
         connection.prepare("SELECT 1").unwrap();
         assert_eq!(
             server.request_types(),
-            [vec!["execute", "execute"], vec!["describe", "close"]]
+            [
+                vec!["store_sql", "execute", "execute"],
+                vec!["describe", "close"]
+            ]
         );
         assert_eq!(
             server.count(),

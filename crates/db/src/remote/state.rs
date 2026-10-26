@@ -1,10 +1,12 @@
 use super::{
-    CloseStreamReq, RemoteConnection, RemoteErrorKind, StreamRequest, StreamResponse, execute_sql,
-    expect_ok,
+    CloseStreamReq, ExecuteStreamReq, RemoteConnection, RemoteErrorKind, Stmt, StoreSqlStreamReq,
+    StreamRequest, StreamResponse, execute_sql, expect_ok,
 };
 use crate::{Error, Result, TransactionBehavior};
 use libsql_hrana::proto::{PipelineRespBody, Value};
 use reqwest::Url;
+
+const FOREIGN_KEYS_SQL_ID: i32 = 0;
 
 pub(super) struct Stream {
     pipeline: Url,
@@ -132,27 +134,39 @@ impl RemoteConnection {
     fn open_stream(&self) -> Result<Stream> {
         // A v2 pipeline executes later statements after a known SQL error.
         // Verify setup before any caller SQL is sent on the same stream.
-        let setup = self.pipeline(
-            &self.transport.pipeline,
-            None,
-            vec![
-                execute_sql("PRAGMA foreign_keys=ON", false),
-                execute_sql("PRAGMA foreign_keys", true),
-            ],
-            false,
-        )?;
+        // Providers may close autocommit streams with no stored SQL. Retain
+        // the query we actually use to check FK state, scoped to this stream.
+        let requests = vec![
+            StreamRequest::StoreSql(StoreSqlStreamReq {
+                sql_id: FOREIGN_KEYS_SQL_ID,
+                sql: "PRAGMA foreign_keys".into(),
+            }),
+            execute_sql("PRAGMA foreign_keys=ON", false),
+            StreamRequest::Execute(ExecuteStreamReq {
+                stmt: Stmt {
+                    sql_id: Some(FOREIGN_KEYS_SQL_ID),
+                    want_rows: Some(true),
+                    ..Stmt::default()
+                },
+            }),
+        ];
+        let setup = self.pipeline(&self.transport.pipeline, None, requests, false)?;
         let mut stream = Stream {
             pipeline: self.transport.next_pipeline(setup.base_url.as_deref())?,
             baton: setup.baton,
         };
         let mut results = setup.results.into_iter();
+        let stored = matches!(
+            expect_ok(results.next().unwrap()),
+            Ok(StreamResponse::StoreSql(_))
+        );
         let enabled = expect_ok(results.next().unwrap()).is_ok();
         let checked = expect_ok(results.next().unwrap());
         let verified = matches!(checked, Ok(StreamResponse::Execute(ref result))
             if result.result.rows.len() == 1
                 && result.result.rows[0].values.len() == 1
                 && matches!(result.result.rows[0].values[0], Value::Integer { value: 1 }));
-        if !enabled || !verified {
+        if !stored || !enabled || !verified {
             let _ = self.close(&mut stream);
             return self.invalid_response();
         }

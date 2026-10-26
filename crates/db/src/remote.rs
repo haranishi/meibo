@@ -10,7 +10,8 @@ pub use options::RemoteOptions;
 
 use libsql_hrana::proto::{
     self, CloseStreamReq, DescribeStreamReq, ExecuteStreamReq, PipelineReqBody, PipelineRespBody,
-    SequenceStreamReq, Stmt, StmtResult, StreamRequest, StreamResponse, StreamResult,
+    SequenceStreamReq, Stmt, StmtResult, StoreSqlStreamReq, StreamRequest, StreamResponse,
+    StreamResult,
 };
 use reqwest::{Url, header::HeaderValue};
 use std::{
@@ -435,6 +436,7 @@ fn matches_response(request: &StreamRequest, response: &StreamResponse) -> bool 
         (StreamRequest::Execute(_), StreamResponse::Execute(_))
             | (StreamRequest::Describe(_), StreamResponse::Describe(_))
             | (StreamRequest::Sequence(_), StreamResponse::Sequence(_))
+            | (StreamRequest::StoreSql(_), StreamResponse::StoreSql(_))
             | (StreamRequest::Close(_), StreamResponse::Close(_))
     )
 }

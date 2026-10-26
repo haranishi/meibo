@@ -132,6 +132,7 @@ impl ResponseServer {
                         StreamRequest::Execute(_) => "execute",
                         StreamRequest::Describe(_) => "describe",
                         StreamRequest::Sequence(_) => "sequence",
+                        StreamRequest::StoreSql(_) => "store_sql",
                         StreamRequest::Close(_) => "close",
                         _ => "other",
                     })

@@ -72,6 +72,55 @@ fn private(error: &Error, endpoint: &str) {
     }
 }
 
+transaction_test!(provider_style_stateless_setup_keeps_real_query_streams, {
+    let server = database();
+    let proxy = FaultProxy::start(server.address()).unwrap();
+    proxy.arm(Fault::EndUnstoredStream);
+    let connection = connect(&proxy.endpoint());
+    let actual: i64 = connection
+        .query_row("SELECT 17", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(actual, 17);
+    assert_eq!(
+        connection
+            .execute("INSERT INTO synthetic(value) VALUES(41)", [])
+            .unwrap(),
+        1
+    );
+    assert_eq!(connection.last_insert_rowid(), 1);
+    let tx = connection.unchecked_transaction().unwrap();
+    assert_eq!(
+        connection
+            .execute("INSERT INTO synthetic(value) VALUES(42)", [])
+            .unwrap(),
+        1
+    );
+    tx.commit().unwrap();
+    assert_eq!(count(&connection), 2);
+    assert_eq!(connection.last_insert_rowid(), 2);
+    assert_eq!(proxy.triggered(), 0);
+    assert!(proxy.fresh_streams() > 0);
+    assert_eq!(proxy.stored_sql_uses(), proxy.fresh_streams());
+    assert!(connection.is_autocommit());
+    assert!(!connection.is_poisoned());
+});
+
+transaction_test!(provider_style_unstored_control_stream_is_really_closed, {
+    let server = database();
+    let proxy = FaultProxy::start(server.address()).unwrap();
+    proxy.arm(Fault::EndUnstoredStream);
+    let result = Client::connect(&proxy.endpoint())
+        .unwrap()
+        .execute("SELECT 17")
+        .unwrap();
+    assert!(matches!(
+        result.rows[0].values[0],
+        libsql_hrana::proto::Value::Integer { value: 17 }
+    ));
+    assert_eq!(proxy.triggered(), 1);
+    assert_eq!(proxy.requests(), 1);
+});
+
 transaction_test!(
     original_connection_and_prepared_statement_share_transaction,
     {
