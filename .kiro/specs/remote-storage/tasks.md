@@ -21,18 +21,19 @@
   - _Requirements: 2.1, 2.6_
 - [ ] 1.5 同streamのtransactionと結果不明を扱う
   - 元Connection経由を含む同batonのtransaction、commit/rollback/Drop/lastrowidを共有する。SequenceでSQL全文/triggerを分割せず実行し、v2 GetAutocommitを使わない。commit後の応答を落としOutcomeUnknownと再使用/再送拒否を確認する。
-  - _Boundary: crates/db Connection local/remote backend integration, transaction, remote state, adapter exports, fault tests_
+  - _Boundary: crates/db Connection local/remote backend integration, transaction, remote state, error classification/adapter exports, fault tests_
   - _Requirements: 2.2, 2.3, 2.4, 2.6_
 
 - [ ] 2. Coreの保存方針を分ける
-- [ ] 2.1 SQL aliasを既存coreへ接続する
+- [ ] 2.1 (P) SQL aliasを既存coreへ接続する
   - 内部試験を含むSQL参照をaliasへ寄せる。defaultの直接rusqlite経路と公開Engine APIを保ち、default試験とcloudの手元CLIをcompileする。
   - _Boundary: core lib, SQL imports and tests_
-  - _Depends: 1.5_
+  - _Depends: 1.3_
   - _Requirements: 1.1, 5.4_
 - [ ] 2.2 remoteの初期化と識別を追加する
   - Engine create_remote/open_remoteとmarker/版/DB識別/種別を追加する。実sqldの空DBだけを初期化し、欠落・未来版・不一致・既存内容を拒否し、手元へfallbackしないことを確認する。
   - _Boundary: core engine, schema/remote_
+  - _Depends: 2.1, 1.5_
   - _Requirements: 1.2, 1.3, 1.4_
 - [ ] 2.3 remoteの更新・snapshot方針へ業務処理を接続する
   - fs/WALに依存しないremote transactionを使い、CRUD・取消・件数・索引・独自項目・一括処理・論理消去とtombstoneの実sqld回帰、制約失敗時の全取消を通す。
@@ -86,3 +87,4 @@
 旧libsql SDK/TLS connector案は依存監査不合格で置換済み。公式Hrana型+現行reqwestの組合せはRust1.88/online advisories/licenses/sourcesを通過した。1.4はchunk受信中の上限を試験し、Rowsは単一の上限付き応答だけを保持する。大量scanは2.5でページ化する。Cloudflare版のLinux build/runtimeにはOpenSSLとCAを配備側が用意する。
 1.1のdefault graph試験修正はoptional packageがlockfileへ載ることと通常版へlinkされることを区別する。4.4の監査policy分離は別タスクであり、1.1で禁止packageや既存policyを緩めない。
 1.3のrow.rsとprimitives.rsの変更は既存の列選択とlocal変換の互換性を保つ範囲である。query/query_row/query_mapの未取得の不正列とlocalのInf読取りをnativeと照合し、params/公開from_valuesの拒否試験を残す。
+2.1は完成済みlocal adapterのalias接続として1.5と独立worktreeで並行できる。sqlite_versionは同梱rusqliteの直接呼出しを保ち、統合後にConnectionのSendとdefault/cloudの手元経路を再検証する。remote初期化2.2は両方の完了を待つ。

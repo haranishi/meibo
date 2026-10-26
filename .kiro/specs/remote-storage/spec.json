@@ -1,7 +1,7 @@
 {
   "feature_name": "remote-storage",
   "created_at": "2026-10-26T12:00:00Z",
-  "updated_at": "2026-10-26T15:37:47.185704+00:00",
+  "updated_at": "2026-10-26T15:44:36.717591+00:00",
   "language": "ja",
   "phase": "implementing",
   "approvals": {
@@ -42,7 +42,9 @@
     "foreign_key_setup_delta": "PASS_inline_same_stream_verified_PRAGMA_before_user_SQL_separate_pipeline_due_v2_sequential_error_semantics",
     "remote_diagnostics_delta": "PASS_inline_remote_only_row_labels_redacted_local_public_owned_unchanged_no_app_logger_subscriber_upstream_debug_requires_revalidation",
     "no_implicit_retry_delta": "PASS_inline_idle_pool_zero_prevents_internal_hyper_util_reused_connection_retry_actual_RED_GREEN",
-    "task_1_5_connection_contract_delta": "PASS_inline_planned_open_remote_is_remote_is_poisoned_with_shared_backend_state_and_explicit_connection_exports_boundary"
+    "task_1_5_connection_contract_delta": "PASS_inline_planned_open_remote_is_remote_is_poisoned_with_shared_backend_state_and_explicit_connection_exports_boundary",
+    "parallel_local_alias_delta": "APPROVED_independent_current_local_adapter_API_complete_2.1_depends_1.3_then_2.2_depends_2.1_and_1.5_isolated_worktrees_native_sqlite_version_Send_and_combined_local_checks",
+    "task_1_5_error_classification_delta": "PASS_inline_fixed_reserved_SQLite_error_messages_and_codes_OutcomeUnknown_ConnectionPoisoned_Unsupported_raw_Error_compatibility"
   },
   "transport_preflight": {
     "stack": "libsql-hrana =0.10.0 + reqwest =0.13.5 default-features=false json/native-tls-no-alpn + shared Tokio",
