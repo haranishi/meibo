@@ -1,5 +1,5 @@
 //! Bounded CSV import for the synthetic local workspace.
-use meibo_core::{DuplicatePolicy, Engine, types::DataOrigin};
+use meibo_core::{DuplicatePolicy, Engine};
 use meibo_import::{Encoding, ImportOptions, import_csv};
 use serde_json::json;
 
@@ -10,9 +10,6 @@ pub(super) const MAX_IMPORT_BODY: usize = 32 * 1024 * 1024;
 pub(super) fn import_csv_request(engine: &mut Engine, query: &str, body: &[u8]) -> Reply {
     if body.len() > MAX_IMPORT_BODY {
         return Reply::error(413, "CSVファイルは32MiB以下にしてください。");
-    }
-    if engine.origin() != DataOrigin::Synthetic {
-        return Reply::error(403, "CSV取込は合成デモDBだけで利用できます。");
     }
     let Some(options) = parse_options(query) else {
         return Reply::error(400, "文字コードと重複時の処理を確認してください。");
@@ -64,7 +61,10 @@ fn parse_options(query: &str) -> Option<ImportOptions> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use meibo_core::{OpenOptions, types::Filters};
+    use meibo_core::{
+        OpenOptions,
+        types::{DataOrigin, Filters},
+    };
     use serde_json::Value;
     use std::fmt::Write as _;
 

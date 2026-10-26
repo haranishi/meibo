@@ -1,7 +1,9 @@
 //! 同梱画面から合成デモを操作する、loopback専用のHTTP入口。
 mod api;
 mod crm;
+mod custom_fields;
 mod import_ui;
+pub(crate) mod public_api;
 
 use std::{
     error::Error,
@@ -35,7 +37,20 @@ const SECURITY_HEADERS: [(&str, &str); 5] = [
 ];
 
 pub(crate) fn serve(db: &Path, port: u16) -> Result<(), Box<dyn Error>> {
-    let mut engine = open_demo(db)?;
+    serve_with_options(db, port, false)
+}
+
+pub(crate) fn serve_with_options(
+    db: &Path,
+    port: u16,
+    allow_real: bool,
+) -> Result<(), Box<dyn Error>> {
+    let mut engine = if allow_real {
+        Engine::open(db, &OpenOptions::default())
+            .map_err(|_| "保存先を開けません。パスと保存形式を確認してください。")?
+    } else {
+        open_demo(db)?
+    };
     let server = Server::http(("127.0.0.1", port))
         .map_err(|_| "ローカルサーバーを起動できません。ポートの使用状況を確認してください。")?;
     let address = server
@@ -62,15 +77,15 @@ fn open_demo(db: &Path) -> Result<Engine, Box<dyn Error>> {
 }
 
 #[derive(Debug)]
-struct Input {
-    method: String,
-    target: String,
-    headers: Vec<(String, String)>,
-    body: Vec<u8>,
+pub(crate) struct Input {
+    pub(crate) method: String,
+    pub(crate) target: String,
+    pub(crate) headers: Vec<(String, String)>,
+    pub(crate) body: Vec<u8>,
 }
 
 impl Input {
-    fn single_header(&self, name: &str) -> Option<&str> {
+    pub(crate) fn single_header(&self, name: &str) -> Option<&str> {
         let mut values = self
             .headers
             .iter()
@@ -84,15 +99,15 @@ impl Input {
 }
 
 #[derive(Debug)]
-struct Reply {
-    status: u16,
-    mime: &'static str,
-    body: Vec<u8>,
-    attachment: bool,
+pub(crate) struct Reply {
+    pub(crate) status: u16,
+    pub(crate) mime: &'static str,
+    pub(crate) body: Vec<u8>,
+    pub(crate) attachment: bool,
 }
 
 impl Reply {
-    fn json(status: u16, value: &Value) -> Self {
+    pub(crate) fn json(status: u16, value: &Value) -> Self {
         Self {
             status,
             mime: "application/json; charset=utf-8",
@@ -101,11 +116,11 @@ impl Reply {
         }
     }
 
-    fn error(status: u16, message: &'static str) -> Self {
+    pub(crate) fn error(status: u16, message: &'static str) -> Self {
         Self::json(status, &json!({"error": message}))
     }
 
-    fn text(mime: &'static str, body: &'static str) -> Self {
+    pub(crate) fn text(mime: &'static str, body: &'static str) -> Self {
         Self {
             status: 200,
             mime,
@@ -207,7 +222,7 @@ fn validate_boundary(input: &Input, port: u16) -> Result<(), Reply> {
     Ok(())
 }
 
-fn dispatch(engine: &mut Engine, input: &Input, port: u16) -> Reply {
+pub(crate) fn dispatch(engine: &mut Engine, input: &Input, port: u16) -> Reply {
     if let Err(reply) = validate_boundary(input, port) {
         return reply;
     }
@@ -218,6 +233,12 @@ fn dispatch(engine: &mut Engine, input: &Input, port: u16) -> Reply {
         return Reply::error(405, "この操作には対応していません。");
     }
     let (path, query) = input.target.split_once('?').unwrap_or((&input.target, ""));
+    if let Some(reply) = public_api::dispatch(engine, input, path, query) {
+        return reply;
+    }
+    if let Some(reply) = custom_fields::dispatch(engine, input, path, query) {
+        return reply;
+    }
     if input.method == "POST" && path == "/api/import" {
         return import_ui::import_csv_request(engine, query, &input.body);
     }
@@ -229,6 +250,30 @@ fn dispatch(engine: &mut Engine, input: &Input, port: u16) -> Reply {
     }
     if input.method == "GET" {
         match path {
+            "/custom-fields.js" => {
+                return Reply::text(
+                    "text/javascript; charset=utf-8",
+                    include_str!("../ui/custom-fields.js"),
+                );
+            }
+            "/custom-fields.css" => {
+                return Reply::text(
+                    "text/css; charset=utf-8",
+                    include_str!("../ui/custom-fields.css"),
+                );
+            }
+            "/call-mode.js" => {
+                return Reply::text(
+                    "text/javascript; charset=utf-8",
+                    include_str!("../ui/call-mode.js"),
+                );
+            }
+            "/call-mode.css" => {
+                return Reply::text(
+                    "text/css; charset=utf-8",
+                    include_str!("../ui/call-mode.css"),
+                );
+            }
             "/" => {
                 return Reply::text("text/html; charset=utf-8", include_str!("../ui/index.html"));
             }

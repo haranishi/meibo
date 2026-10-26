@@ -2,6 +2,7 @@
 mod csv;
 mod export;
 mod import;
+mod nta;
 mod row;
 
 use std::fmt;
@@ -10,6 +11,7 @@ use meibo_core::DuplicatePolicy;
 
 pub use export::{ExportError, export_csv};
 pub use import::{ImportError, import_csv};
+pub use nta::{NtaImportError, sync_nta};
 
 /// Explicit input/output character encoding. No encoding is guessed.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]

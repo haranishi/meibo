@@ -12,6 +12,7 @@ workspace = true
 [dependencies]
 meibo-core = { version = "0.1.0", path = "../core" }
 encoding_rs = "0.8.42"
+rusqlite = { version = "0.40.2", features = ["bundled"] }
 
 [dev-dependencies]
 tempfile = "3.27.0"

@@ -1,11 +1,13 @@
 //! 営業リストの型と保存・検索の土台。
 mod bulk;
 pub mod crm;
+pub mod custom_fields;
 pub mod engine;
 mod erase;
 pub mod houjin;
 mod lists;
 pub mod normalize;
+pub mod public_data;
 mod query;
 mod schema;
 mod search;

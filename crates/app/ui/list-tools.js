@@ -1,7 +1,7 @@
 "use strict";
 
 (() => {
-  const storageKey = "meibo-list-views-v1", maximumFileSize = 32 * 1024 * 1024;
+  const storageKey = window.MeiboContext?.storageKey("meibo-list-views-v1") ?? "meibo-list-views-v1", maximumFileSize = 32 * 1024 * 1024;
   const columns = [
     ["row", "行番号"], ["name", "取引先名"], ["region", "所在地"], ["phone", "電話番号"],
     ["status", "営業状態"], ["owner", "担当"], ["next", "次回対応"], ["number", "法人番号"]

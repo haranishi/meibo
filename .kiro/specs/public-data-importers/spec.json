@@ -1,0 +1,37 @@
+{
+  "feature_name": "public-data-importers",
+  "language": "ja",
+  "phase": "completed",
+  "approvals": {
+    "requirements": {
+      "generated": true,
+      "approved": true
+    },
+    "design": {
+      "generated": true,
+      "approved": true
+    },
+    "tasks": {
+      "generated": true,
+      "approved": true
+    }
+  },
+  "execution_authorization": {
+    "basis": "2026-10-26 maintainer request to implement remaining features and publish",
+    "real_data_connection_to_crm": true,
+    "public_source_release": true,
+    "ship_real_data_in_repository": false
+  },
+  "task_graph_review": "independent PASS",
+  "verification": {
+    "integrated_tests_passed": 289,
+    "ignored_existing_benchmarks": 3,
+    "check_all": "passed",
+    "advisories": "passed",
+    "msrv": "1.88 passed",
+    "reuse": "3.3 compliant",
+    "secret_scan": "zero findings",
+    "independent_boundary_review": "APPROVED",
+    "external_cloud_deployed": false
+  }
+}

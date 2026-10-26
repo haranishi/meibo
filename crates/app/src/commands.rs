@@ -21,7 +21,23 @@ pub(crate) fn run(command: Command) -> Result<()> {
     let options = OpenOptions::default();
     match command {
         Command::Help => print!("{HELP}"),
-        Command::Serve(db, port) => crate::server::serve(&db, port)?,
+        Command::Serve(db, port, allow_real) => {
+            if allow_real {
+                crate::server::serve_with_options(&db, port, true)?;
+            } else {
+                crate::server::serve(&db, port)?;
+            }
+        }
+        Command::Mcp(db, allow_write) => crate::mcp::serve(&db, allow_write)?,
+        Command::Hosted(args) => crate::hosted::run(args)?,
+        Command::SyncNta(db, source, limit) => {
+            let mut engine = Engine::open(&db, &options)?;
+            let report = meibo_import::sync_nta(&mut engine, &source, limit)?;
+            println!(
+                "inserted={} updated={} skipped={}",
+                report.inserted, report.updated, report.skipped
+            );
+        }
         Command::Init(db, origin) => {
             let _engine = Engine::create(&db, origin, &options)?;
             println!("created");

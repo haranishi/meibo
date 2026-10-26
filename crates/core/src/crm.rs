@@ -1,11 +1,11 @@
-//! 合成デモ用の独立したToDo・予定・商談。基盤の保存形式とは別に拡張版を管理する。
+//! 独立したToDo・予定・商談。基盤の保存形式とは別に拡張版を管理する。
 
 use rusqlite::{Connection, OptionalExtension, Row, params, params_from_iter, types::Value};
 
 use crate::{
     Engine,
     schema::WRITE_BASE,
-    types::{CompanyId, ContactId, DataOrigin, EngineError},
+    types::{CompanyId, ContactId, EngineError},
     write::{now_secs, reject_nul},
 };
 
@@ -206,7 +206,6 @@ impl Engine {
     /// # Errors
     /// 種別不一致、不正入力、企業/担当者不在、他社担当者、除外、保存の失敗。
     pub fn crm_create_work_item(&mut self, input: &WorkItemInput) -> Result<i64, EngineError> {
-        self.db.check_origin(DataOrigin::Synthetic)?;
         let subject = validate_work(input)?;
         self.db.write(WRITE_BASE + 4096, |tx| {
             target(tx, input.company, input.contact)?;
@@ -227,7 +226,6 @@ impl Engine {
         id: i64,
         input: &WorkItemInput,
     ) -> Result<(), EngineError> {
-        self.db.check_origin(DataOrigin::Synthetic)?;
         let subject = validate_work(input)?;
         self.db.write(WRITE_BASE + 4096, |tx| {
             let (company, kind, _) = work_target(tx, id)?;
@@ -247,7 +245,6 @@ impl Engine {
     /// # Errors
     /// 対象不在、予定への適用、除外、保存の失敗。
     pub fn crm_set_completion(&mut self, id: i64, completed: bool) -> Result<(), EngineError> {
-        self.db.check_origin(DataOrigin::Synthetic)?;
         self.db.write(WRITE_BASE + 4096, |tx| {
             let (company, kind, contact) = work_target(tx, id)?;
             if kind != WorkKind::Task {
@@ -267,7 +264,6 @@ impl Engine {
     /// # Errors
     /// 不正条件、別条件のカーソル、種別不一致、保存の失敗。
     pub fn crm_work_items(&self, query: &WorkQuery) -> Result<CrmPage<WorkItem>, EngineError> {
-        self.db.check_origin(DataOrigin::Synthetic)?;
         validate_query(query.company, query.after, query.limit)?;
         let (base, mut args) = work_filter(query);
         let snapshot = self.db.conn().unchecked_transaction().map_err(storage)?;
@@ -306,7 +302,6 @@ impl Engine {
     /// # Errors
     /// 不正入力、企業/担当者不在、他社担当者、除外、保存の失敗。
     pub fn crm_create_opportunity(&mut self, input: &OpportunityInput) -> Result<i64, EngineError> {
-        self.db.check_origin(DataOrigin::Synthetic)?;
         let name = validate_opportunity(input)?;
         self.db.write(WRITE_BASE + 4096, |tx| {
             target(tx, input.company, input.contact)?;
@@ -326,7 +321,6 @@ impl Engine {
         id: i64,
         input: &OpportunityInput,
     ) -> Result<(), EngineError> {
-        self.db.check_origin(DataOrigin::Synthetic)?;
         let name = validate_opportunity(input)?;
         self.db.write(WRITE_BASE + 4096, |tx| {
             let (company, _) = opportunity_target(tx, id)?;
@@ -346,7 +340,6 @@ impl Engine {
     /// # Errors
     /// 不正段階、対象不在、除外、保存の失敗。
     pub fn crm_set_stage(&mut self, id: i64, stage: u8) -> Result<(), EngineError> {
-        self.db.check_origin(DataOrigin::Synthetic)?;
         if stage > 5 {
             return Err(invalid("stage", "must be between 0 and 5"));
         }
@@ -369,7 +362,6 @@ impl Engine {
         &self,
         query: &OpportunityQuery,
     ) -> Result<CrmPage<Opportunity>, EngineError> {
-        self.db.check_origin(DataOrigin::Synthetic)?;
         validate_query(query.company, query.after, query.limit)?;
         let (base, mut args) = opportunity_filter(query.company);
         let snapshot = self.db.conn().unchecked_transaction().map_err(storage)?;

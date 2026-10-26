@@ -1,0 +1,51 @@
+{
+  "feature_name": "api-mcp",
+  "language": "ja",
+  "phase": "completed",
+  "updated_at": "2026-10-26T00:00:00+09:00",
+  "approvals": {
+    "requirements": {
+      "generated": true,
+      "approved": true
+    },
+    "design": {
+      "generated": true,
+      "approved": true
+    },
+    "tasks": {
+      "generated": true,
+      "approved": true
+    }
+  },
+  "execution_authorization": {
+    "basis": "2026-10-26 user request to implement remaining features and publish",
+    "public_release": true,
+    "git_operations_parent_only": true
+  },
+  "review": {
+    "requirements": "inline draft review passed",
+    "design": "inline draft review passed",
+    "tasks": "independent task graph review PASS after local ordering repair"
+  },
+  "verification": {
+    "api_unit_tests_passed": 6,
+    "mcp_unit_tests_passed": 7,
+    "mcp_cli_process_tests_passed": 4,
+    "all_app_unit_tests_passed_at_local_check": 43,
+    "api_red_to_green": "5 stub failures followed by passing implementation",
+    "mcp_preimplementation_red": "blocked at compilation by neighboring unfinished modules; behavioral red not observed",
+    "source_attribution": "synthetic NTA-labeled fixture verified through HTTP/tool and MCP CLI",
+    "clippy": "API/MCP findings repaired; overall pending neighboring custom-fields findings",
+    "independent_code_review": "pending parent integration review",
+    "real_client_and_production": "not verified",
+    "integrated_tests_passed": 289,
+    "ignored_existing_benchmarks": 3,
+    "check_all": "passed",
+    "advisories": "passed",
+    "msrv": "1.88 passed",
+    "reuse": "3.3 compliant",
+    "secret_scan": "zero findings",
+    "independent_boundary_review": "APPROVED",
+    "external_cloud_deployed": false
+  }
+}

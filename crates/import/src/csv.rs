@@ -2,7 +2,7 @@
 use std::io::{BufRead, BufReader, Read};
 
 pub(crate) const MAX_RECORD_BYTES: usize = 1024 * 1024;
-pub(crate) const MAX_COLUMNS: usize = 13;
+pub(crate) const MAX_COLUMNS: usize = crate::row::COLUMNS.len();
 
 pub(crate) struct Record {
     pub row: u64,
@@ -136,7 +136,7 @@ impl<R: Read> CsvReader<R> {
                 },
                 b',' => {
                     if cells.len() + 1 >= MAX_COLUMNS {
-                        return Err(self.error("record exceeds 13 columns"));
+                        return Err(self.error("record exceeds 15 columns"));
                     }
                     cells.push(std::mem::take(&mut field));
                     state = State::Start;

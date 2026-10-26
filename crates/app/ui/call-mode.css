@@ -1,0 +1,4 @@
+.call-mode-banner { display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px 20px;background:#edf5ff;border:1px solid #a9ccef;border-radius:7px;margin-bottom:18px;color:#173758; }
+.call-mode-banner p { margin:6px 0 0;font-size:13px;line-height:1.6; }
+.call-mode-actions { display:flex;gap:8px;flex-wrap:wrap; }
+@media(max-width:768px) { .call-mode-banner {align-items:stretch;flex-direction:column;padding:14px;} .call-mode-actions .button {flex:1 1 auto;} }

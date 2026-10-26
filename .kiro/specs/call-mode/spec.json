@@ -1,0 +1,43 @@
+{
+  "feature_name": "call-mode",
+  "language": "ja",
+  "phase": "completed",
+  "approvals": {
+    "requirements": {
+      "generated": true,
+      "approved": true
+    },
+    "design": {
+      "generated": true,
+      "approved": true
+    },
+    "tasks": {
+      "generated": true,
+      "approved": true
+    }
+  },
+  "execution_authorization": {
+    "basis": "2026-10-26 maintainer request to implement remaining features and publish"
+  },
+  "task_graph_review": "independent PASS",
+  "verification": {
+    "browser": "passed",
+    "active_synthetic_records": 59,
+    "page_boundaries": [
+      25,
+      50
+    ],
+    "failure_retry": "passed",
+    "empty_and_completion": "passed",
+    "unsaved_exit": "passed",
+    "widths": [
+      390,
+      768,
+      1440
+    ],
+    "ui_score": 18,
+    "experience_score": 18,
+    "integrated_tests_passed": 289,
+    "product_changes_after_debug": false
+  }
+}

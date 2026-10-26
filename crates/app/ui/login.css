@@ -1,0 +1,27 @@
+:root{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans JP",sans-serif;color:#203246;background:#f3f6fa;font-synthesis:none}
+*{box-sizing:border-box}
+.login-page{min-height:100dvh;margin:0;padding:48px 20px;display:grid;place-items:center;line-height:1.7}
+.login-card{width:min(100%,460px);padding:38px;background:#fff;border:1px solid #dbe2ea;border-radius:12px;box-shadow:0 12px 40px #18324f0a}
+.login-brand{display:flex;align-items:center;gap:10px;width:fit-content;text-decoration:none;color:#1863a8;font-size:24px;font-weight:750}
+.login-brand>span{font-size:22px;color:#203246}
+.login-card h1{font-size:24px;margin:25px 0 10px;line-height:1.45}
+.login-intro,.login-help{color:#526579;font-size:14px}
+.login-card fieldset{border:0;margin:24px 0 0;padding:0;min-width:0}
+.login-field{margin-bottom:18px}
+.login-field label{display:block;font-size:14px;font-weight:650;margin-bottom:6px}
+.login-field input{width:100%;min-height:46px;padding:10px 12px;border:1px solid #aebccc;border-radius:5px;font:inherit;background:#fff;color:#203246}
+.login-field input:focus{outline:3px solid #b8d9fa;outline-offset:1px;border-color:#1863a8}
+.login-field p{font-size:12px;margin:5px 0 0;color:#526579}
+.login-card button{width:100%;min-height:46px;border:1px solid #135d9f;border-radius:5px;background:#1863a8;color:#fff;font:inherit;font-weight:650;cursor:pointer}
+.login-card button:hover{background:#13558f}
+.login-card button:focus-visible,.hosted-session button:focus-visible{outline:3px solid #9acdfb;outline-offset:3px}
+.login-card fieldset:disabled{opacity:.7}
+.login-error{margin-bottom:16px;padding:10px 12px;background:#fff3f1;border-left:3px solid #b84032;color:#9b2c22;font-size:14px}
+.login-help{margin:24px 0 0;font-size:12px}
+.hosted-session{display:flex;align-items:center;justify-content:flex-end;gap:10px;font-size:12px;color:#344b62;min-width:0}
+.hosted-session span{max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hosted-session button{font:inherit;border:1px solid #bac7d6;border-radius:4px;background:white;padding:7px 9px;color:#244866;cursor:pointer;white-space:nowrap}
+main[data-meibo-gated]{visibility:hidden}
+html[data-meibo-auth-pending] body{display:none!important;visibility:hidden!important}
+html[data-meibo-auth-pending] body *{visibility:hidden!important}
+@media(max-width:600px){.login-page{padding:24px 16px}.login-card{padding:28px 22px}.login-card h1{font-size:22px}.hosted-session{gap:5px}.hosted-session span{max-width:90px}.hosted-session button{padding:7px}}

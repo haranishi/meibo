@@ -49,7 +49,7 @@ async function request(url, options = {}) {
   try { response = await fetch(url, { cache: "no-store", ...options }); }
   catch (error) {
     if (error.name === "AbortError") throw error;
-    throw new Error("サーバーに接続できません。ローカルサーバーの起動を確認してください。");
+    throw new Error("サーバーに接続できません。通信状況を確認して、もう一度お試しください。");
   }
   if (!response.ok) {
     let message = "読み込みに失敗しました。もう一度お試しください。";
@@ -59,7 +59,7 @@ async function request(url, options = {}) {
   return response;
 }
 function busy() {
-  if (state.saving || state.creating || state.contactSaving || window.crmWorkspace?.busy()) { notify("保存しています。完了してから操作してください。"); return true; }
+  if (state.saving || state.creating || state.contactSaving || window.crmWorkspace?.busy() || window.MeiboFields?.busy()) { notify("保存しています。完了してから操作してください。"); return true; }
   return false;
 }
 function closeAppMenu() {
@@ -78,7 +78,7 @@ function showWorkspace(name) {
     if (selected) item.setAttribute("aria-current", "page"); else item.removeAttribute("aria-current");
   });
   const recordName = state.detail?.company?.id === state.selected ? companyName(state.detail.company) : "取引先を読み込み中";
-  document.title = `${name === "home" ? "営業ホーム" : name === "record" ? recordName : name === "tasks" ? "次回対応" : "取引先"} · meibo`;
+  document.title = document.documentElement.hasAttribute("data-meibo-auth-pending") ? "meibo" : `${name === "home" ? "営業ホーム" : name === "record" ? recordName : name === "tasks" ? "次回対応" : "取引先"} · meibo`;
   $("record-tab").hidden = state.selected === null;
   if (state.selected !== null) { $("record-tab-name").textContent = recordName; $("record-tab-name").setAttribute("aria-current", name === "record" ? "page" : "false"); }
   closeAppMenu();
@@ -98,7 +98,7 @@ function syncControls() {
   window.MeiboListTools?.sync();
 }
 function navigate(name) {
-  if (busy()) return;
+  if (busy() || window.MeiboCallMode?.stop() === false) return;
   ++state.detailVersion; state.detailController?.abort();
   if (window.crmWorkspace?.recognizes(name)) { window.crmWorkspace.open(name); return; }
   if (name === "home") {
@@ -113,13 +113,13 @@ function navigate(name) {
 
 function readRecent() {
   try {
-    const values = JSON.parse(sessionStorage.getItem("meibo-recent-companies") || "[]");
+    const values = JSON.parse(sessionStorage.getItem(window.MeiboContext?.storageKey("meibo-recent-companies") ?? "meibo-recent-companies") || "[]");
     return Array.isArray(values) ? values.filter((v) => Number.isSafeInteger(v.id) && v.id > 0 && typeof v.name === "string").slice(0, 6) : [];
   } catch (_) { return []; }
 }
 function rememberCompany(company) {
   state.recent = [{ id: company.id, name: companyName(company).slice(0, 256) }, ...state.recent.filter((v) => v.id !== company.id)].slice(0, 6);
-  try { sessionStorage.setItem("meibo-recent-companies", JSON.stringify(state.recent)); } catch (_) {}
+  try { sessionStorage.setItem(window.MeiboContext?.storageKey("meibo-recent-companies") ?? "meibo-recent-companies", JSON.stringify(state.recent)); } catch (_) {}
   renderRecent();
 }
 function companyLink(company, metadata) {
@@ -155,6 +155,12 @@ async function loadSummary() {
   try {
     const data = await (await request("/api/summary")).json(); if (version !== state.summaryVersion) return;
     state.summary = data;
+    const real = data.origin === "real";
+    const badge = document.querySelector(".demo-badge"); if (badge) badge.textContent = real ? "実データ" : "合成デモ";
+    document.querySelector(".workspace-footer").lastElementChild.textContent = real ? "国税庁法人番号公表サイトのデータを加工して利用" : "合成データを使用したデモワークスペース";
+    $("data-attribution").hidden = !real;
+    $("data-attribution").textContent = real ? `${data.attribution}。${data.modification_notice}` : "";
+
     $("total-count").textContent = numberFormat.format(data.total); $("active-count").textContent = numberFormat.format(data.active);
     $("phone-count").textContent = numberFormat.format(data.with_phone); $("due-count").textContent = numberFormat.format(data.due || 0);
     if ($("scheduled-count")) $("scheduled-count").textContent = numberFormat.format(data.scheduled || 0);
@@ -228,7 +234,7 @@ async function loadList() {
   } finally { if (version === state.listVersion) { state.loading = false; $("table-container").setAttribute("aria-busy", "false"); renderPagination(); } }
 }
 function searchCompanies(value) {
-  if (busy()) return;
+  if (busy() || window.MeiboCallMode?.stop() === false) return;
   const cleared = state.view !== "all" || Object.keys(state.filters).length;
   state.query = value.trim(); state.view = "all"; state.filters = {}; state.listContext = "accounts";
   state.selected = null; state.detail = null; ++state.detailVersion; state.detailController?.abort();
@@ -322,7 +328,7 @@ function renderActivityForm(company) {
 
 
 function closeCompany() {
-  if (busy()) return;
+  if (busy() || window.MeiboCallMode?.stop() === false) return;
   const destination = state.workspace === "record" ? state.returnWorkspace : state.workspace;
   const id = state.selected; state.selected = null; state.detail = null; ++state.detailVersion; state.detailController?.abort();
   showWorkspace(destination); renderRows();
@@ -435,7 +441,8 @@ function renderDetail(data, focusHeading = false) {
   if (company.status >= 4) path.append(el("li", "path-outcome", `現在の状態: ${statuses[company.status]}`));
   const body = el("div", "record-body"), activity = el("aside", "record-activity"); activity.setAttribute("aria-label", "活動と架電記録");
   activity.append(renderActivityForm(company), renderTimeline(activities)); body.append(recordTabs(company, activities, contacts), activity);
-  container.append(header, path, body); if (focusHeading) title.focus({ preventScroll: true });
+  window.MeiboFields?.render({container:body.querySelector("#record-details"),companyId:company.id,request,notice:notify});
+  container.append(header, path, body); window.MeiboCallMode?.render(); if (focusHeading) title.focus({ preventScroll: true });
 }
 async function openCompany(id, focusHeading = true) {
   if (busy()) return;
@@ -491,7 +498,9 @@ async function saveActivity(id, form, draft) {
     state.drafts.delete(id);
     state.saving = false;
     notify("架電の記録を保存しました。");
-    await Promise.all([loadSummary(), loadHomeDue(), loadList(), state.selected === id ? openCompany(id, false) : Promise.resolve()]);
+    await Promise.all([loadSummary(), loadHomeDue(), loadList()]);
+    if (window.MeiboCallMode?.active()) await window.MeiboCallMode.saved(id);
+    else if (state.selected === id) await openCompany(id, false);
   } catch (error) {
     errorBox.textContent = `保存できませんでした。${error.message} 入力内容を残しています。もう一度保存できます。`;
     errorBox.hidden = false; notify("架電の記録を保存できませんでした。入力内容をご確認ください。", true);
@@ -514,7 +523,7 @@ function openCompanyDialog() {
   if (busy()) return;
   state.editingCompany = null; $("company-form").reset();
   $("company-dialog-title").textContent = "新規取引先";
-  $("company-dialog-description").textContent = "追加する内容は、合成デモの取引先として保存されます。";
+  $("company-dialog-description").textContent = state.summary?.origin === "real" ? "このワークスペースの取引先として保存します。" : "追加する内容は、合成デモの取引先として保存されます。";
   $("company-form-error").hidden = true;
   $("company-dialog").showModal(); $("company-name").focus();
 }
@@ -622,6 +631,17 @@ function cancelActivity(companyId, activityId) {
   view.dialog.showModal(); view.cancel.focus();
 }
 
+let appStarted = false;
+window.MeiboAppStart = function () {
+if (appStarted) return; appStarted = true;
+window.MeiboCallMode?.configure({
+  rows:()=>state.rows, next:()=>state.next, company:()=>state.detail?.company,
+  params:()=>{ const p=new URLSearchParams({limit:"25"}); if(state.query)p.set("q",state.query);else{p.set("view",state.view);p.set("sort",state.sort||"default");Object.entries(state.filters).forEach(([k,v])=>p.set(k,v));}return p.toString(); },
+  request, open:openCompany, close:closeCompany, notice:notify,
+  busy:()=>state.saving || state.creating || state.contactSaving || Boolean(window.MeiboFields?.busy()),
+  unsaved:()=>{const d=state.drafts.get(state.selected);return Boolean(d&&(d.note.trim()||d.nextMode!=="keep"||d.status!==d.baselineStatus||d.at||d.contact));}
+});
+$("start-call-mode").addEventListener("click",()=>window.MeiboCallMode?.start());
 populatePrefectures(); syncControls(); showWorkspace("accounts"); renderRecent();
 document.querySelectorAll("[data-workspace]").forEach((control) => control.addEventListener("click", () => navigate(control.dataset.workspace)));
 $("record-tab-name").addEventListener("click", () => { if (!busy() && state.selected !== null) { const id = state.selected; showWorkspace("record"); openCompany(id); } });
@@ -675,3 +695,6 @@ document.addEventListener("keydown", (event) => {
   }
 });
 Promise.all([loadSummary(), loadHomeDue(), loadList()]);
+
+};
+if (!window.MeiboContext) window.MeiboAppStart();

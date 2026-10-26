@@ -11,7 +11,7 @@ use crate::{
 };
 use rusqlite::{OptionalExtension, params};
 
-const INSERT_COMPANY: &str = "INSERT INTO companies(corporate_number,name,name_key,prefecture_code,municipality_code,industry_code,status,phone,website,owner_id,base_status,is_sole_proprietor,source_id,source_as_of,created_at,updated_at,last_activity_at,next_action_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?7,?11,?12,?13,?14,?14,0,NULL)";
+pub(crate) const INSERT_COMPANY: &str = "INSERT INTO companies(corporate_number,name,name_key,prefecture_code,municipality_code,industry_code,status,phone,website,owner_id,base_status,is_sole_proprietor,source_id,source_as_of,created_at,updated_at,last_activity_at,next_action_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?7,?11,?12,?13,?14,?14,0,NULL)";
 const INSERT_ACTIVITY: &str = "INSERT INTO activities(company_id,kind,at,status_after,next_action_kind,next_action_at) VALUES(?1,?2,?3,?4,?5,?6)";
 
 pub(crate) struct BulkRecord {
@@ -88,7 +88,7 @@ fn estimated_space(total_hint: Option<u64>, opt: &BulkOptions) -> Result<u64, En
 }
 
 /// 企業を1社追加して内部IDを返す。法人番号の重複は既存の企業を示して拒否する。
-fn insert_company(
+pub(crate) fn insert_company(
     tx: &rusqlite::Transaction<'_>,
     stmt: &mut rusqlite::Statement<'_>,
     normalized: &write::NormalizedCompany,

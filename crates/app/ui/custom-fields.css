@@ -1,0 +1,37 @@
+.custom-fields-card {
+  margin-top: 24px;
+  padding: 20px;
+  border: 1px solid var(--border, #d9e0e8);
+  border-radius: 8px;
+  background: var(--surface, #fff);
+}
+.custom-fields-card h2 { margin: 0 0 8px; font-size: 1.1rem; }
+.custom-fields-help, .custom-fields-empty { color: #526070; font-size: .875rem; line-height: 1.6; overflow-wrap: anywhere; }
+.custom-fields-message { min-height: 1.5em; margin: 8px 0; line-height: 1.5; overflow-wrap: anywhere; }
+.custom-fields-message.has-error { color: #a42020; }
+.custom-fields-rows { display: grid; gap: 14px; }
+.custom-field-value-group, .custom-field-create-group { min-width: 0; margin: 0; padding: 12px; border: 1px solid #d9e0e8; border-radius: 6px; }
+.custom-field-value-group legend, .custom-field-create-group legend { max-width: 100%; padding: 0 6px; font-weight: 600; overflow-wrap: anywhere; }
+.custom-field-value-group .custom-fields-help { margin: 0 0 10px; }
+.custom-field-control { display: grid; gap: 6px; min-width: 0; }
+.custom-field-label { font-size: .875rem; font-weight: 600; overflow-wrap: anywhere; }
+.custom-fields-card input:not([type="checkbox"]), .custom-fields-card textarea, .custom-fields-card select {
+  box-sizing: border-box; width: 100%; min-width: 0; min-height: 38px; padding: 8px 10px;
+  border: 1px solid #a8b4c3; border-radius: 4px; background: #fff; color: #182c44; font: inherit;
+}
+.custom-fields-card textarea { resize: vertical; }
+.custom-fields-card :is(input, textarea, select, button):focus-visible { outline: 3px solid #2376bc; outline-offset: 2px; }
+.custom-fields-card [disabled] { opacity: .6; cursor: wait; }
+.custom-fields-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.custom-field-delete { margin-left: auto; color: #9a2626; }
+.custom-field-create-form { margin-top: 18px; }
+.custom-field-create-group { display: grid; grid-template-columns: minmax(0, 2fr) minmax(110px, 1fr); gap: 12px; }
+.custom-fields-check { display: flex; align-items: center; gap: 8px; grid-column: 1 / -1; font-size: .875rem; }
+.custom-fields-check input { width: 18px; height: 18px; flex: 0 0 auto; }
+.custom-field-create-group > button { justify-self: start; grid-column: 1 / -1; }
+@media (max-width: 600px) {
+  .custom-fields-card { padding: 14px; margin-top: 16px; }
+  .custom-field-create-group { grid-template-columns: minmax(0, 1fr); }
+  .custom-field-delete { margin-left: 0; }
+  .custom-fields-actions .button { min-height: 40px; }
+}

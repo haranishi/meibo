@@ -1,6 +1,6 @@
 # Contributing
 
-meibo is in private development. The project name and public release remain under review.
+meibo is an early development release. The project name is provisional.
 Use synthetic data for development, tests, screenshots, and performance measurements.
 
 ## Develop and verify
