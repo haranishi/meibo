@@ -89,7 +89,7 @@
   - _Boundary: app/tests remote_hosted and browser fixtures, db fault tests integration_
   - _Depends: 3.3, 4.1, 4.2_
   - _Requirements: 5.3_
-- [ ] 4.4 (P) 公開版を継続検証する入口とCIを接続する
+- [x] 4.4 (P) 公開版を継続検証する入口とCIを接続する
   - 合成serverを起動するcloud test/build/lint/CIがintegration-tests featureを明示実行するよう接続する。default-localの通信禁止bansを保つgraphとcloud用監査policyを分け、双方のadvisory/license/source門、default check-all/MSRVとcloud検査を通す。未実施の提供者環境確認を合格扱いにしない。
   - _Boundary: xtask, CI/setup helper, default/cloud dependency policies and contributor validation instructions_
   - _Depends: 1.5, 3.1; integrated and final revalidation after later source changes_
