@@ -36,6 +36,16 @@ password変更、利用停止、所属変更、revokeは既存sessionを失効�
 `sync-nta SLUG CATALOG [--limit COUNT]`は指定組織のreal DBへ許可項目を取り込む。
 `audit [SLUG]`は最大200件の運用監査を表示する。
 
+`backup NEW_DIRECTORY`は共通gateを保持し、認証DBと登録済みの全組織DBを
+新しい専用ディレクトリへ保存する。既存ディレクトリの上書きはしない。
+保存した全行の型・件数・SHA-256を検証してから`backed-up`を返す。
+保存物にはpassword hashが含まれるため、秘密管理された場所で保管する。
+session・gate・接続URL・token・CONFIGの環境変数名は含まれない。
+
+```sh
+meibo hosted-remote /private/remote.json backup /private/backups/service-20261027
+```
+
 Webと通常の管理操作は、controlの共通gateで直列化する。
 `outcome_unknown`では確定を確認できないため、再送せず管理者へ連絡する。
 管理者は以前のプロセスと進行中の処理を終了してから状態を確認する。

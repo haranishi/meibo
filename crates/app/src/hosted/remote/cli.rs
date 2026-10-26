@@ -32,6 +32,7 @@ Commands:
   revoke USER
   audit [SLUG]
   sync-nta SLUG CATALOG [--limit COUNT]
+  backup NEW_DIRECTORY
   gate-status
   gate-recover OWNER --prior-work-terminated
   serve --origin https://domain [--bind 127.0.0.1:4317]
@@ -54,6 +55,7 @@ enum Action {
     Revoke(String),
     Audit(Option<String>),
     Sync(String, PathBuf, Option<u64>),
+    Backup(PathBuf),
     Status,
     Recover(String),
     Serve(HostedConfig),
@@ -133,6 +135,7 @@ fn parse(command: &str, args: &[String]) -> HostedResult<Action> {
             Ok(Action::Sync(tenant.clone(), catalog.into(), limit))
         }
         ("gate-status", []) => Ok(Action::Status),
+        ("backup", [path]) => Ok(Action::Backup(path.into())),
         ("gate-recover", [owner, flag])
             if flag == "--prior-work-terminated"
                 && owner.len() == 64
@@ -284,6 +287,10 @@ fn execute(
                 "inserted={} updated={} skipped={}",
                 report.inserted, report.updated, report.skipped
             ))
+        }
+        Action::Backup(path) => {
+            crate::hosted::remote_backup::create(store, operation, &path)?;
+            Ok("backed-up".into())
         }
         Action::Init | Action::Status | Action::Recover(_) | Action::Serve(_) => unreachable!(
             "bootstrap/status/server actions were handled before acquiring a work gate"

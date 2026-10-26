@@ -129,6 +129,30 @@ struct Web {
     child: Child,
     address: String,
 }
+
+#[test]
+fn remote_backup_command_creates_a_verified_service_manifest() {
+    let _guard = FIXTURES
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let fixture = Fixture::new();
+    fixture.setup();
+    let destination = fixture.directory.path().join("typed-service-backup");
+    let output = fixture.cli(&["backup", destination.to_str().unwrap()], None);
+    assert_eq!(output.trim(), "backed-up");
+    let manifest: Value =
+        serde_json::from_slice(&std::fs::read(destination.join("manifest.json")).unwrap()).unwrap();
+    assert_eq!(manifest["version"], 1);
+    assert_eq!(manifest["tenants"].as_array().unwrap().len(), 2);
+    assert_eq!(
+        fixture
+            .connection()
+            .query_row("SELECT count(*) FROM remote_gate", [], |row| row
+                .get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
+}
 impl Drop for Web {
     fn drop(&mut self) {
         let _ = self.child.kill();
@@ -673,12 +697,14 @@ fn loopback_database_policy_is_explicit_and_help_has_only_implemented_commands()
         0
     );
     let help = fixture.cli(&["--help"], None);
-    for word in ["gate-status", "gate-recover", "tenant-add", "sync-nta"] {
+    for word in [
+        "gate-status",
+        "gate-recover",
+        "tenant-add",
+        "sync-nta",
+        "backup NEW_DIRECTORY",
+    ] {
         assert!(help.contains(word));
     }
-    assert!(
-        !help.contains("backup")
-            && !help.contains("restore")
-            && !help.contains("MEIBO_TEST_REMOTE_LOOPBACK")
-    );
+    assert!(!help.contains("restore") && !help.contains("MEIBO_TEST_REMOTE_LOOPBACK"));
 }

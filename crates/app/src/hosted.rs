@@ -7,6 +7,8 @@ mod http;
 #[cfg(feature = "cloud")]
 mod remote;
 #[cfg(feature = "cloud")]
+mod remote_backup;
+#[cfg(feature = "cloud")]
 mod remote_gate;
 mod store;
 

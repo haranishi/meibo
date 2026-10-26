@@ -317,14 +317,14 @@ fn validate_control(conn: &Connection) -> HostedResult<ServiceIdentity> {
     Ok(identity)
 }
 
-fn opaque_id(value: &str) -> bool {
+pub(in crate::hosted) fn opaque_id(value: &str) -> bool {
     value.len() == 32
         && value
             .bytes()
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
-fn valid_dummy_hash(value: &str) -> bool {
+pub(in crate::hosted) fn valid_dummy_hash(value: &str) -> bool {
     PasswordHash::new(value).is_ok_and(|hash| {
         hash.algorithm.as_str() == "argon2id"
             && hash.version == Some(19)
