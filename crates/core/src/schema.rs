@@ -185,9 +185,9 @@ impl Db {
                 tx.execute("INSERT INTO meta(key,value) VALUES(?1,?2)", (key, value))
                     .map_err(storage)?;
             }
-            if origin == DataOrigin::Synthetic {
-                crate::crm::initialize(&tx)?;
-            }
+            crate::crm::initialize(&tx)?;
+            crate::custom_fields::initialize(&tx)?;
+            crate::public_data::initialize(&tx)?;
             counts::recount(&tx)?;
             tx.commit().map_err(storage)?;
             let checkpoint = checkpoint::Checkpoint::start(path, opt)?;
@@ -214,10 +214,10 @@ impl Db {
         }
         let origin = read_origin(&conn)?;
         configure(&conn, opt)?;
-        if origin == DataOrigin::Synthetic {
+        {
             let needs_extension: bool = conn
                 .query_row(
-                    "SELECT NOT EXISTS(SELECT 1 FROM meta WHERE key='crm_schema_version')",
+                    "SELECT (SELECT COUNT(*) FROM meta WHERE key IN ('crm_schema_version','custom_fields_schema_version','public_data_schema_version'))<>3",
                     [],
                     |row| row.get(0),
                 )
@@ -229,6 +229,8 @@ impl Db {
                 .transaction_with_behavior(TransactionBehavior::Immediate)
                 .map_err(storage)?;
             crate::crm::initialize(&tx)?;
+            crate::custom_fields::initialize(&tx)?;
+            crate::public_data::initialize(&tx)?;
             tx.commit().map_err(storage)?;
         }
         let checkpoint = checkpoint::Checkpoint::start(path, opt)?;

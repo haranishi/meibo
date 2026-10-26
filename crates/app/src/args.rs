@@ -3,7 +3,7 @@ use std::{collections::BTreeMap, ffi::OsString, path::PathBuf};
 use meibo_core::{DuplicatePolicy, types::DataOrigin};
 use meibo_import::{Encoding, ExportOptions, ImportOptions};
 
-pub(crate) const HELP: &str = "meibo — local company list CRM (unpublished prototype)
+pub(crate) const HELP: &str = "meibo — company list CRM (early development release)
 
 Usage:
   meibo init DB --origin synthetic|real
@@ -12,7 +12,10 @@ Usage:
   meibo export DB CSV [--encoding utf-8|shift-jis] [--include-personal] [--include-excluded]
   meibo list DB [--limit 1..200] [--search TERM]
   meibo verify DB
-  meibo serve DB [--port 4317]
+  meibo serve DB [--port 4317] [--allow-real]
+  meibo sync-nta DB CATALOG [--limit COUNT]
+  meibo mcp DB [--allow-write]
+  meibo hosted ROOT COMMAND [OPTIONS]
 
 Import commits batches of up to 500 rows / 8 MiB. Earlier batches remain on error.
 Export creates a new file, omits sole proprietors unless requested, and guards formulas.
@@ -27,7 +30,10 @@ pub(crate) enum Command {
     Export(PathBuf, PathBuf, ExportOptions),
     List(PathBuf, u32, Option<String>),
     Verify(PathBuf),
-    Serve(PathBuf, u16),
+    Serve(PathBuf, u16, bool),
+    SyncNta(PathBuf, PathBuf, Option<u64>),
+    Mcp(PathBuf, bool),
+    Hosted(Vec<OsString>),
 }
 
 struct Arguments {
@@ -96,6 +102,9 @@ pub(crate) fn parse(mut args: Vec<OsString>) -> Result<Command, String> {
         .into_string()
         .map_err(|_| "invalid command")?;
     let command = name.as_str();
+    if command == "hosted" {
+        return Ok(Command::Hosted(args));
+    }
     let (values, flags): (&[&str], &[&str]) = match command {
         "--help" | "-h" | "help" if args.is_empty() => return Ok(Command::Help),
         "init" => (&["--origin"], &[]),
@@ -107,11 +116,17 @@ pub(crate) fn parse(mut args: Vec<OsString>) -> Result<Command, String> {
         ),
         "list" => (&["--limit", "--search"], &[]),
         "verify" => (&[], &[]),
-        "serve" => (&["--port"], &[]),
+        "serve" => (&["--port"], &["--allow-real"]),
+        "sync-nta" => (&["--limit"], &[]),
+        "mcp" => (&[], &["--allow-write"]),
         _ => return Err("unknown command".into()),
     };
     let a = Arguments::parse(args, values, flags)?;
-    a.paths(usize::from(matches!(command, "import" | "export")) + 1)?;
+    a.paths(usize::from(matches!(command, "import" | "export" | "sync-nta")) + 1)?;
+    parsed_command(command, &a)
+}
+
+fn parsed_command(command: &str, a: &Arguments) -> Result<Command, String> {
     let db = a.paths[0].clone();
     match command {
         "init" => Ok(Command::Init(
@@ -174,7 +189,21 @@ pub(crate) fn parse(mut args: Vec<OsString>) -> Result<Command, String> {
                 .unwrap_or("4317")
                 .parse::<u16>()
                 .map_err(|_| "port must be 0..65535")?,
+            a.options.contains_key("--allow-real"),
         )),
+        "sync-nta" => Ok(Command::SyncNta(
+            db,
+            a.paths[1].clone(),
+            a.value("--limit")
+                .map(|v| {
+                    v.parse::<u64>()
+                        .ok()
+                        .filter(|n| *n > 0)
+                        .ok_or("limit must be positive")
+                })
+                .transpose()?,
+        )),
+        "mcp" => Ok(Command::Mcp(db, a.options.contains_key("--allow-write"))),
         _ => unreachable!(),
     }
 }

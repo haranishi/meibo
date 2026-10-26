@@ -59,7 +59,8 @@ pub(super) fn summary(engine: &Engine) -> Reply {
             })?
             .n;
         Ok::<_, EngineError>(
-            json!({"total":total,"active":active,"with_phone":with_phone,"origin":"synthetic",
+            json!({"total":total,"active":active,"with_phone":with_phone,"origin":if engine.origin()==DataOrigin::Real {"real"} else {"synthetic"},
+                "attribution":meibo_core::public_data::NTA_ATTRIBUTION,"modification_notice":meibo_core::public_data::NTA_MODIFICATION,
                 "status_counts":status_counts,"scheduled":scheduled,"due":due}),
         )
     })();
@@ -164,7 +165,7 @@ fn list_filters(parameters: &HashMap<String, String>) -> Option<(Filters, Sort)>
 }
 
 pub(super) fn create_company(engine: &mut Engine, body: &[u8]) -> Reply {
-    let Some(company) = parse_company(body) else {
+    let Some(company) = parse_company(body, engine.origin()) else {
         return Reply::error(
             400,
             "取引先名・都道府県・任意項目の入力を確認してください。",
@@ -176,7 +177,7 @@ pub(super) fn create_company(engine: &mut Engine, body: &[u8]) -> Reply {
     }
 }
 
-fn parse_company(body: &[u8]) -> Option<CompanyInput> {
+fn parse_company(body: &[u8], origin: DataOrigin) -> Option<CompanyInput> {
     let value: Value = serde_json::from_slice(body).ok()?;
     let object = value.as_object()?;
     if object.keys().any(|key| {
@@ -213,7 +214,7 @@ fn parse_company(body: &[u8]) -> Option<CompanyInput> {
         }
     };
     Some(CompanyInput {
-        origin: DataOrigin::Synthetic,
+        origin,
         corporate_number: optional("corporate_number")?,
         name,
         prefecture,
@@ -224,13 +225,20 @@ fn parse_company(body: &[u8]) -> Option<CompanyInput> {
         owner: None,
         status: Status::Untouched,
         is_sole_proprietor: false,
-        source_id: Some("manual-demo".into()),
+        source_id: Some(
+            if origin == DataOrigin::Synthetic {
+                "manual-demo"
+            } else {
+                "manual"
+            }
+            .into(),
+        ),
         source_as_of: None,
     })
 }
 
 pub(super) fn update_company(engine: &mut Engine, id: CompanyId, body: &[u8]) -> Reply {
-    let Some(mut update) = parse_company(body) else {
+    let Some(mut update) = parse_company(body, engine.origin()) else {
         return Reply::error(400, "取引先の入力内容を確認してください。");
     };
     let object: Value = serde_json::from_slice(body).expect("validated JSON");
@@ -537,6 +545,9 @@ fn company_json(company: &Company) -> Value {
         "phone":company.phone,"website":company.website,"status":company.status.code(),
         "owner":company.owner.map(|owner|owner.0),"last_activity_at":company.last_activity_at,
         "next_action_at":company.next_action_at,"is_sole_proprietor":company.is_sole_proprietor,
+        "source_id":company.source_id,"source_as_of":company.source_as_of,
+        "attribution":if company.source_id.as_deref()==Some("nta") {Some(meibo_core::public_data::NTA_ATTRIBUTION)} else {None},
+        "modification_notice":if company.source_id.as_deref()==Some("nta") {Some(meibo_core::public_data::NTA_MODIFICATION)} else {None},
     })
 }
 

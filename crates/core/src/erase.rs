@@ -151,7 +151,8 @@ pub(crate) fn erase_company(db: &mut Db, id: CompanyId) -> Result<(), EngineErro
         ),
         None => WRITE_BASE,
     }
-    .saturating_add(crm_erase_estimate(db, "company_id", id.0)?);
+    .saturating_add(crm_erase_estimate(db, "company_id", id.0)?)
+    .saturating_add(crate::custom_fields::erase_estimate(db, id)?);
     db.write(estimate, |tx| {
         let (sole, erased, key, phone): (bool, Option<i64>, String, bool) = tx
             .query_row(COMPANY_ERASURE_STATE, [id.0], |r| {
@@ -189,6 +190,8 @@ pub(crate) fn erase_company(db: &mut Db, id: CompanyId) -> Result<(), EngineErro
                 .map_err(storage)?;
             tx.execute(ERASE_COMPANY_NOTES, (id.0, now))
                 .map_err(storage)?;
+            crate::custom_fields::erase_values(tx, id)?;
+            crate::public_data::remember_erasure(tx, id)?;
             let erased_key = normalize::name_key(ERASED_COMPANY_NAME);
             tx.execute(ERASE_COMPANY, (id.0, now, ERASED_COMPANY_NAME, &erased_key))
                 .map_err(storage)?;

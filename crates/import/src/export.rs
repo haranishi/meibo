@@ -98,7 +98,8 @@ pub fn export_csv(
     Ok(count)
 }
 
-fn company_cells(company: Company) -> [String; 13] {
+fn company_cells(company: Company) -> [String; 15] {
+    let nta = company.source_id.as_deref() == Some("nta");
     let mut cells = [
         match company.origin {
             DataOrigin::Synthetic => "synthetic",
@@ -123,6 +124,16 @@ fn company_cells(company: Company) -> [String; 13] {
         company.is_sole_proprietor.to_string(),
         company.source_id.unwrap_or_default(),
         company.source_as_of.unwrap_or_default(),
+        if nta {
+            meibo_core::public_data::NTA_ATTRIBUTION.into()
+        } else {
+            String::new()
+        },
+        if nta {
+            meibo_core::public_data::NTA_MODIFICATION.into()
+        } else {
+            String::new()
+        },
     ];
     for index in [1, 2, 4, 6, 7, 11, 12] {
         let text = &mut cells[index];
@@ -137,7 +148,7 @@ fn company_cells(company: Company) -> [String; 13] {
 
 fn write_record(
     writer: &mut impl Write,
-    cells: &[String; 13],
+    cells: &[String],
     encoding: Encoding,
     row: u64,
 ) -> Result<(), ExportError> {

@@ -3,7 +3,7 @@ use meibo_core::types::{CompanyInput, DataOrigin, Industry, Status, UserId};
 
 use crate::Encoding;
 
-pub(crate) const COLUMNS: [&str; 13] = [
+pub(crate) const COLUMNS: [&str; 15] = [
     "origin",
     "corporate_number",
     "name",
@@ -17,6 +17,8 @@ pub(crate) const COLUMNS: [&str; 13] = [
     "is_sole_proprietor",
     "source_id",
     "source_as_of",
+    "attribution",
+    "modification_notice",
 ];
 
 pub(crate) fn decode(cells: Vec<Vec<u8>>, encoding: Encoding) -> Result<Vec<String>, &'static str> {
@@ -33,13 +35,13 @@ pub(crate) fn decode(cells: Vec<Vec<u8>>, encoding: Encoding) -> Result<Vec<Stri
 }
 
 pub(crate) struct Headers {
-    positions: [Option<usize>; 13],
+    positions: [Option<usize>; 15],
     width: usize,
 }
 
 impl Headers {
     pub fn new(cells: &[String]) -> Result<Self, &'static str> {
-        let mut positions = [None; 13];
+        let mut positions = [None; 15];
         for (position, cell) in cells.iter().enumerate() {
             let index = COLUMNS
                 .iter()

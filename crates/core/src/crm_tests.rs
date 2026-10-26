@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     OpenOptions,
-    types::{CompanyInput, ContactInput, Fields, Status},
+    types::{CompanyInput, ContactInput, DataOrigin, Fields, Status},
 };
 use std::{
     io,
@@ -400,7 +400,7 @@ fn legacy_base_database_is_extended_atomically_and_future_extension_rejected() {
 }
 
 #[test]
-fn crm_domain_rejects_real_data_origin() {
+fn crm_domain_supports_real_data_and_preserves_records_on_reopen() {
     let dir = tempfile::tempdir().unwrap();
     let mut engine = Engine::create(
         &dir.path().join("real.db"),
@@ -408,16 +408,24 @@ fn crm_domain_rejects_real_data_origin() {
         &OpenOptions::default(),
     )
     .unwrap();
+    let mut input = company("合成fixtureを実DB種別で検証", false);
+    input.origin = DataOrigin::Real;
+    let id = engine.register_company(&input).unwrap();
+    let task_id = engine.crm_create_work_item(&task(id, 100)).unwrap();
+    engine.crm_create_opportunity(&opportunity(id)).unwrap();
+    drop(engine);
+    let mut engine = Engine::open(&dir.path().join("real.db"), &OpenOptions::default()).unwrap();
+    assert_eq!(
+        engine
+            .crm_opportunities(&opportunity_query(None))
+            .unwrap()
+            .total,
+        1
+    );
+    engine.crm_set_completion(task_id, true).unwrap();
+    assert_eq!(engine.origin(), DataOrigin::Real);
     assert!(matches!(
-        engine.crm_create_work_item(&task(CompanyId(1), 100)),
-        Err(EngineError::OriginMismatch)
-    ));
-    assert!(matches!(
-        engine.crm_opportunities(&opportunity_query(None)),
-        Err(EngineError::OriginMismatch)
-    ));
-    assert!(matches!(
-        engine.crm_create_opportunity(&opportunity(CompanyId(1))),
+        engine.register_company(&company("種別混在", false)),
         Err(EngineError::OriginMismatch)
     ));
 }
@@ -454,6 +462,33 @@ fn initial_extension_checks_space_before_any_schema_change() {
     // 拡張済みなら空き不足でも新たなDDL領域は求めずに開ける。
     probe.0.store(0, Ordering::Relaxed);
     assert!(Engine::open(&path, &options).is_ok());
+}
+
+#[test]
+fn adding_custom_extension_to_an_existing_crm_checks_space_first() {
+    let (dir, engine, _, _) = fixture();
+    engine.db.conn().execute_batch("DROP TABLE custom_field_values;DROP TABLE custom_field_definitions;DELETE FROM meta WHERE key='custom_fields_schema_version';").unwrap();
+    drop(engine);
+    let probe = Arc::new(MutableSpace(AtomicU64::new(0)));
+    let options = OpenOptions {
+        space_probe: Some(probe),
+        ..OpenOptions::default()
+    };
+    let path = dir.path().join("crm.db");
+    assert!(matches!(
+        Engine::open(&path, &options),
+        Err(EngineError::InsufficientSpace)
+    ));
+    let db = Connection::open(path).unwrap();
+    assert_eq!(
+        db.query_row(
+            "SELECT COUNT(*) FROM sqlite_schema WHERE name='custom_field_definitions'",
+            [],
+            |r| r.get::<_, i64>(0)
+        )
+        .unwrap(),
+        0
+    );
 }
 
 #[test]

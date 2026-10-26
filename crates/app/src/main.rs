@@ -1,6 +1,8 @@
 //! 手元の保存先を操作するコマンド。
 mod args;
 mod commands;
+mod hosted;
+mod mcp;
 mod server;
 
 fn main() -> std::process::ExitCode {

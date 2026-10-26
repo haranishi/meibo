@@ -329,7 +329,8 @@ button.status-chart-label:hover { text-decoration: underline; }
   .object-icon { width: 36px; height: 36px; }
   .object-icon > .icon { width: 23px; height: 23px; }
   .list-view-field select { font-size: 20px; }
-  .object-actions { align-self: flex-end; }
+  .object-actions { align-self: stretch; width: 100%; max-width: 100%; flex-wrap: wrap; gap: 8px; }
+  .object-actions > .button, .object-actions > .button:first-child, .object-actions > .button:last-child { margin-left: 0; border-radius: 4px; }
   .object-actions .button { padding: 7px 11px; font-size: 12px; min-height: 34px; }
   .object-toolbar { align-items: flex-start; flex-direction: column; gap: 10px; padding: 10px 15px 13px; }
   .list-information { width: 100%; font-size: 11px; flex-wrap: wrap; }

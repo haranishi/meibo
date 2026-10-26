@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>ログイン · meibo</title>
+  <link rel="stylesheet" href="/login.css">
+  <script src="/login.js" defer></script>
+</head>
+<body class="login-page">
+  <main class="login-card">
+    <a class="login-brand" href="/login" aria-label="meibo ログイン">m<span>meibo</span></a>
+    <h1>営業ワークスペースへ</h1>
+    <p class="login-intro">招待された組織のアカウントでログインしてください。</p>
+    <form id="login-form">
+      <fieldset id="login-fields">
+        <div class="login-field"><label for="login-tenant">組織ID</label><input id="login-tenant" name="tenant" required maxlength="48" pattern="[a-z0-9][a-z0-9-]*" autocomplete="off" autocapitalize="none" spellcheck="false" aria-describedby="tenant-hint"><p id="tenant-hint">招待時に案内された組織IDを入力してください。</p></div>
+        <div class="login-field"><label for="login-username">利用者名</label><input id="login-username" name="username" required maxlength="128" autocomplete="username" autocapitalize="none" spellcheck="false"></div>
+        <div class="login-field"><label for="login-password">パスワード</label><input id="login-password" name="password" type="password" required maxlength="1024" autocomplete="current-password"></div>
+        <div id="login-error" class="login-error" role="alert" hidden></div>
+        <button id="login-submit" type="submit">ログイン</button>
+      </fieldset>
+    </form>
+    <p class="login-help">アカウントや組織IDが分からない場合は、招待した管理者へお問い合わせください。</p>
+  </main>
+</body>
+</html>
