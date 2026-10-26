@@ -1,7 +1,7 @@
 {
   "feature_name": "remote-storage",
   "created_at": "2026-10-26T12:00:00Z",
-  "updated_at": "2026-10-26T17:44:22.224145+00:00",
+  "updated_at": "2026-10-26T18:07:42.474023+00:00",
   "language": "ja",
   "phase": "implementing",
   "approvals": {
@@ -52,7 +52,10 @@
     "primary_profile_delta": "APPROVED_independent_initial_single_primary_no_replica_verified_instance_endpoint_for_HTTP_CLI_backup_restore_topology_change_requires_revalidation_replica_support_not_claimed",
     "opaque_meta_delta": "PASS_inline_validate_required_markers_and_versions_preserve_unrelated_meta_keys_without_interpreting_as_configuration_or_SQL",
     "extension_constant_setup_delta": "PASS_inline_existing_extension_version_visibility_and_public_data_constant_reuse_only_no_business_DDL_behavior_change",
-    "exact_integration_fixture_scan_delta": "APPROVED_independent_skip_only_exact_remote_lifecycle_file_after_crate_cfg_Cargo_required_features_and_feature_assertions_other_sources_symbols_default_graph_and_deny_unchanged"
+    "exact_integration_fixture_scan_delta": "APPROVED_independent_skip_only_exact_remote_lifecycle_file_after_crate_cfg_Cargo_required_features_and_feature_assertions_other_sources_symbols_default_graph_and_deny_unchanged",
+    "parallel_hosted_store_delta": "APPROVED_independent_3.1_control_auth_real_tenant_registration_depends2.2_and1.5_positive_demo_seed_order_owned3.3_after2.3_no_stub_no_HTTP_claim_3.3_depends2.3_and3.2",
+    "domain_policy_fixture_setup_delta": "PASS_inline_existing_locked_Tokio_reqwest_Hrana_edges_only_integration_tests_exact_feature_map_proof_no_new_source_exemption",
+    "private_callback_loss_test_delta": "PASS_inline_schema_unit_module_cfg_all_test_and_integration_tests_real_proxy_loss_after_BEGIN_prepare_no_public_API_or_new_raw_networking"
   },
   "transport_preflight": {
     "stack": "libsql-hrana =0.10.0 + reqwest =0.13.5 default-features=false json/native-tls-no-alpn + shared Tokio",

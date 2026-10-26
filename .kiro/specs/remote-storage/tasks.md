@@ -38,7 +38,7 @@
   - _Requirements: 1.1, 1.2, 1.3, 1.4, 5.4_
 - [ ] 2.3 remoteの更新・snapshot方針へ業務処理を接続する
   - fs/WALに依存しないremote transactionを使い、CRUD・取消・件数・索引・独自項目・一括処理・論理消去とtombstoneの実sqld回帰、制約失敗時の全取消を通す。
-  - _Boundary: core schema/write policy and domain regression_
+  - _Boundary: core schema/write and growth-estimate policy, domain estimate callers/logical erase policy, Engine synthetic-load native post-write checkpoint, real domain regression/integration-only fixture dependency setup and exact no_network feature-map proof_
   - _Requirements: 2.1, 2.2, 2.3, 5.1_
 - [x] 2.4 (P) 型付きsnapshotと既知schemaの入出力を用意する
   - CRMのtable/column/key許可表、snapshot-format v1の共有codec、既知AUTOINCREMENT high-waterを実装する。未知sequence・欠落・負値・最大id未満・overflowを拒否する試験を通す。control許可表はappの4.1が所有する。
@@ -52,10 +52,10 @@
   - _Requirements: 2.1, 2.6, 5.1, 5.2_
 
 - [ ] 3. Hostedの組織対応と共有排他
-- [ ] 3.1 remote controlと認証・設定を接続する
+- [ ] 3.1 (P) remote controlと認証・設定を接続する
   - CONFIG版/env参照/slugとDB識別を実装し、storage層の2組織3権限・session失効・再起動試験を通す。不正な版、1000組織超、秘密の欠落、重複/違うDBを拒否する。serveは3.3まで有効化しない。
   - _Boundary: app hosted remote/store/auth, app manifest_
-  - _Depends: 2.3_
+  - _Depends: 2.2, 1.5_
   - _Requirements: 1.2, 1.3, 1.4, 3.1, 3.2_
 - [ ] 3.2 非失効gateの取得・所有照合・復旧を実装する
   - 永続gateを条件付きで取得/解除する。別processの競合、panic/再起動/取得応答消失で占有を維持し、owner違いの解除と自動takeoverを拒否する。以前の処理終了を指定した復旧を監査する。
@@ -63,8 +63,9 @@
   - _Depends: 1.5, 3.1_
   - _Requirements: 2.5, 3.3, 3.4, 3.5_
 - [ ] 3.3 HTTPとremote CLIを統合する
-  - hosted-remote CONFIGの全操作とHTTPが同じgate/認証境界を通るよう接続する。Replyへ変換された障害も接続poisonから確認し、503/outcome_unknownを返す。password-stdinと通常hostedの回帰を通す。
+  - hosted-remote CONFIGの全操作とHTTPが同じgate/認証境界を通るよう接続する。tenant-addのpositive demo-rows投入と登録順序もこの段階で統合する。Replyへ変換された障害も接続poisonから確認し、503/outcome_unknownを返す。password-stdinと通常hostedの回帰を通す。
   - _Boundary: app main, hosted cli/http/remote, stable error response integration_
+  - _Depends: 2.3, 3.2_
   - _Requirements: 2.4, 2.5, 3.1, 3.3_
 
 - [ ] 4. 保存・復旧と全体の検証
@@ -91,3 +92,4 @@
 1.1のdefault graph試験修正はoptional packageがlockfileへ載ることと通常版へlinkされることを区別する。4.4の監査policy分離は別タスクであり、1.1で禁止packageや既存policyを緩めない。
 1.3のrow.rsとprimitives.rsの変更は既存の列選択とlocal変換の互換性を保つ範囲である。query/query_row/query_mapの未取得の不正列とlocalのInf読取りをnativeと照合し、params/公開from_valuesの拒否試験を残す。
 2.1は完成済みlocal adapterのalias接続として1.5と独立worktreeで並行できる。sqlite_versionは同梱rusqliteの直接呼出しを保ち、統合後にConnectionのSendとdefault/cloudの手元経路を再検証する。remote初期化2.2は両方の完了を待つ。
+2.3のfault fixtureはDB側の既存helperを再利用する。必要なTokio・reqwest=0.13.5（defaultなし、既存TLS/json）・libsql-hrana=0.10.0の既存lock内edgeはintegration-testsだけで有効にし、default graphと禁止symbol検査を保つ。
