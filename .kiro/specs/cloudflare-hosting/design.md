@@ -25,11 +25,11 @@ DOの直列化は混雑を減らすためで、保存の正しさはremote-stora
 ## File Structure Plan
 | Component | ファイルと責務 |
 |---|---|
-| Runtime foundation | `cloudflare/{package.json,package-lock.json,tsconfig.json,wrangler.jsonc}`と既存`.gitignore`/`.dockerignore`への秘密除外追加: 固定したWrangler/型/検査、binding・export・container設定 |
+| Runtime foundation | `cloudflare/{package.json,package-lock.json,tsconfig.json,wrangler.jsonc}`、`cloudflare/src/contracts.ts`と既存`.gitignore`/`.dockerignore`への秘密除外追加: 固定したWrangler/共有型/検査、binding・export・container設定 |
 | Cloud image | `cloudflare/{Dockerfile,entrypoint.sh}`: cloud featureのRust実行物、OpenSSL/CAのbuild・runtime依存、non-root、秘密を表示しない起動。既存Dockerfile/composeは維持 |
-| Edge boundary | `cloudflare/src/{index,boundary}.ts`、`cloudflare/tests/boundary.test.ts`: 公開URL/Host・method・本文上限の検査と転送 |
+| Edge boundary | `cloudflare/src/boundary.ts`、`cloudflare/tests/boundary.test.ts`: 公開URL/Host・method・本文上限の検査と転送。contractsの共有型だけに依存する |
 | Container coordinator | `cloudflare/src/container.ts`、`cloudflare/tests/container.test.ts`: 固定DO、順序・readiness・deadline・secret受渡し・休止 |
-| Publication gate | `cloudflare/scripts/{preflight,deploy,verify}.mjs`、`cloudflare/tests/preflight.test.ts`: アカウント/契約/秘密/形式の検査と同じHTTP検査のlocal/remote実行 |
+| Worker entryとPublication gate | `cloudflare/src/index.ts`、`cloudflare/scripts/{preflight,deploy,verify}.mjs`、`cloudflare/tests/preflight.test.ts`: 実Worker/DO exportへの結合、アカウント/契約/秘密/形式の検査とHTTP検査のlocal/remote実行 |
 | Operation evidence | `docs/hosting-cloudflare.md`、`docs/hosting.md`のリンク追加、`.agent-harness/runs/*`: 実行できる起動/復旧手順と実測。秘密・実データは追跡しない |
 
 ## Components and Interfaces
@@ -37,11 +37,12 @@ DOの直列化は混雑を減らすためで、保存の正しさはremote-stora
 Wrangler 4.151.1とTypeScript/Workers型をlockfileで固定する。compatibility_dateは`2026-10-26`。`containers`は`class_name: MeiboContainer`、`scheduling_policy: default`、cloud Dockerfile、`image_build_context: ..`（repo root）、`instance_type: lite`、`max_instances: 1`。bindingは`MEIBO_CONTAINER`、`exports.MeiboContainer={type: durable-object,storage: sqlite}`とし、legacy migrationsを混ぜない。`.dev.vars*`や生成したprivate設定をGitとbuild contextから除外する。
 新規の`durable_object` scheduling policyは`max_instances`非対応なので採らない。built-in `DurableObject`/`ctx.container`を使い、追加のContainer SDKは導入しない。SDK/APIが合わなければ型/ローカル起動で検知し、非互換な設定を黙って採らない。
 cloud DockerfileはDebian build段へ`pkg-config`と`libssl-dev`を用意し、`cargo build --locked --release -p meibo-app --features cloud`を行う。Linux/amd64を明示してbuild/inspect/起動検証し、arm64だけの成功をCloudflare向け成功と扱わない。Debian runtimeは`libssl3`と`ca-certificates`を持つnon-root UID/GID 10001、DB Volume不要、書込先は一時領域のみ。remote-storageが選ぶsystem OpenSSLのtransportに合わせた依存であり、旧SDKのTLS実装を追加しない。
+静的準備の完了は設定schema・共有型・shell構文の成功で判断し、保存実装に先行できる。Env/検査済み要求/runtime操作の共有型はboundaryとcoordinatorが実際に使う契約であり、HTTPの仮実装は置かない。boundaryとcoordinatorは互いの実装をimportせず、共有型と注入したruntimeで単体検査できる。両者を結合する実際のWorker/DO exportとimageのbuild/inspect/実起動は、remote-storage完了後の公開統合で初めて検証する。
 Worker varsは`MEIBO_ORIGIN`と設定の参照名だけ、URL/tokenはWorker secretへ置く。`MEIBO_REMOTE_CONFIG`はremote-storage形式の設定JSON、DB環境変数は`MEIBO_DB_`接頭辞のsecret bindingとして渡す。機密値はDocker build arg・image・Gitへ埋めない。entrypointはumask 077でCONFIGだけを`/tmp/meibo-remote.json`へ書き、`exec meibo hosted-remote /tmp/meibo-remote.json serve --origin "$MEIBO_ORIGIN" --bind 0.0.0.0:4317`を実行する。DB秘密は環境変数からのみ参照する。
 
 ### 2. Edge boundaryとContainer coordinator
-Workerは要求URLのHTTPS originとHostを設定値に照合する。preview/未知Host、userinfo/fragment等の不正設定を拒否する。GET/POST以外は405。本文は実際に読みながらJSON1MiB、既存CSV import経路32MiBまでとし、Content-Lengthが無い場合も上限を維持する。既存のより細かいContent-Type/Origin/CSRF/context検査はRustが行う。
-DOは`MEIBO_CONTAINER.getByName("meibo-beta-v1")`だけへ送る。外部入力や組織名をDO IDへ使わない。DO内部にも同じ境界検査を置き、queueは最大16要求、待ち時間30秒、過大な並行要求は503とする。queue中の本文を先読みbufferせず、byte上限付きstreamをforward時に消費する。`blockConcurrencyWhile`を全処理の長時間lockには使わず、既知のPromise queueでforwardを一度だけ行う。
+Worker entryはboundary部品で要求URLのHTTPS originとHostを設定値に照合する。preview/未知Host、userinfo/fragment等の不正設定を拒否する。GET/POST以外は405。本文は実際に読みながらJSON1MiB、既存CSV import経路32MiBまでとし、Content-Lengthが無い場合も上限を維持する。既存のより細かいContent-Type/Origin/CSRF/context検査はRustが行う。
+Workerは`MEIBO_CONTAINER.getByName("meibo-beta-v1")`だけへ送る。外部入力や組織名をDO IDへ使わない。indexのDO exportでも同じboundary部品で検査してからcoordinatorへ渡す。queueは最大16要求、待ち時間30秒、過大な並行要求は503とする。queue中の本文を先読みbufferせず、byte上限付きstreamをforward時に消費する。`blockConcurrencyWhile`を全処理の長時間lockには使わず、既知のPromise queueでforwardを一度だけ行う。
 未起動時は同じstartup Promiseを共有し、`ctx.container.start({env: runtimeEnv,enableInternet: true})`を呼ぶ。default policyではimage/instanceをstartへ重複指定しない。runtimeEnvは明示したorigin/configと`MEIBO_DB_`接頭辞の文字列secretだけで、env全体を渡したり表示したりしない。秘密不足や不正設定ではstartしない。
 readinessはport4317への`GET /health`を30秒以内で検査する。これはDB初期化ではなく既存serviceの起動確認で、readiness再試行から更新は発行しない。稼働中は休止期限180秒、処理完了後は無要求60秒で休止させる。DO再起動時も稼働containerへ休止条件を再設定する。
 転送先は`getTcpPort(4317)`。内部URLのschemeだけHTTPへ変え、公開authority/path/query/method/body、Origin・Cookie・CSRF/context headerを維持する。検査済みの公開Hostを設定し、Forwarded/X-Forwarded-*は除く。公式例の`Host: container`への変更や、外部forwarded headerに基づくOriginの許可は採らない。

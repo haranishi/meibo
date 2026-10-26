@@ -1,7 +1,7 @@
 {
   "feature_name": "cloudflare-hosting",
   "created_at": "2026-10-26T12:20:00Z",
-  "updated_at": "2026-10-26T12:46:58.446134Z",
+  "updated_at": "2026-10-26T13:34:30.097609Z",
   "language": "ja",
   "phase": "tasks-generated",
   "approvals": {
@@ -30,7 +30,7 @@
     "requirements_gate": "PASS_inline_after_authorized_response_clarification",
     "design_gate": "PASS_inline_and_independent_sanity_after_queue_memory_rule",
     "task_graph": "PASS_independent_second_pass",
-    "final_sanity": "PASS_independent_final_on_disk_requirements_design_tasks",
+    "final_sanity": "PASS_independent_final_on_disk_after_static_foundation_dependency_correction",
     "requirements_covered": 22,
     "actionable_tasks": 5,
     "upstream": "remote-storage tasks-generated approved",
@@ -46,6 +46,7 @@
         "reason": "parallel acceptance checklist; statistical rhythm finding only"
       }
     },
-    "tls_runtime_prerequisite_delta": "PASS_inline: parent-confirmed libsql-hrana/reqwest native TLS requires build pkg-config/libssl-dev and runtime libssl3/ca-certificates; no public API, task graph, or DO contract change"
+    "tls_runtime_prerequisite_delta": "PASS_inline: parent-confirmed libsql-hrana/reqwest native TLS requires build pkg-config/libssl-dev and runtime libssl3/ca-certificates; no public API, task graph, or DO contract change",
+    "parallel_static_foundation_delta": "PASS_independent: static1.1 and independent1.2/1.3 may precede remote-storage; real Worker composition and AMD64 build/inspect/boot moved to2.1 with explicit upstream prerequisite"
   }
 }
