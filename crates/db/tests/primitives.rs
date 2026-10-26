@@ -77,8 +77,8 @@ fn non_finite_values_are_rejected_before_owned_rows_or_parameters() {
     connection
         .query_row("SELECT 9e999", [], |raw| {
             let row = Row::from_local(raw);
-            assert!(row.get_ref(0).is_err());
-            assert!(row.get::<_, f64>(0).is_err());
+            assert_eq!(row.get_ref(0), raw.get_ref(0));
+            assert_eq!(row.get::<_, f64>(0), raw.get::<_, f64>(0));
             Ok(())
         })
         .unwrap();

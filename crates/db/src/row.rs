@@ -4,10 +4,48 @@ use crate::{Error, FromSql, Result, Value, ValueRef, error, types::FromSqlError}
 
 enum Data<'stmt> {
     Local(&'stmt rusqlite::Row<'stmt>),
+    BufferedLocal {
+        columns: Arc<[String]>,
+        values: Vec<BufferedValue>,
+    },
     Owned {
         columns: Arc<[String]>,
         values: Vec<Value>,
     },
+}
+
+// SQLite text need not be UTF-8, and local REAL expressions may be infinite.
+// Preserve their raw representation until the requested FromSql conversion.
+enum BufferedValue {
+    Null,
+    Integer(i64),
+    Real(f64),
+    Text(Vec<u8>),
+    Blob(Vec<u8>),
+}
+
+impl From<ValueRef<'_>> for BufferedValue {
+    fn from(value: ValueRef<'_>) -> Self {
+        match value {
+            ValueRef::Null => Self::Null,
+            ValueRef::Integer(value) => Self::Integer(value),
+            ValueRef::Real(value) => Self::Real(value),
+            ValueRef::Text(value) => Self::Text(value.to_vec()),
+            ValueRef::Blob(value) => Self::Blob(value.to_vec()),
+        }
+    }
+}
+
+impl BufferedValue {
+    fn as_ref(&self) -> ValueRef<'_> {
+        match self {
+            Self::Null => ValueRef::Null,
+            Self::Integer(value) => ValueRef::Integer(*value),
+            Self::Real(value) => ValueRef::Real(*value),
+            Self::Text(value) => ValueRef::Text(value),
+            Self::Blob(value) => ValueRef::Blob(value),
+        }
+    }
 }
 
 /// A borrowed SQLite row or a row of owned values from a bounded response.
@@ -22,6 +60,18 @@ impl<'stmt> Row<'stmt> {
         Self {
             data: Data::Local(row),
         }
+    }
+
+    pub(crate) fn from_buffered_local(
+        columns: Arc<[String]>,
+        row: &rusqlite::Row<'_>,
+    ) -> Result<Self> {
+        let values = (0..columns.len())
+            .map(|index| row.get_ref(index).map(BufferedValue::from))
+            .collect::<Result<Vec<_>>>()?;
+        Ok(Self {
+            data: Data::BufferedLocal { columns, values },
+        })
     }
 
     /// Construct an owned row, sharing its column names with other result rows.
@@ -55,21 +105,20 @@ impl<'stmt> Row<'stmt> {
     /// Borrow the underlying typed value without copying its text or blob.
     ///
     /// # Errors
-    /// Returns invalid-index/name errors or rejects a non-finite local real.
+    /// Returns invalid-index/name errors. Local cells retain SQLite's raw value.
     pub fn get_ref<I: RowIndex>(&self, index: I) -> Result<ValueRef<'_>> {
         let index = index.index(self)?;
-        let value = match &self.data {
+        Ok(match &self.data {
             Data::Local(row) => row.get_ref(index)?,
+            Data::BufferedLocal { values, .. } => values[index].as_ref(),
             Data::Owned { values, .. } => ValueRef::from(&values[index]),
-        };
-        ensure_finite(value, index, self.column_name(index))?;
-        Ok(value)
+        })
     }
 
     fn column_count(&self) -> usize {
         match &self.data {
             Data::Local(row) => row.as_ref().column_count(),
-            Data::Owned { columns, .. } => columns.len(),
+            Data::Owned { columns, .. } | Data::BufferedLocal { columns, .. } => columns.len(),
         }
     }
 
@@ -77,7 +126,7 @@ impl<'stmt> Row<'stmt> {
         match &self.data {
             // Both sources are indexed only after RowIndex has checked bounds.
             Data::Local(row) => row.as_ref().column_name(index).unwrap(),
-            Data::Owned { columns, .. } => &columns[index],
+            Data::Owned { columns, .. } | Data::BufferedLocal { columns, .. } => &columns[index],
         }
     }
 }
@@ -133,7 +182,7 @@ impl RowIndex for &str {
     fn index(&self, row: &Row<'_>) -> Result<usize> {
         match &row.data {
             Data::Local(row) => row.as_ref().column_index(self),
-            Data::Owned { columns, .. } => columns
+            Data::Owned { columns, .. } | Data::BufferedLocal { columns, .. } => columns
                 .iter()
                 .position(|column| column.eq_ignore_ascii_case(self))
                 .ok_or_else(|| Error::InvalidColumnName((*self).into())),

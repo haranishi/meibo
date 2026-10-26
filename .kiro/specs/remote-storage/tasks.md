@@ -10,9 +10,9 @@
   - Value/ToSql/FromSql、Row.get、params、OptionalExtension、errorの既存使用範囲を実装し、i64端値・NULL・Blob・有限実数・変換失敗の試験を通す。
   - _Boundary: crates/db params, row, error_
   - _Requirements: 2.1, 2.6_
-- [ ] 1.3 手元ConnectionとStatementをforwardする
-  - 設計1のlocal APIとTransactionをforwardし、path/PRAGMA/反復prepare/query/rollback/backupがrusqliteと同じ結果になる試験を通す。
-  - _Boundary: crates/db local, statement, local tests_
+- [x] 1.3 手元ConnectionとStatementをforwardする
+  - 設計1のlocal APIとTransactionをforwardし、path/PRAGMA/反復prepare/query/rollback/backupがrusqliteと同じ結果になる試験を通す。localの借用行とprivate raw cell bufferは取得列だけを変換し、未取得の不正UTF-8列と取得/未取得のInfをnative同様に扱う。paramsと公開from_valuesの有限実数制約は保つ。
+  - _Boundary: crates/db local, statement, rows, row.rs private local buffering/borrowed conversion, local tests and primitives.rs native local Inf expectation_
   - _Requirements: 1.1, 2.1_
 - [ ] 1.4 外部Connectionと上限付きの受信を実装する
   - 公式型のv2/pipelineで上限付き応答を読み、HTTP1/redirectなし/retryなし/TLS1.2以上、schemeとbase_urlのorigin制限を実装する。成功・error bodyのchunkをVec/JSON確保前に制限し、過大応答・期限・別host・URL/秘密の診断漏れを実fixtureで拒否する。
@@ -84,3 +84,4 @@
 ## Implementation Notes
 旧libsql SDK/TLS connector案は依存監査不合格で置換済み。公式Hrana型+現行reqwestの組合せはRust1.88/online advisories/licenses/sourcesを通過した。1.4はchunk受信中の上限を試験し、Rowsは単一の上限付き応答だけを保持する。大量scanは2.5でページ化する。Cloudflare版のLinux build/runtimeにはOpenSSLとCAを配備側が用意する。
 1.1のdefault graph試験修正はoptional packageがlockfileへ載ることと通常版へlinkされることを区別する。4.4の監査policy分離は別タスクであり、1.1で禁止packageや既存policyを緩めない。
+1.3のrow.rsとprimitives.rsの変更は既存の列選択とlocal変換の互換性を保つ範囲である。query/query_row/query_mapの未取得の不正列とlocalのInf読取りをnativeと照合し、params/公開from_valuesの拒否試験を残す。
