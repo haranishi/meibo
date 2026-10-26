@@ -73,7 +73,7 @@
   - _Depends: 2.3, 2.5, 3.2_
   - _Requirements: 2.4, 2.5, 3.1, 3.3_
 
-- [ ] 4. 保存・復旧と全体の検証
+- [x] 4. 保存・復旧と全体の検証
 - [x] 4.1 gate中に型付き保存と目録検証を行う
   - privateな新規directoryへ全DBの最新行を逐次保存し、件数/hash/形式を検証する。sessions/gate/秘密を除き、symlink・不正行・未知sequenceを拒否する実2組織試験を通す。
   - _Boundary: app hosted remote_backup creation/validation, real backup CLI/shared gate, remote/store opaque_id/valid_dummy_hash hosted visibility only_
@@ -84,7 +84,7 @@
   - _Boundary: app hosted remote_backup restore/source validation reuse, real source/target CLI dispatch, control atomic restoring initialization and tests, remote/config normalized endpoint fingerprints/disjoint comparison only_
   - _Depends: 2.5, 3.3, 4.1_
   - _Requirements: 4.3, 4.4, 4.5_
-- [ ] 4.3 process・CLI・browserの回帰を確認する
+- [x] 4.3 process・CLI・browserの回帰を確認する
   - 実sqld/fault proxyで2組織3権限のlogin/更新/logout/旧tab、再起動保持、占有gateの復旧、保存先変更後の再loginを確認し、秘密が診断へ出ない証拠を残す。
   - _Boundary: app/tests remote_hosted and browser fixtures, db fault tests integration_
   - _Depends: 3.3, 4.1, 4.2_

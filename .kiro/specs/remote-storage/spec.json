@@ -1,9 +1,9 @@
 {
   "feature_name": "remote-storage",
   "created_at": "2026-10-26T12:00:00Z",
-  "updated_at": "2026-10-26T21:33:31.865209+00:00",
+  "updated_at": "2026-10-26T22:30:58.423262+00:00",
   "language": "ja",
-  "phase": "implementing",
+  "phase": "completed",
   "approvals": {
     "requirements": {
       "generated": true,
@@ -84,6 +84,7 @@
     "3.3",
     "4.1",
     "4.2",
+    "4.3",
     "4.4"
   ],
   "verification": {
@@ -287,6 +288,42 @@
       "initial_failures": "author3existingCLI transport failures and parentmissingTMPDIR preserved; isolated complete parent112pass, no production/timeout/retry changes",
       "evidence_run": "2026-10-27-remote-restore/review",
       "full_process_browser": "pending4.3"
+    },
+    "4.3": {
+      "source_commit": "5c105e5",
+      "review": "APPROVED_parent_inline_host_thread_limit_fallback",
+      "real_browser": "SQLD6/HTTPS/Chromium156;13steps;390/768/1440;2tenants3roles/all6restoredlogins;alltypedtables/gatecrash/manualrecovery;exit0",
+      "privacy": "externalrequests0/pageerrors0/databasefailures0",
+      "fixture_capacity": "17251pipelines/17245upstreamreuse; deterministic5msfixtureRTT; TIME_WAITpeak3563 versus initially16373; EADDRNOTAVAILcauseverified; productretry/transportunchanged",
+      "evidence_run": "2026-10-27-remote-browser"
+    },
+    "final_integration": {
+      "source_baseline": "fbcfae3+5c105e5 testfixture/docs",
+      "check_all": {
+        "exit_code": 0,
+        "passed": 331,
+        "existing_ignored": 3
+      },
+      "check_cloud": {
+        "exit_code": 0,
+        "passed": 479,
+        "existing_ignored": 3
+      },
+      "actual_msrv": "Cargo/Rust1.88 default/integration allworkspace alltargets exit0",
+      "audits": "default/cloud advisories,bans,licenses,sources passed online",
+      "reuse": "6.2.0 passed",
+      "evidence_run": "2026-10-27-final-runtime",
+      "deployment": "not claimed; cloudflare-hosting remainspending"
     }
+  },
+  "feature_validation": {
+    "decision": "GO",
+    "requirements_covered": 24,
+    "requirements_total": 24,
+    "all_actionable_tasks_completed": 18,
+    "runtime_smoke": "actual integration-feature CLI/HTTPS/browser first usable state and full lifecycle; productioncloud build separate passed",
+    "boundary_audit": "CLEAN",
+    "blocked_tasks": [],
+    "scope": "remote-storage on realcompatibleSQLD, actualTursoCorecapability separatelyproved; Cloudflareartifact andproviderpublication checks ownedadjacent"
   }
 }
