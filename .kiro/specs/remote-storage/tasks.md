@@ -1,6 +1,6 @@
 # Implementation Plan
 
-- [ ] 1. SQL adapterの土台と接続
+- [x] 1. SQL adapterの土台と接続
 - [x] 1.1 optional crate・依存・実server/fault fixtureを用意する
   - meibo-dbとcloud feature、libsql-hrana =0.10.0、reqwest =0.13.5（defaultなし、json/native-tls-no-alpn）、共有Tokio runtimeを追加する。実sqld/fault試験は明示integration-tests featureでgateし、runtime単体試験は通常実行する。旧SDK/Hyper0.14をtest helper/proxyからも除き、fixture起動終了・MSRV・依存監査を確認する。
   - 既存no_network試験の全lockfile走査を、default app/coreのnormal/build cargo treeへ限定して直す。default featuresを無効化せず、禁止package一覧とdeny.tomlの検査を保つ。全workspace試験を通してから次へ進む。
@@ -19,9 +19,9 @@
   - 実用の非transaction RemoteConnectionを先に完成させ、同じstreamでforeign_keysの有効化・照合に成功してから業務SQLを送り、streamを閉じる。公式型decode前に構造と作業領域を検査し、正当な500行ページを維持しつつ小さなJSONの過剰なVec確保を拒否する。共有Connectionへの統合は1.5で行う。
   - _Boundary: crates/db remote, statement, rows, row.rs private remote-only diagnostic redaction, remote tests/support, direct serde manifest edge/lock_
   - _Requirements: 2.1, 2.6_
-- [ ] 1.5 同streamのtransactionと結果不明を扱う
+- [x] 1.5 同streamのtransactionと結果不明を扱う
   - 元Connection経由を含む同batonのtransaction、commit/rollback/Drop/lastrowidを共有する。SequenceでSQL全文/triggerを分割せず実行し、v2 GetAutocommitを使わない。commit後の応答を落としOutcomeUnknownと再使用/再送拒否を確認する。
-  - _Boundary: crates/db Connection local/remote backend integration, transaction, remote state, error classification/adapter exports, fault tests_
+  - _Boundary: crates/db Connection local/remote backend integration, transaction, remote state, Statement private readonly metadata, error classification/adapter exports, fault tests_
   - _Requirements: 2.2, 2.3, 2.4, 2.6_
 
 - [ ] 2. Coreの保存方針を分ける
@@ -32,7 +32,7 @@
   - _Requirements: 1.1, 5.4_
 - [ ] 2.2 remoteの初期化と識別を追加する
   - Engine create_remote/open_remoteとmarker/版/DB識別/種別を追加する。実sqldの空DBだけを初期化し、欠落・未来版・不一致・既存内容を拒否し、手元へfallbackしないことを確認する。
-  - _Boundary: core engine, schema/remote_
+  - _Boundary: core engine, schema/remote, cloud-only Engine exports and explicit real-server integration test setup_
   - _Depends: 2.1, 1.5_
   - _Requirements: 1.2, 1.3, 1.4_
 - [ ] 2.3 remoteの更新・snapshot方針へ業務処理を接続する

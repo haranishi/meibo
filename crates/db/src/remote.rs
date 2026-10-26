@@ -1,7 +1,11 @@
 //! Bounded Hrana v2 transport and complete non-transactional SQL operations.
 mod budget;
+mod error_kind;
 mod options;
+mod sql;
+mod state;
 
+pub use error_kind::{RemoteErrorKind, remote_error_kind};
 pub use options::RemoteOptions;
 
 use libsql_hrana::proto::{
@@ -9,19 +13,24 @@ use libsql_hrana::proto::{
     SequenceStreamReq, Stmt, StmtResult, StreamRequest, StreamResponse, StreamResult,
 };
 use reqwest::{Url, header::HeaderValue};
-use std::{cell::Cell, fmt, io::Write};
+use std::{
+    cell::{Cell, RefCell},
+    fmt,
+    io::Write,
+};
 
 use crate::{Error, Params, Result, Row, Statement, Value};
 
 /// A remote SQL connection with bounded responses and private credentials.
 ///
-/// Each operation owns a fresh stream, enables and verifies foreign keys, then
-/// closes that stream. Explicit transactions are integrated separately into the
-/// shared `Connection` backend; this component exposes only complete operations.
+/// Autocommit operations use fresh foreign-key-verified streams. An explicit
+/// wrapper transaction owns one shared stream across all original connection
+/// and prepared statement operations, then closes it exactly once.
 pub struct RemoteConnection {
     transport: Transport,
     poisoned: Cell<bool>,
     last_insert_rowid: Cell<i64>,
+    active: RefCell<Option<state::Stream>>,
 }
 
 struct Transport {
@@ -69,6 +78,7 @@ impl RemoteConnection {
             },
             poisoned: Cell::new(false),
             last_insert_rowid: Cell::new(0),
+            active: RefCell::new(None),
         })
     }
 
@@ -78,10 +88,22 @@ impl RemoteConnection {
         self.poisoned.get()
     }
 
-    /// Return the row id reported by the last successful Execute response.
+    /// Return the most recent inserted id from its original write stream.
     #[must_use]
     pub fn last_insert_rowid(&self) -> i64 {
         self.last_insert_rowid.get()
+    }
+
+    pub(crate) fn is_autocommit(&self) -> bool {
+        !self.poisoned.get() && self.active.borrow().is_none()
+    }
+
+    fn ensure_usable(&self) -> Result<()> {
+        if self.poisoned.get() {
+            Err(RemoteErrorKind::ConnectionPoisoned.error())
+        } else {
+            Ok(())
+        }
     }
 
     /// Describe trusted SQL for repeated typed execution.
@@ -89,16 +111,22 @@ impl RemoteConnection {
     /// # Errors
     /// Returns sanitized SQL/transport errors or rejects an invalid connection.
     pub fn prepare(&self, sql: &str) -> Result<Statement<'_>> {
-        let response = self.request(StreamRequest::Describe(DescribeStreamReq {
-            sql: Some(sql.to_owned()),
-            ..DescribeStreamReq::default()
-        }))?;
+        self.ensure_usable()?;
+        sql::inspect(sql, self.active.borrow().is_some())?;
+        let response = self.request(
+            StreamRequest::Describe(DescribeStreamReq {
+                sql: Some(sql.to_owned()),
+                ..DescribeStreamReq::default()
+            }),
+            true,
+        )?;
         match response {
             StreamResponse::Describe(response) => Ok(Statement::from_remote(
                 self,
                 sql.to_owned(),
                 response.result.params.len(),
                 response.result.cols.len(),
+                response.result.is_readonly,
             )),
             _ => self.invalid_response(),
         }
@@ -128,11 +156,23 @@ impl RemoteConnection {
     /// Returns a sanitized SQL or bounded transport error. Sequence is sent as
     /// one script; its statements are never split on semicolons.
     pub fn execute_batch(&self, sql: &str) -> Result<()> {
-        match self.request(StreamRequest::Sequence(SequenceStreamReq {
-            sql: Some(sql.to_owned()),
-            ..SequenceStreamReq::default()
-        }))? {
-            StreamResponse::Sequence(_) => Ok(()),
+        self.ensure_usable()?;
+        let effects = sql::inspect(sql, self.active.borrow().is_some())?;
+        let (response, rowid) = self.request_with_rowid(
+            StreamRequest::Sequence(SequenceStreamReq {
+                sql: Some(sql.to_owned()),
+                ..SequenceStreamReq::default()
+            }),
+            effects.inserts,
+            false,
+        )?;
+        match response {
+            StreamResponse::Sequence(_) => {
+                if let Some(id) = rowid {
+                    self.last_insert_rowid.set(id);
+                }
+                Ok(())
+            }
             _ => self.invalid_response(),
         }
     }
@@ -156,10 +196,13 @@ impl RemoteConnection {
         sql: &str,
         values: Vec<Value>,
         want_rows: bool,
+        read_only: bool,
     ) -> Result<StmtResult> {
+        self.ensure_usable()?;
+        let effects = sql::inspect(sql, self.active.borrow().is_some())?;
         let mut stmt = Stmt::new(sql, want_rows);
         stmt.args = values.into_iter().map(encode_value).collect();
-        match self.request(StreamRequest::Execute(ExecuteStreamReq { stmt }))? {
+        match self.request(StreamRequest::Execute(ExecuteStreamReq { stmt }), read_only)? {
             StreamResponse::Execute(response) => {
                 if response.result.rows.iter().any(|row| {
                     row.values.len() != response.result.cols.len()
@@ -170,7 +213,10 @@ impl RemoteConnection {
                 }) {
                     return self.invalid_response();
                 }
-                if let Some(id) = response.result.last_insert_rowid {
+                if effects.inserts
+                    && response.result.affected_row_count > 0
+                    && let Some(id) = response.result.last_insert_rowid
+                {
                     self.last_insert_rowid.set(id);
                 }
                 Ok(response.result)
@@ -181,53 +227,7 @@ impl RemoteConnection {
 
     fn invalid_response<T>(&self) -> Result<T> {
         self.poisoned.set(true);
-        Err(failure("invalid remote database response"))
-    }
-
-    fn request(&self, request: StreamRequest) -> Result<StreamResponse> {
-        // The setup must be verified before sending user SQL: a pipeline runs
-        // later requests even when an earlier request failed.
-        let mut setup = self.pipeline(
-            &self.transport.pipeline,
-            None,
-            vec![
-                execute_sql("PRAGMA foreign_keys=ON", false),
-                execute_sql("PRAGMA foreign_keys", true),
-            ],
-            false,
-        )?;
-        let pipeline = self.transport.next_pipeline(setup.base_url.as_deref())?;
-        let mut setup_results = setup.results.into_iter();
-        let enabled = expect_ok(setup_results.next().unwrap()).is_ok();
-        let checked = expect_ok(setup_results.next().unwrap());
-        let verified = matches!(checked, Ok(StreamResponse::Execute(ref result))
-            if result.result.rows.len() == 1
-                && result.result.rows[0].values.len() == 1
-                && matches!(result.result.rows[0].values[0], proto::Value::Integer { value: 1 }));
-        if !enabled || !verified {
-            // No user SQL has been sent. Attempt exactly one Close using only
-            // the already validated origin/baton, then invalidate the handle.
-            let _ = self.pipeline(
-                &pipeline,
-                setup.baton.take(),
-                vec![StreamRequest::Close(CloseStreamReq {})],
-                true,
-            );
-            return self.invalid_response();
-        }
-        let response = self.pipeline(
-            &pipeline,
-            setup.baton.take(),
-            vec![request, StreamRequest::Close(CloseStreamReq {})],
-            true,
-        )?;
-        let mut results = response.results.into_iter();
-        let result = expect_ok(results.next().unwrap());
-        // Validate close even when the SQL operation returned a known error.
-        if expect_ok(results.next().unwrap()).is_err() {
-            return self.invalid_response();
-        }
-        result
+        Err(RemoteErrorKind::OutcomeUnknown.error())
     }
 
     fn pipeline(
@@ -237,9 +237,7 @@ impl RemoteConnection {
         requests: Vec<StreamRequest>,
         closing: bool,
     ) -> Result<PipelineRespBody> {
-        if self.poisoned.get() {
-            return Err(failure("remote database connection invalidated"));
-        }
+        self.ensure_usable()?;
         let body = PipelineReqBody { baton, requests };
         let result = self.transport.pipeline(url, &body, closing);
         if result.is_err() {

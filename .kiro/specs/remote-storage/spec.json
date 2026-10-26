@@ -1,7 +1,7 @@
 {
   "feature_name": "remote-storage",
   "created_at": "2026-10-26T12:00:00Z",
-  "updated_at": "2026-10-26T16:05:13.461305+00:00",
+  "updated_at": "2026-10-26T16:30:43.860435+00:00",
   "language": "ja",
   "phase": "implementing",
   "approvals": {
@@ -46,7 +46,9 @@
     "parallel_local_alias_delta": "APPROVED_independent_current_local_adapter_API_complete_2.1_depends_1.3_then_2.2_depends_2.1_and_1.5_isolated_worktrees_native_sqlite_version_Send_and_combined_local_checks",
     "task_1_5_error_classification_delta": "PASS_inline_fixed_reserved_SQLite_error_messages_and_codes_OutcomeUnknown_ConnectionPoisoned_Unsupported_raw_Error_compatibility",
     "parallel_snapshot_codec_delta": "APPROVED_independent_2.4_depends_2.1_core_CRM_registry_shared_codec_sequences_only_2.5_depends_2.3_and_2.4_control_registry_owned_app_4.1",
-    "snapshot_format_contract_delta": "APPROVED_independent_canonical_v1_rows_exact_typed_values_bounds_explicit_sequence_high_water_no_snapshot_missing_default_no_schema_SQL"
+    "snapshot_format_contract_delta": "APPROVED_independent_canonical_v1_rows_exact_typed_values_bounds_explicit_sequence_high_water_no_snapshot_missing_default_no_schema_SQL",
+    "task_1_5_readonly_seam": "APPROVED_independent_private_Describe_readonly_metadata_write_OutcomeUnknown_preserve_read_limit_diagnostics",
+    "core_terminal_observability_setup": "PASS_inline_cloud_Engine_is_poisoned_and_explicit_real_server_test_setup_for2.2"
   },
   "transport_preflight": {
     "stack": "libsql-hrana =0.10.0 + reqwest =0.13.5 default-features=false json/native-tls-no-alpn + shared Tokio",
@@ -54,13 +56,14 @@
     "online_cargo_deny": "advisories/licenses/sources passed",
     "local_sequence_trigger_rollback": "passed actual sqld synthetic database",
     "provider_protocol": "passed synthetic Turso Cloud Sequence and approximately 11.75-second transaction",
-    "source_implementation_review": "1.1_to_1.4_approved_shared_transaction_state_pending_1.5"
+    "source_implementation_review": "adapter1.1_through1.5_approved_no_full_service_or_provider_deployment_claim"
   },
   "completed_tasks": [
     "1.1",
     "1.2",
     "1.3",
-    "1.4"
+    "1.4",
+    "1.5"
   ],
   "verification": {
     "1.1": {
@@ -112,6 +115,19 @@
       ],
       "transaction_integration": "pending_task_1.5",
       "evidence": ".agent-harness/runs/2026-10-26-cloudflare-turso/task-1.4/"
+    },
+    "1.5": {
+      "db_tests": 77,
+      "transaction_acceptance_tests": 14,
+      "failed": 0,
+      "original_tests_retained": 63,
+      "real_production_off_red": "1_pass_12_fail_before_implementation",
+      "autocommit_loss_regression": "actual_RED_then_GREEN",
+      "clippy_fmt_msrv_app_cloud": "passed",
+      "independent_review": "APPROVED",
+      "source_hashes_checked_by_parent": 11,
+      "core_alias_merged_revalidation": "pending_parent_integration",
+      "evidence": ".agent-harness/runs/2026-10-26-cloudflare-turso/task-1.5/"
     }
   }
 }

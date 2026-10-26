@@ -12,7 +12,7 @@ mod transaction;
 pub use error::{Error, ErrorCode, OptionalExtension, Result};
 pub use local::Connection;
 pub use params::{Params, ParamsFromIter, params_from_iter};
-pub use remote::{RemoteConnection, RemoteOptions};
+pub use remote::{RemoteConnection, RemoteErrorKind, RemoteOptions, remote_error_kind};
 pub use row::{Row, RowIndex};
 pub use rows::{MappedRows, Rows};
 pub use rusqlite::{MAIN_DB, OpenFlags, TransactionBehavior, params, types};

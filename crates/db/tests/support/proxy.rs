@@ -11,7 +11,7 @@ use std::{
     net::{Ipv4Addr, SocketAddr, TcpListener},
     sync::{
         Arc, Mutex,
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
     },
     time::Duration,
 };
@@ -29,12 +29,22 @@ pub enum Fault {
     DelayResponse(Duration),
     OversizedErrorBody(usize),
     LoseCommitResponse,
+    #[allow(dead_code)] // Used by the transaction binary, not foundation.rs.
+    LoseRollbackResponse,
+    #[allow(dead_code)]
+    LoseWriteResponse,
+    #[allow(dead_code)]
+    RoutePrefix,
 }
 
 #[derive(Default)]
 struct State {
     fault: Mutex<Option<Fault>>,
     triggered: AtomicUsize,
+    requests: AtomicUsize,
+    commits: AtomicUsize,
+    rollbacks: AtomicUsize,
+    routed: AtomicBool,
 }
 
 pub struct FaultProxy {
@@ -106,6 +116,21 @@ impl FaultProxy {
     pub fn triggered(&self) -> usize {
         self.state.triggered.load(Ordering::SeqCst)
     }
+
+    #[allow(dead_code)] // Shared fixture methods are used by different test binaries.
+    pub fn requests(&self) -> usize {
+        self.state.requests.load(Ordering::SeqCst)
+    }
+
+    #[allow(dead_code)]
+    pub fn commits(&self) -> usize {
+        self.state.commits.load(Ordering::SeqCst)
+    }
+
+    #[allow(dead_code)]
+    pub fn rollbacks(&self) -> usize {
+        self.state.rollbacks.load(Ordering::SeqCst)
+    }
 }
 
 impl Drop for FaultProxy {
@@ -133,11 +158,31 @@ async fn forward(
     state: &State,
     client: &reqwest::Client,
 ) -> io::Result<()> {
-    let request = read_request(&mut stream).await?;
+    let mut request = read_request(&mut stream).await?;
+    state.requests.fetch_add(1, Ordering::SeqCst);
+    let commit = is_control(&request.body, "COMMIT");
+    let rollback = is_control(&request.body, "ROLLBACK");
+    let write = is_insert(&request.body);
+    if commit {
+        state.commits.fetch_add(1, Ordering::SeqCst);
+    }
+    if rollback {
+        state.rollbacks.fetch_add(1, Ordering::SeqCst);
+    }
+    let continuing = serde_json::from_slice::<PipelineReqBody>(&request.body)
+        .is_ok_and(|body| body.baton.is_some());
+    if state.routed.load(Ordering::SeqCst) && continuing {
+        let Some(path) = request.path.strip_prefix("/route") else {
+            return Err(io::Error::other("fixture stream lost its route prefix"));
+        };
+        request.path = path.to_owned();
+    }
     let fault = {
         let mut armed = state.fault.lock().unwrap();
         match *armed {
-            Some(Fault::LoseCommitResponse) if !is_commit(&request.body) => None,
+            Some(Fault::LoseCommitResponse) if !commit => None,
+            Some(Fault::LoseRollbackResponse) if !rollback => None,
+            Some(Fault::LoseWriteResponse) if !write => None,
             _ => armed.take(),
         }
     };
@@ -153,13 +198,13 @@ async fn forward(
         .await
         .map_err(|_| io::Error::other("fixture upstream failed"))?;
     let status = response.status();
-    let body = bounded_body(&mut response).await?;
+    let mut body = bounded_body(&mut response).await?;
     match fault {
         Some(Fault::DelayResponse(duration)) => {
             state.triggered.fetch_add(1, Ordering::SeqCst);
             tokio::time::sleep(duration).await;
         }
-        Some(Fault::LoseCommitResponse) => {
+        Some(Fault::LoseCommitResponse | Fault::LoseRollbackResponse) => {
             if !status.is_success() || !commit_accepted(&body) {
                 return Err(io::Error::other("fixture commit was rejected"));
             }
@@ -168,6 +213,25 @@ async fn forward(
                 io::ErrorKind::ConnectionAborted,
                 "synthetic commit response loss",
             ));
+        }
+        Some(Fault::LoseWriteResponse) => {
+            if !status.is_success() || !write_accepted(&body) {
+                return Err(io::Error::other("fixture write was rejected"));
+            }
+            state.triggered.fetch_add(1, Ordering::SeqCst);
+            return Err(io::Error::new(
+                io::ErrorKind::ConnectionAborted,
+                "synthetic write response loss",
+            ));
+        }
+        Some(Fault::RoutePrefix) => {
+            let mut decoded: PipelineRespBody = serde_json::from_slice(&body)
+                .map_err(|_| io::Error::other("invalid fixture routing response"))?;
+            decoded.base_url = Some(format!("http://{}/route/", stream.local_addr()?));
+            body = serde_json::to_vec(&decoded)
+                .map_err(|_| io::Error::other("invalid fixture routing response"))?;
+            state.routed.store(true, Ordering::SeqCst);
+            state.triggered.fetch_add(1, Ordering::SeqCst);
         }
         _ => {}
     }
@@ -252,11 +316,11 @@ async fn read_request(stream: &mut TcpStream) -> io::Result<Request> {
     })
 }
 
-fn is_commit(bytes: &[u8]) -> bool {
+fn is_control(bytes: &[u8], control: &str) -> bool {
     serde_json::from_slice::<PipelineReqBody>(bytes).is_ok_and(|body| {
         body.requests.iter().any(|request| {
             matches!(request, StreamRequest::Execute(request) if request.stmt.sql.as_deref().is_some_and(|sql| {
-                sql.trim().trim_end_matches(';').trim().eq_ignore_ascii_case("COMMIT")
+                sql.trim().trim_end_matches(';').trim().eq_ignore_ascii_case(control)
             }))
         })
     })
@@ -269,6 +333,35 @@ fn commit_accepted(bytes: &[u8]) -> bool {
             [StreamResult::Ok {
                 response: StreamResponse::Execute(_)
             }]
+        )
+    })
+}
+
+fn is_insert(bytes: &[u8]) -> bool {
+    serde_json::from_slice::<PipelineReqBody>(bytes).is_ok_and(|body| {
+        body.requests.iter().any(|request| {
+            let sql = match request {
+                StreamRequest::Execute(request) => request.stmt.sql.as_deref(),
+                StreamRequest::Sequence(request) => request.sql.as_deref(),
+                _ => None,
+            };
+            sql.is_some_and(|sql| sql.trim_start().starts_with("INSERT INTO synthetic"))
+        })
+    })
+}
+
+fn write_accepted(bytes: &[u8]) -> bool {
+    serde_json::from_slice::<PipelineRespBody>(bytes).is_ok_and(|body| {
+        matches!(
+            body.results.first(),
+            Some(StreamResult::Ok {
+                response: StreamResponse::Execute(_) | StreamResponse::Sequence(_)
+            })
+        ) && matches!(
+            body.results.last(),
+            Some(StreamResult::Ok {
+                response: StreamResponse::Close(_)
+            })
         )
     })
 }

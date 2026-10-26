@@ -17,6 +17,7 @@ enum Backend<'conn> {
         sql: String,
         parameters: usize,
         columns: usize,
+        read_only: bool,
     },
 }
 
@@ -38,6 +39,7 @@ impl<'conn> Statement<'conn> {
         sql: String,
         parameters: usize,
         columns: usize,
+        read_only: bool,
     ) -> Self {
         Self {
             backend: Backend::Remote {
@@ -45,6 +47,7 @@ impl<'conn> Statement<'conn> {
                 sql,
                 parameters,
                 columns,
+                read_only,
             },
         }
     }
@@ -73,10 +76,11 @@ impl<'conn> Statement<'conn> {
                 connection,
                 sql,
                 parameters,
+                read_only,
                 ..
             } => {
                 check_parameters(params.len(), *parameters)?;
-                let result = connection.execute_values(sql, params, false)?;
+                let result = connection.execute_values(sql, params, false, *read_only)?;
                 if !result.cols.is_empty() {
                     return Err(Error::ExecuteReturnedResults);
                 }
@@ -101,11 +105,12 @@ impl<'conn> Statement<'conn> {
                 connection,
                 sql,
                 parameters,
+                read_only,
                 ..
             } => {
                 check_parameters(params.len(), *parameters)?;
                 Ok(Rows::from_remote(
-                    connection.execute_values(sql, params, true)?,
+                    connection.execute_values(sql, params, true, *read_only)?,
                 ))
             }
         }
@@ -133,11 +138,12 @@ impl<'conn> Statement<'conn> {
                 connection,
                 sql,
                 parameters,
+                read_only,
                 ..
             } => {
                 check_parameters(params.len(), *parameters)?;
                 Ok(MappedRows::from_remote(
-                    Rows::from_remote(connection.execute_values(sql, params, true)?),
+                    Rows::from_remote(connection.execute_values(sql, params, true, *read_only)?),
                     map,
                 ))
             }
@@ -172,10 +178,12 @@ impl<'conn> Statement<'conn> {
                 connection,
                 sql,
                 parameters,
+                read_only,
                 ..
             } => {
                 check_parameters(params.len(), *parameters)?;
-                let mut rows = Rows::from_remote(connection.execute_values(sql, params, true)?);
+                let mut rows =
+                    Rows::from_remote(connection.execute_values(sql, params, true, *read_only)?);
                 map(rows.next()?.ok_or(Error::QueryReturnedNoRows)?)
             }
         }

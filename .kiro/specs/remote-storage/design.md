@@ -47,7 +47,7 @@ HTTP1のみ、redirect禁止、retry禁止、TLS証明書/host検証とTLS1.2以
 Rowsは上限内で受信した単一応答の行を反復し、無制限の全結果をbufferしない。長いscan/export/snapshotはcoreで500行以下のkeysetページへ分割する。requestごとの応答上限は累積DBサイズの上限ではない。全件整合は上位の排他で保証する。Linux buildにはpkg-config/libssl-dev、runtimeにはlibssl3/CAが必要で、配備側が用意する。
 
 ### 2. Core policy
-`Engine::{create_remote(endpoint,identity,origin,options),open_remote(endpoint,identity,options)}`をcloud限定で追加する。`RemoteIdentity`はdatabase_idと種別を持ち、HTTP要求から作らない。通常のcreate/open/migrate/公開APIは変えない。
+`Engine::{create_remote(endpoint,identity,origin,options),open_remote(endpoint,identity,options)}`をcloud限定で追加する。`RemoteIdentity`はdatabase_idと種別を持ち、HTTP要求から作らない。cloud限定の`Engine::is_poisoned`で上位が処理終端の接続状態を確認できる。通常のcreate/open/migrate/公開APIは変えない。
 createは空の新DBだけを初期化する。`meta`へremote format marker、schema_version、database_id、data_originと既存拡張版を記録する。openは全markerと期待ID/版/種別を照合し、未知・欠落・未来版を拒否する。remoteはapplication_id/user_versionを書かず、手元版は従来PRAGMAを維持する。
 remote writeは同じBEGIN IMMEDIATEで業務処理を確定する。fs容量見積り・WAL・checkpointを呼ばず、外部DBの容量/制約エラーを失敗として返す。読み取りsnapshotも同streamで維持する。既存SQLのFTS5 trigram・生成列・trigger・件数更新は共有する。
 論理消去/tombstoneは共有する。手元専用compact/WAL/ファイルbackupはremoteで明示Unsupportedとし、物理消去を保証しない。remote保存/復旧は以下の別入口を使う。全件verify/CSVと保存のscanはbounded keysetへ分け、途中を黙って省略しない。
