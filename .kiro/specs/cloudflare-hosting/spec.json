@@ -1,7 +1,7 @@
 {
   "feature_name": "cloudflare-hosting",
   "created_at": "2026-10-26T12:20:00Z",
-  "updated_at": "2026-10-26T14:50:40.409887+00:00",
+  "updated_at": "2026-10-26T14:51:04.585729+00:00",
   "language": "ja",
   "phase": "implementing",
   "approvals": {
@@ -47,10 +47,12 @@
       }
     },
     "tls_runtime_prerequisite_delta": "PASS_inline: parent-confirmed libsql-hrana/reqwest native TLS requires build pkg-config/libssl-dev and runtime libssl3/ca-certificates; no public API, task graph, or DO contract change",
-    "parallel_static_foundation_delta": "PASS_independent: static1.1 and independent1.2/1.3 may precede remote-storage; real Worker composition and AMD64 build/inspect/boot moved to2.1 with explicit upstream prerequisite"
+    "parallel_static_foundation_delta": "PASS_independent: static1.1 and independent1.2/1.3 may precede remote-storage; real Worker composition and AMD64 build/inspect/boot moved to2.1 with explicit upstream prerequisite",
+    "runtime_config_contract_delta": "PASS_inline_existing_CONFIG_v1_env_references_explicit_shape_before_independent_coordinator_and_hosted_implementation"
   },
   "completed_tasks": [
-    "1.1"
+    "1.1",
+    "1.2"
   ],
   "verification": {
     "1.1": {
@@ -64,9 +66,15 @@
       "security_override": "miniflare@5.20261012.1-beta -> undici 7.30.1",
       "independent_review": "APPROVED_after_scoped_dependency_fix",
       "actual_worker_entry_image_build_and_boot": "pending_task_2.1"
+    },
+    "1.2": {
+      "boundary_tests": 27,
+      "root_fresh_test_exit_code": 0,
+      "npm_check_tests": 29,
+      "type_contract_and_shell": "passed",
+      "independent_review": "APPROVED",
+      "edge_entry_and_container_integration": "pending_task_2.1",
+      "evidence": ".agent-harness/runs/2026-10-26-cloudflare-turso/cloud-1.2/"
     }
-  },
-  "reviews": {
-    "runtime_config_contract_delta": "PASS_inline_existing_CONFIG_v1_env_references_explicit_shape_before_independent_coordinator_and_hosted_implementation"
   }
 }

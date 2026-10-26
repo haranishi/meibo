@@ -10,7 +10,7 @@
   - _Boundary: Runtime foundation, Cloud image（明示したsetup統合）_
   - _Requirements: 1.4, 3.2, 4.4_
 
-- [ ] 1.2 (P) 公開先と要求の境界を維持する
+- [x] 1.2 (P) 公開先と要求の境界を維持する
   - 想定したHTTPS origin/Hostだけを受け、preview・不正な接続先・未知methodを処理前に拒否する。
   - Content-Lengthの有無によらず、逐次読取りでJSON1MiBとCSV import32MiBの上限を守る。
   - 検査済みの公開Host、Origin、cookieとCSRF/contextを内部HTTPへ維持し、forwarded headerを信頼しない。
