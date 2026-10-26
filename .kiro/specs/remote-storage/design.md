@@ -28,7 +28,7 @@ graph LR
 | Hosted store | `crates/app/{Cargo.toml,src/main.rs,src/hosted.rs,src/hosted/{store,auth,http,cli}.rs}`、新規`hosted/remote.rs`: 接続設定、登録対応、remote CLI、既存認証の共有 |
 | Operation gate | 新規`crates/app/src/hosted/remote_gate.rs`: 非失効の共有排他、所有照合、明示復旧、状態不明の通知 |
 | Backup/restore | 新規`crates/app/src/hosted/remote_backup.rs`: 目録・全組織の保存/復旧。既存backup.rsの手元版は維持 |
-| Integration | `Cargo.lock`、`crates/app/tests/remote_hosted.rs`、`crates/db/tests/remote.rs`、必要なxtask検査入口: 合成の実sqld/fault proxy/既存回帰 |
+| Integration | `Cargo.lock`、`crates/app/tests/remote_hosted.rs`、`crates/db/tests/remote.rs`、必要なxtask検査入口: 合成の実sqld/fault proxy/既存回帰。foundationで`crates/core/tests/process/no_network.rs`の対象を通常app/coreの実graphへ直す |
 
 ## Components and Interfaces
 ### 1. SQL adapter
@@ -83,4 +83,5 @@ stateDiagram-v2
 
 ## Error Handling and Testing Strategy
 通常buildの既存check-all/MSRV/性能経路を保つ。実sqld/fault試験はintegration-tests featureを明示した別入口/CIで実行し、runtime単体試験にsqldを要求しない。default-localの通信禁止bansを保つgraphとcloud用policyを分け、双方でadvisory/license/source検査を続ける。旧SDK/Hyper0.14をtest helperからも除く。
+defaultの依存検査はapp/coreのnormal/build cargo treeを使い、default featuresを有効なまま調べる。optional依存が載るlockfile全体を通常版のlink graphと混同せず、禁止package一覧とdeny.tomlの検査は維持する。この試験修正と全workspace回帰はfoundation完了条件に含め、policy分離を待たない。
 cloud buildは実sqldの合成DBで同一の業務契約、500行境界のCSV、2文字/3文字検索、取消・消去・独自項目、2組織3権限、session変更とブラウザcontextを確認する。接続秘密の漏れ、timeout/サイズ上限、SQL失敗rollback、commit後の応答を落とすproxy、process停止後gate保持・owner違いの解除拒否・明示復旧、保存→新DB一式復旧→再ログイン→全表照合を試験する。本物のCloudflareとTursoの確認はcloudflare-hostingで別に記録する。

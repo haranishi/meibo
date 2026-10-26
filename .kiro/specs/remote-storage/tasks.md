@@ -1,9 +1,10 @@
 # Implementation Plan
 
 - [ ] 1. SQL adapterの土台と接続
-- [ ] 1.1 optional crate・依存・実server/fault fixtureを用意する
+- [x] 1.1 optional crate・依存・実server/fault fixtureを用意する
   - meibo-dbとcloud feature、libsql-hrana =0.10.0、reqwest =0.13.5（defaultなし、json/native-tls-no-alpn）、共有Tokio runtimeを追加する。実sqld/fault試験は明示integration-tests featureでgateし、runtime単体試験は通常実行する。旧SDK/Hyper0.14をtest helper/proxyからも除き、fixture起動終了・MSRV・依存監査を確認する。
-  - _Boundary: Cargo manifests/lock, crates/db/lib, tests/support_
+  - 既存no_network試験の全lockfile走査を、default app/coreのnormal/build cargo treeへ限定して直す。default featuresを無効化せず、禁止package一覧とdeny.tomlの検査を保つ。全workspace試験を通してから次へ進む。
+  - _Boundary: Cargo manifests/lock, crates/db/lib, tests/support, core/tests/process/no_network.rs default graph assertion integration_
   - _Requirements: 1.1, 2.6, 5.4_
 - [ ] 1.2 SQLの値・引数・行変換を揃える
   - Value/ToSql/FromSql、Row.get、params、OptionalExtension、errorの既存使用範囲を実装し、i64端値・NULL・Blob・有限実数・変換失敗の試験を通す。
@@ -82,3 +83,4 @@
 
 ## Implementation Notes
 旧libsql SDK/TLS connector案は依存監査不合格で置換済み。公式Hrana型+現行reqwestの組合せはRust1.88/online advisories/licenses/sourcesを通過した。1.4はchunk受信中の上限を試験し、Rowsは単一の上限付き応答だけを保持する。大量scanは2.5でページ化する。Cloudflare版のLinux build/runtimeにはOpenSSLとCAを配備側が用意する。
+1.1のdefault graph試験修正はoptional packageがlockfileへ載ることと通常版へlinkされることを区別する。4.4の監査policy分離は別タスクであり、1.1で禁止packageや既存policyを緩めない。

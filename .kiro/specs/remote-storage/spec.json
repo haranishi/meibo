@@ -1,9 +1,9 @@
 {
   "feature_name": "remote-storage",
   "created_at": "2026-10-26T12:00:00Z",
-  "updated_at": "2026-10-26T12:51:33Z",
+  "updated_at": "2026-10-26T13:22:31.828192+00:00",
   "language": "ja",
-  "phase": "tasks-generated",
+  "phase": "implementing",
   "approvals": {
     "requirements": {
       "generated": true,
@@ -34,7 +34,8 @@
     "actionable_tasks": 17,
     "design_transport_refinement": "typed_Hrana_v2_current_reqwest_bounded_body_obsoletes_legacy_SDK_and_metered_connector",
     "transport_delta": "APPROVED_focused_independent_on_updated_design_research_tasks_and_test_profiles",
-    "task_1_1_next_action": "RETRY_TASK"
+    "task_1_1_next_action": "RETRY_TASK",
+    "foundation_default_graph_delta": "PASS_inline_existing_test_actual_default_app_core_normal_build_graph_forbidden_list_and_policy_unchanged"
   },
   "transport_preflight": {
     "stack": "libsql-hrana =0.10.0 + reqwest =0.13.5 default-features=false json/native-tls-no-alpn + shared Tokio",
@@ -43,5 +44,23 @@
     "local_sequence_trigger_rollback": "passed actual sqld synthetic database",
     "provider_protocol": "passed synthetic Turso Cloud Sequence and approximately 11.75-second transaction",
     "source_implementation_review": "pending task 1.1 retry; preflight is not implementation approval"
+  },
+  "completed_tasks": [
+    "1.1"
+  ],
+  "verification": {
+    "1.1": {
+      "default_workspace_passed": 290,
+      "failed": 0,
+      "existing_ignored_benchmarks": 3,
+      "db_runtime_tests": 1,
+      "real_sqld_fixture_tests": 7,
+      "msrv": "1.88 passed",
+      "online_advisories_licenses_sources": "passed",
+      "default_artifact_network_graph": "clean",
+      "independent_review": "APPROVED",
+      "production_remote_adapter": "pending_tasks_1.2_to_1.5",
+      "cloud_policy_ci": "pending_task_4.4"
+    }
   }
 }

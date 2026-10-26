@@ -1,6 +1,7 @@
 use std::{
     fs,
     path::{Path, PathBuf},
+    process::Command,
 };
 
 fn rust_files(dir: &Path, files: &mut Vec<PathBuf>) {
@@ -52,19 +53,38 @@ fn rust_sources_have_no_network_symbols() {
 
 // REQ 7.4
 #[test]
-fn dependency_packages_and_deny_policy_exclude_network() {
+fn default_dependency_graph_and_deny_policy_exclude_network() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let lock = fs::read_to_string(root.join("Cargo.lock")).unwrap();
-    let names: Vec<_> = lock
-        .split("[[package]]")
-        .skip(1)
-        .map(|package| {
-            package
-                .lines()
-                .find_map(|line| line.trim().strip_prefix("name = "))
-                .unwrap()
-                .trim_matches('"')
-        })
+    // The lockfile also records the optional cloud adapter. Check the actual
+    // default artifacts, retaining defaults so accidental cloud opt-in fails.
+    let graph = Command::new(env!("CARGO"))
+        .args([
+            "tree",
+            "--locked",
+            "--offline",
+            "--package",
+            "meibo-core",
+            "--package",
+            "meibo-app",
+            "--edges",
+            "normal,build",
+            "--prefix",
+            "none",
+            "--format",
+            "{p}",
+        ])
+        .current_dir(&root)
+        .output()
+        .unwrap();
+    assert!(
+        graph.status.success(),
+        "default dependency graph unavailable: {}",
+        String::from_utf8_lossy(&graph.stderr)
+    );
+    let packages = String::from_utf8(graph.stdout).unwrap();
+    let names: Vec<_> = packages
+        .lines()
+        .filter_map(|line| line.split_whitespace().next())
         .collect();
     assert!(names.len() > 1);
     for forbidden in [

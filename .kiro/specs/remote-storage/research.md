@@ -38,4 +38,6 @@ Connection/Statement/Row/Transactionの既存使用範囲をadapterへ置く。�
 
 現行Turso Cloudの合成DBでもSequenceと約11.75秒のtransaction確定を確認した。古いHTTP文書の5秒を現在環境の総時間上限とは扱わず、この観測だけから500行importの成立も断定しない。後続の実環境検証で確認する。
 
+既存no_network試験はCargo.lockの全packageを走査していた。optionalな公開版依存を足すだけでも失敗するため、通常app/coreのnormal/build graphをdefault features有効のまま調べる形へ修正する。禁止一覧・deny.toml検査を変えず、foundationの全workspace回帰で確認する。cloud用監査policyの追加は4.4が担当する。
+
 ネットワーク遅延のある数百万行のscan/importをローカルの測定値と同一視しない。SDKが全行をbufferする経路はページ化し、未検証の速度を主張しない。Cloudflareの実環境保持と公開ゲートは下流仕様で確認する。
