@@ -27,7 +27,9 @@ impl RemoteErrorKind {
         }
     }
 
-    pub(crate) fn error(self) -> Error {
+    /// Construct the fixed SQLite-compatible error for this adapter outcome.
+    #[must_use]
+    pub fn error(self) -> Error {
         Error::SqliteFailure(
             rusqlite::ffi::Error::new(self.code()),
             Some(self.message().to_owned()),

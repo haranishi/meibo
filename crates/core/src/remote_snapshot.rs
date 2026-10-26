@@ -3,6 +3,7 @@
 use std::fmt;
 
 mod codec;
+mod reader;
 mod registry;
 mod sequence;
 
@@ -41,6 +42,8 @@ impl std::error::Error for SnapshotError {}
 
 /// Snapshot operations return fixed, redacted errors.
 pub type Result<T> = std::result::Result<T, SnapshotError>;
+
+pub(crate) use reader::visit;
 
 #[cfg(test)]
 mod tests;

@@ -24,7 +24,7 @@
   - _Boundary: crates/db Connection local/remote backend integration, transaction, remote state, Statement private readonly metadata, error classification/adapter exports, fault tests_
   - _Requirements: 2.2, 2.3, 2.4, 2.6_
 
-- [ ] 2. Coreの保存方針を分ける
+- [x] 2. Coreの保存方針を分ける
 - [x] 2.1 (P) SQL aliasを既存coreへ接続する
   - 内部試験を含むSQL参照をaliasへ寄せる。defaultの直接rusqlite経路と公開Engine APIを保ち、default試験とcloudの手元CLIをcompileする。
   - _Boundary: core lib, SQL imports and tests_
@@ -45,7 +45,7 @@
   - _Boundary: core remote_snapshot, cloud-only module registration and optional codec dependency setup_
   - _Depends: 2.1_
   - _Requirements: 2.6, 4.2_
-- [ ] 2.5 全件scanとremote保守を接続する
+- [x] 2.5 全件scanとremote保守を接続する
   - verify/CSV/snapshotを500行以下のkeysetページで処理し、ページ境界を越えて抜け・重複がないことを確認する。手元compact/WAL/file backupを保ち、remoteは対応外を明示する。
   - _Boundary: core scans, erase/engine maintenance, snapshot reader, db RemoteErrorKind::error constructor visibility/docs only_
   - _Depends: 2.3, 2.4_
@@ -59,7 +59,7 @@
   - _Requirements: 1.2, 1.3, 1.4, 3.1, 3.2_
 - [ ] 3.2 非失効gateの取得・所有照合・復旧を実装する
   - 永続gateを条件付きで取得/解除する。別processの競合、panic/再起動/取得応答消失で占有を維持し、owner違いの解除と自動takeoverを拒否する。以前の処理終了を指定した復旧を監査する。
-  - _Boundary: app hosted remote_gate and storage tests_
+  - _Boundary: app hosted remote_gate, remote control schema/module/check_ready visibility, gated tests/integration-only locked fixture dependencies, db/tests/support/proxy.rs generic matching-write response-loss fixture only_
   - _Depends: 1.5, 3.1_
   - _Requirements: 2.5, 3.3, 3.4, 3.5_
 - [ ] 3.3 HTTPとremote CLIを統合する

@@ -445,6 +445,19 @@ fn read_fold(row: &crate::sql::Row<'_>, start: usize) -> Result<FoldInput, Engin
 }
 
 fn refold(conn: &Connection, id: CompanyId, base: Status) -> Result<Folded, EngineError> {
+    #[cfg(feature = "cloud")]
+    if conn.is_remote() {
+        let mut value = fold(base, std::iter::empty());
+        let sql = format!(
+            "SELECT a.kind,a.at,a.status_after,a.next_action_kind,a.next_action_at,a.id FROM activities a WHERE a.company_id={} AND a.kind<>9 AND NOT EXISTS(SELECT 1 FROM activities r WHERE r.reverses_id=a.id)",
+            id.0
+        );
+        crate::scan::visit_rows(conn, &sql, &[("a.id", 5)], crate::scan::PAGE_ROWS, |row| {
+            apply(&mut value, read_fold(row, 0)?);
+            Ok(true)
+        })?;
+        return Ok(value);
+    }
     let mut stmt = conn.prepare("SELECT a.kind,a.at,a.status_after,a.next_action_kind,a.next_action_at FROM activities a WHERE a.company_id=?1 AND a.kind<>9 AND NOT EXISTS(SELECT 1 FROM activities r WHERE r.reverses_id=a.id) ORDER BY a.id").map_err(storage)?;
     let mut rows = stmt.query([id.0]).map_err(storage)?;
     let mut value = fold(base, std::iter::empty());
@@ -593,32 +606,53 @@ pub(crate) fn verify_folds(conn: &Connection) -> Result<bool, EngineError> {
         return Ok(false);
     }
     // 取り消しだけが残る企業も、元の活動を含むストリームで照合する。
+    let mut current: Option<(i64, Folded, Folded)> = None;
+    #[cfg(feature = "cloud")]
+    if conn.is_remote() {
+        let complete = crate::scan::visit_rows(
+            conn,
+            "SELECT c.id,c.base_status,c.status,c.last_activity_at,c.next_action_at,a.kind,a.at,a.status_after,a.next_action_kind,a.next_action_at,(a.kind<>9 AND r.id IS NULL),a.id FROM activities a JOIN companies c ON c.id=a.company_id LEFT JOIN activities r ON r.reverses_id=a.id WHERE 1",
+            &[("a.company_id", 0), ("a.id", 11)],
+            crate::scan::PAGE_ROWS,
+            |row| verify_fold_row(row, &mut current),
+        )?;
+        return Ok(complete && current.is_none_or(|(_, actual, expected)| actual == expected));
+    }
     let mut stmt = conn.prepare("SELECT c.id,c.base_status,c.status,c.last_activity_at,c.next_action_at,a.kind,a.at,a.status_after,a.next_action_kind,a.next_action_at,(a.kind<>9 AND r.id IS NULL) FROM activities a JOIN companies c ON c.id=a.company_id LEFT JOIN activities r ON r.reverses_id=a.id ORDER BY a.company_id,a.id").map_err(storage)?;
     let mut rows = stmt.query([]).map_err(storage)?;
-    let mut current: Option<(i64, Folded, Folded)> = None;
     while let Some(row) = rows.next().map_err(storage)? {
-        let id: i64 = row.get(0).map_err(storage)?;
-        if current.as_ref().is_none_or(|c| c.0 != id) {
-            if current.is_some_and(|(_, actual, expected)| actual != expected) {
-                return Ok(false);
-            }
-            current = Some((
-                id,
-                fold(status(row.get(1).map_err(storage)?)?, std::iter::empty()),
-                Folded {
-                    status: status(row.get(2).map_err(storage)?)?,
-                    last_activity_at: row.get(3).map_err(storage)?,
-                    next_action_at: row.get(4).map_err(storage)?,
-                },
-            ));
-        }
-        if row.get::<_, bool>(10).map_err(storage)?
-            && let Some((_, actual, _)) = &mut current
-        {
-            apply(actual, read_fold(row, 5)?);
+        if !verify_fold_row(row, &mut current)? {
+            return Ok(false);
         }
     }
     Ok(current.is_none_or(|(_, actual, expected)| actual == expected))
+}
+
+fn verify_fold_row(
+    row: &crate::sql::Row<'_>,
+    current: &mut Option<(i64, Folded, Folded)>,
+) -> Result<bool, EngineError> {
+    let id: i64 = row.get(0).map_err(storage)?;
+    if current.as_ref().is_none_or(|c| c.0 != id) {
+        if current.is_some_and(|(_, actual, expected)| actual != expected) {
+            return Ok(false);
+        }
+        *current = Some((
+            id,
+            fold(status(row.get(1).map_err(storage)?)?, std::iter::empty()),
+            Folded {
+                status: status(row.get(2).map_err(storage)?)?,
+                last_activity_at: row.get(3).map_err(storage)?,
+                next_action_at: row.get(4).map_err(storage)?,
+            },
+        ));
+    }
+    if row.get::<_, bool>(10).map_err(storage)?
+        && let Some((_, actual, _)) = current
+    {
+        apply(actual, read_fold(row, 5)?);
+    }
+    Ok(true)
 }
 
 #[cfg(test)]

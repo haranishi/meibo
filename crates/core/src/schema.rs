@@ -339,6 +339,10 @@ impl Db {
 
     /// 完了または背景スレッドなしなら `true`、`busy_timeout` の期限切れなら `false`。
     pub(crate) fn settle(&self) -> Result<bool, EngineError> {
+        #[cfg(feature = "cloud")]
+        if !self.has_local_storage() {
+            return Err(storage(meibo_db::RemoteErrorKind::Unsupported.error()));
+        }
         if self.checkpoint.is_some() {
             return checkpoint::retry(&self.conn, checkpoint::Mode::Restart);
         }
@@ -362,6 +366,10 @@ impl Db {
     }
 
     pub(crate) fn backup_to(&self, dest: &Path) -> Result<(), EngineError> {
+        #[cfg(feature = "cloud")]
+        if !self.has_local_storage() {
+            return Err(storage(meibo_db::RemoteErrorKind::Unsupported.error()));
+        }
         ensure_space(
             dest,
             space_needed(&self.conn)?,
@@ -544,6 +552,25 @@ fn should_check(path: &Path, integrity: Integrity) -> Result<bool, EngineError> 
 }
 
 fn check_integrity(conn: &Connection, quick: bool) -> Result<(), EngineError> {
+    #[cfg(feature = "cloud")]
+    if conn.is_remote() {
+        let result: String = conn
+            .query_row(
+                if quick {
+                    "PRAGMA quick_check(1)"
+                } else {
+                    "PRAGMA integrity_check(1)"
+                },
+                [],
+                |row| row.get(0),
+            )
+            .map_err(database_error)?;
+        return if result == "ok" {
+            Ok(())
+        } else {
+            Err(EngineError::Corrupt)
+        };
+    }
     let mut stmt = conn
         .prepare(if quick {
             "PRAGMA quick_check(1)"

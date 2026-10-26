@@ -58,9 +58,15 @@ pub(crate) fn visit_companies(
     fields: &Fields,
     mut visitor: impl FnMut(Company) -> Result<(), EngineError>,
 ) -> Result<u64, EngineError> {
-    let _snapshot = db.conn().unchecked_transaction().map_err(storage)?;
+    let snapshot = db.conn().unchecked_transaction().map_err(storage)?;
     let mut plan = Plan::new(filters, filter_sort(filters))?;
     plan.condition.push_str(" AND erased_at IS NULL");
+    #[cfg(feature = "cloud")]
+    if !db.has_local_storage() {
+        let visited = visit_companies_paged(db, &plan, fields, visitor)?;
+        snapshot.rollback().map_err(storage)?;
+        return Ok(visited);
+    }
     let mut visited = 0;
     for (sql, mut args) in plan.statements(None, "*", 1) {
         // SQLiteの負のLIMITは上限なし。全体をVecや200件の別snapshotへ分けない。
@@ -72,7 +78,46 @@ pub(crate) fn visit_companies(
             visited += 1;
         }
     }
+    drop(snapshot);
     Ok(visited)
+}
+
+#[cfg(feature = "cloud")]
+fn visit_companies_paged(
+    db: &Db,
+    plan: &Plan,
+    fields: &Fields,
+    mut visitor: impl FnMut(Company) -> Result<(), EngineError>,
+) -> Result<u64, EngineError> {
+    let mut after: Option<Vec<Value>> = None;
+    let mut visited = 0;
+    loop {
+        let mut count = 0;
+        for (sql, mut args) in plan.statements(after.as_deref(), "*", crate::scan::PAGE_ROWS) {
+            *args.last_mut().expect("limit") =
+                Value::Integer(i64::from(crate::scan::PAGE_ROWS - count));
+            let mut statement = db.conn().prepare(&sql).map_err(storage)?;
+            let mut rows = statement.query(params_from_iter(args)).map_err(storage)?;
+            while let Some(row) = rows.next().map_err(storage)? {
+                visitor(company_row(row, db.origin(), fields).map_err(storage)?)?;
+                after = Some(
+                    plan.columns
+                        .iter()
+                        .map(|column| row.get::<_, Value>(*column))
+                        .collect::<crate::sql::Result<Vec<_>>>()
+                        .map_err(storage)?,
+                );
+                visited += 1;
+                count += 1;
+            }
+            if count == crate::scan::PAGE_ROWS {
+                break;
+            }
+        }
+        if count < crate::scan::PAGE_ROWS {
+            return Ok(visited);
+        }
+    }
 }
 
 pub(crate) fn cursor_after_offset(

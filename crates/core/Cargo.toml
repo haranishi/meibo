@@ -24,6 +24,11 @@ name = "remote_domain"
 path = "tests/remote_domain.rs"
 required-features = ["integration-tests"]
 
+[[test]]
+name = "remote_scans"
+path = "tests/remote_scans.rs"
+required-features = ["integration-tests"]
+
 [dependencies]
 meibo-db = { path = "../db", version = "0.1.0", optional = true }
 base64 = { version = "=0.23.1", optional = true }

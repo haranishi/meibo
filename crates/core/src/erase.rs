@@ -212,6 +212,10 @@ pub(crate) fn erase_company(db: &mut Db, id: CompanyId) -> Result<(), EngineErro
 }
 
 pub(crate) fn compact(db: &mut Db) -> Result<(), EngineError> {
+    #[cfg(feature = "cloud")]
+    if !db.has_local_storage() {
+        return Err(storage(meibo_db::RemoteErrorKind::Unsupported.error()));
+    }
     let path = Path::new(db.conn().path().ok_or_else(|| EngineError::InvalidInput {
         field: "path".into(),
         reason: "file database required".into(),

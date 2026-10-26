@@ -17,6 +17,8 @@ pub mod public_data;
 mod query;
 #[cfg(feature = "cloud")]
 pub mod remote_snapshot;
+#[cfg(feature = "cloud")]
+mod scan;
 mod schema;
 mod search;
 pub mod shapes;
