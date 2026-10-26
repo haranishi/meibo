@@ -1,4 +1,4 @@
-use crate::{MappedRows, Params, Result, Row, Rows};
+use crate::{Error, MappedRows, Params, RemoteConnection, Result, Row, Rows};
 
 enum Local<'conn> {
     Prepared(rusqlite::Statement<'conn>),
@@ -7,35 +7,55 @@ enum Local<'conn> {
 
 /// A prepared SQL statement, optionally retained in the connection's cache.
 pub struct Statement<'conn> {
-    local: Local<'conn>,
+    backend: Backend<'conn>,
+}
+
+enum Backend<'conn> {
+    Local(Local<'conn>),
+    Remote {
+        connection: &'conn RemoteConnection,
+        sql: String,
+        parameters: usize,
+        columns: usize,
+    },
 }
 
 impl<'conn> Statement<'conn> {
     pub(crate) fn from_local(statement: rusqlite::Statement<'conn>) -> Self {
         Self {
-            local: Local::Prepared(statement),
+            backend: Backend::Local(Local::Prepared(statement)),
         }
     }
 
     pub(crate) fn from_cached(statement: rusqlite::CachedStatement<'conn>) -> Self {
         Self {
-            local: Local::Cached(statement),
+            backend: Backend::Local(Local::Cached(statement)),
         }
     }
 
-    fn local_mut(&mut self) -> &mut rusqlite::Statement<'conn> {
-        match &mut self.local {
-            Local::Prepared(statement) => statement,
-            Local::Cached(statement) => statement,
+    pub(crate) fn from_remote(
+        connection: &'conn RemoteConnection,
+        sql: String,
+        parameters: usize,
+        columns: usize,
+    ) -> Self {
+        Self {
+            backend: Backend::Remote {
+                connection,
+                sql,
+                parameters,
+                columns,
+            },
         }
     }
 
     /// Return the number of result columns in this statement.
     #[must_use]
     pub fn column_count(&self) -> usize {
-        match &self.local {
-            Local::Prepared(statement) => statement.column_count(),
-            Local::Cached(statement) => statement.column_count(),
+        match &self.backend {
+            Backend::Local(Local::Prepared(statement)) => statement.column_count(),
+            Backend::Local(Local::Cached(statement)) => statement.column_count(),
+            Backend::Remote { columns, .. } => *columns,
         }
     }
 
@@ -45,7 +65,25 @@ impl<'conn> Statement<'conn> {
     /// Returns parameter conversion/binding or SQLite execution errors.
     pub fn execute<P: Params>(&mut self, params: P) -> Result<usize> {
         let params = params.into_values()?;
-        self.local_mut().execute(rusqlite::params_from_iter(params))
+        match &mut self.backend {
+            Backend::Local(local) => local
+                .statement()
+                .execute(rusqlite::params_from_iter(params)),
+            Backend::Remote {
+                connection,
+                sql,
+                parameters,
+                ..
+            } => {
+                check_parameters(params.len(), *parameters)?;
+                let result = connection.execute_values(sql, params, false)?;
+                if !result.cols.is_empty() {
+                    return Err(Error::ExecuteReturnedResults);
+                }
+                usize::try_from(result.affected_row_count)
+                    .map_err(|_| crate::remote::failure("invalid remote database response"))
+            }
+        }
     }
 
     /// Bind parameters and lazily step through result rows.
@@ -54,9 +92,23 @@ impl<'conn> Statement<'conn> {
     /// Returns parameter conversion or binding errors.
     pub fn query<P: Params>(&mut self, params: P) -> Result<Rows<'_>> {
         let params = params.into_values()?;
-        self.local_mut()
-            .query(rusqlite::params_from_iter(params))
-            .map(Rows::from_local)
+        match &mut self.backend {
+            Backend::Local(local) => local
+                .statement()
+                .query(rusqlite::params_from_iter(params))
+                .map(Rows::from_local),
+            Backend::Remote {
+                connection,
+                sql,
+                parameters,
+                ..
+            } => {
+                check_parameters(params.len(), *parameters)?;
+                Ok(Rows::from_remote(
+                    connection.execute_values(sql, params, true)?,
+                ))
+            }
+        }
     }
 
     /// Lazily map each result row, borrowing the current SQLite row.
@@ -70,8 +122,26 @@ impl<'conn> Statement<'conn> {
         F: FnMut(&Row<'_>) -> Result<T>,
     {
         let params = params.into_values()?;
-        let rows = self.local_mut().query(rusqlite::params_from_iter(params))?;
-        Ok(MappedRows::from_local(rows, map))
+        match &mut self.backend {
+            Backend::Local(local) => {
+                let rows = local
+                    .statement()
+                    .query(rusqlite::params_from_iter(params))?;
+                Ok(MappedRows::from_local(rows, map))
+            }
+            Backend::Remote {
+                connection,
+                sql,
+                parameters,
+                ..
+            } => {
+                check_parameters(params.len(), *parameters)?;
+                Ok(MappedRows::from_remote(
+                    Rows::from_remote(connection.execute_values(sql, params, true)?),
+                    map,
+                ))
+            }
+        }
     }
 
     /// Return whether this statement yields at least one result row.
@@ -79,8 +149,7 @@ impl<'conn> Statement<'conn> {
     /// # Errors
     /// Returns parameter conversion/binding or SQLite execution errors.
     pub fn exists<P: Params>(&mut self, params: P) -> Result<bool> {
-        let params = params.into_values()?;
-        self.local_mut().exists(rusqlite::params_from_iter(params))
+        self.query(params)?.next().map(|row| row.is_some())
     }
 
     /// Convert the first result row, ignoring any additional rows.
@@ -93,9 +162,39 @@ impl<'conn> Statement<'conn> {
         F: FnOnce(&Row<'_>) -> Result<T>,
     {
         let params = params.into_values()?;
-        self.local_mut()
-            .query_row(rusqlite::params_from_iter(params), |row| {
-                map(&Row::from_local(row))
-            })
+        match &mut self.backend {
+            Backend::Local(local) => local
+                .statement()
+                .query_row(rusqlite::params_from_iter(params), |row| {
+                    map(&Row::from_local(row))
+                }),
+            Backend::Remote {
+                connection,
+                sql,
+                parameters,
+                ..
+            } => {
+                check_parameters(params.len(), *parameters)?;
+                let mut rows = Rows::from_remote(connection.execute_values(sql, params, true)?);
+                map(rows.next()?.ok_or(Error::QueryReturnedNoRows)?)
+            }
+        }
+    }
+}
+
+impl<'conn> Local<'conn> {
+    fn statement(&mut self) -> &mut rusqlite::Statement<'conn> {
+        match self {
+            Self::Prepared(statement) => statement,
+            Self::Cached(statement) => statement,
+        }
+    }
+}
+
+fn check_parameters(actual: usize, expected: usize) -> Result<()> {
+    if actual == expected {
+        Ok(())
+    } else {
+        Err(Error::InvalidParameterCount(actual, expected))
     }
 }

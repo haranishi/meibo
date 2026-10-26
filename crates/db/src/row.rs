@@ -11,6 +11,7 @@ enum Data<'stmt> {
     Owned {
         columns: Arc<[String]>,
         values: Vec<Value>,
+        remote: bool,
     },
 }
 
@@ -86,8 +87,20 @@ impl<'stmt> Row<'stmt> {
             ensure_finite(ValueRef::from(value), index, &columns[index])?;
         }
         Ok(Self {
-            data: Data::Owned { columns, values },
+            data: Data::Owned {
+                columns,
+                values,
+                remote: false,
+            },
         })
+    }
+
+    pub(crate) fn from_remote_values(columns: Arc<[String]>, values: Vec<Value>) -> Result<Self> {
+        let mut row = Self::from_values(columns, values)?;
+        if let Data::Owned { remote, .. } = &mut row.data {
+            *remote = true;
+        }
+        Ok(row)
     }
 
     /// Read a typed value by its zero-based index or column name.
@@ -98,7 +111,14 @@ impl<'stmt> Row<'stmt> {
         let index = index.index(self)?;
         let value = self.get_ref(index)?;
         T::column_result(value).map_err(|error| {
-            error::from_sql(error, index, self.column_name(index), value.data_type())
+            // Remote column labels may themselves be SQL expressions. Keep
+            // lookup names intact, but do not embed them in diagnostics.
+            let name = if matches!(&self.data, Data::Owned { remote: true, .. }) {
+                "<remote column>"
+            } else {
+                self.column_name(index)
+            };
+            error::from_sql(error, index, name, value.data_type())
         })
     }
 

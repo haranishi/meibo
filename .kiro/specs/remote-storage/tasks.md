@@ -14,7 +14,7 @@
   - 設計1のlocal APIとTransactionをforwardし、path/PRAGMA/反復prepare/query/rollback/backupがrusqliteと同じ結果になる試験を通す。localの借用行とprivate raw cell bufferは取得列だけを変換し、未取得の不正UTF-8列と取得/未取得のInfをnative同様に扱う。paramsと公開from_valuesの有限実数制約は保つ。
   - _Boundary: crates/db local, statement, rows, row.rs private local buffering/borrowed conversion, local tests and primitives.rs native local Inf expectation_
   - _Requirements: 1.1, 2.1_
-- [ ] 1.4 外部Connectionと上限付きの受信を実装する
+- [x] 1.4 外部Connectionと上限付きの受信を実装する
   - 公式型のv2/pipelineで上限付き応答を読み、HTTP1/redirectなし/retryなし/TLS1.2以上、schemeとbase_urlのorigin制限を実装する。成功・error bodyのchunkをVec/JSON確保前に制限し、過大応答・期限・別host・URL/秘密の診断漏れを実fixtureで拒否する。
   - 実用の非transaction RemoteConnectionを先に完成させ、同じstreamでforeign_keysの有効化・照合に成功してから業務SQLを送り、streamを閉じる。公式型decode前に構造と作業領域を検査し、正当な500行ページを維持しつつ小さなJSONの過剰なVec確保を拒否する。共有Connectionへの統合は1.5で行う。
   - _Boundary: crates/db remote, statement, rows, row.rs private remote-only diagnostic redaction, remote tests/support, direct serde manifest edge/lock_

@@ -780,6 +780,7 @@ dependencies = [
  "libsql-hrana",
  "reqwest",
  "rusqlite",
+ "serde",
  "serde_json",
  "tempfile",
  "tokio",
