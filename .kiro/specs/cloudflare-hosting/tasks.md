@@ -36,7 +36,7 @@
   - 秘密は標準入力から登録し、実行物digest/Worker version/公開先と公開操作を対応付ける。private設定や秘密を通常ログへ出さない。
   - ローカルdry-runと検査済みの起動/復旧入口を揃え、条件が満たされれば対象だけへ公開できる実行経路を得る。
   - _Boundary: Integration（Worker entry, Publication gate, Cloud imageの実行確認）_
-  - _Depends: 1.1, 1.2, 1.3, remote-storage_
+  - _Depends: 1.1, 1.2, 1.3, remote-storage, public-entry_
   - _Requirements: 1.1, 2.4, 2.5, 4.1, 4.2, 4.3, 4.4, 5.1, 5.4_
 
 - [ ] 2.2 同じ検査をローカルと公開先で実行する

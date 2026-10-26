@@ -1,0 +1,27 @@
+{
+  "feature_name": "public-entry",
+  "language": "ja",
+  "phase": "implementing",
+  "authorization": "User AGENTS.md public Web app metadata and sharing requirement; existing publication instruction",
+  "approvals": {
+    "requirements": {
+      "generated": true,
+      "approved": true
+    },
+    "design": {
+      "generated": true,
+      "approved": true
+    },
+    "tasks": {
+      "generated": true,
+      "approved": true
+    }
+  },
+  "ready_for_implementation": true,
+  "updated_at": "2026-10-26T20:53:36.609040+00:00",
+  "reviews": {
+    "requirements_design_tasks": "APPROVED_independent_read_only_after_confirming_generic_metadata_before_JS_absolute_image_URL_safe_manual_sharing_and_browser_limits",
+    "requirements_covered": 7,
+    "actionable_tasks": 1
+  }
+}
