@@ -39,13 +39,15 @@
   - fs/WALに依存しないremote transactionを使い、CRUD・取消・件数・索引・独自項目・一括処理・論理消去とtombstoneの実sqld回帰、制約失敗時の全取消を通す。
   - _Boundary: core schema/write policy and domain regression_
   - _Requirements: 2.1, 2.2, 2.3, 5.1_
-- [ ] 2.4 型付きsnapshotと既知schemaの入出力を用意する
-  - table/column/keyの許可表、型の正確なcodec、既知AUTOINCREMENT high-waterを実装する。未知sequence・負値・最大id未満・overflowを拒否する試験を通す。
-  - _Boundary: core remote_snapshot_
+- [ ] 2.4 (P) 型付きsnapshotと既知schemaの入出力を用意する
+  - CRMのtable/column/key許可表、snapshot-format v1の共有codec、既知AUTOINCREMENT high-waterを実装する。未知sequence・欠落・負値・最大id未満・overflowを拒否する試験を通す。control許可表はappの4.1が所有する。
+  - _Boundary: core remote_snapshot, cloud-only module registration and optional codec dependency setup_
+  - _Depends: 2.1_
   - _Requirements: 2.6, 4.2_
 - [ ] 2.5 全件scanとremote保守を接続する
   - verify/CSV/snapshotを500行以下のkeysetページで処理し、ページ境界を越えて抜け・重複がないことを確認する。手元compact/WAL/file backupを保ち、remoteは対応外を明示する。
   - _Boundary: core scans, erase/engine maintenance, snapshot reader_
+  - _Depends: 2.3, 2.4_
   - _Requirements: 2.1, 2.6, 5.1, 5.2_
 
 - [ ] 3. Hostedの組織対応と共有排他

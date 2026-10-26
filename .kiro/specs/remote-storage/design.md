@@ -62,6 +62,7 @@ gate取得自体の応答消失も失敗として取得を試し直さない。�
 password/hash/session/期限/role/CSRF/contextは既存実装を共有する。controlを含むremote transport失敗はgeneric errorへ隠したまま成功扱いにせず、503/outcome_unknownと「処理結果を確認できません。再送せず管理者へ連絡してください。」を返す。利用者に接続先やSQLを出さない。
 
 ### 4. Backup/restoreとData Models
+行の固定形式と責務分担は[snapshot-format](snapshot-format.md)に従う。2.4は共有codec/CRM許可表/sequence、control許可表はappの4.1が所有する。
 保存はgate取得後、登録組織一覧とdatabase_idを固定する。提供者の古いsnapshotに依存せず、許可したschema/table/column定義に従うkeysetページを読み、型付き行を新規directoryへ逐次保存する。schema SQLを保存物から実行しない。
 形式version=1、manifestはservice識別/tenant slug/data_origin/schema版/table別行数/SHA-256と相対ファイル名だけを持つ。行は列順付きNull/Integerの10進文字列/RealのIEEE754 bit文字列/Text/Blobのbase64で表す。各行1MiB以下・page500行以下・buffer32MiB以下、manifest1MiB/組織1000以下。秘密、sessions、remote_gateは除外する。
 対象はmeta、companies（生成has_phoneを除く）、contacts、activities、lists、list_members、counts、crm_work_items、crm_opportunities、custom_field_definitions、custom_field_values、erased_corporate_numbersと、controlのmeta/users/tenants/memberships/audit/login_attempts/remote_tenants。erase_gateは空を確認し、FTS shadow tableは保存せず復旧後にrebuildする。
