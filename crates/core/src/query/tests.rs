@@ -36,7 +36,7 @@ pub(crate) fn fixture(size: i64) -> (tempfile::TempDir, Db) {
             let activity = if random(&mut rng).is_multiple_of(4) { i64::try_from(random(&mut rng)%20+1).unwrap() } else { 0 };
             let next = (random(&mut rng).is_multiple_of(4)).then(|| i64::try_from(random(&mut rng)%20).unwrap()-5);
             let name = format!("{} {id}", names[usize::try_from(random(&mut rng)%10).unwrap()]);
-            insert.execute(rusqlite::params![id,name,crate::normalize::name_key(&name),prefecture,municipality,industry,status,phone,"synthetic.example",owner,activity,next,id%7==0,1,1]).unwrap();
+            insert.execute(crate::sql::params![id,name,crate::normalize::name_key(&name),prefecture,municipality,industry,status,phone,"synthetic.example",owner,activity,next,id%7==0,1,1]).unwrap();
         }
         Ok(())
     }).unwrap();
@@ -118,7 +118,7 @@ fn all(db: &Db) -> Vec<Company> {
             )
         })
         .unwrap()
-        .collect::<rusqlite::Result<_>>()
+        .collect::<crate::sql::Result<_>>()
         .unwrap()
 }
 fn matches(c: &Company, f: &Filters) -> bool {
@@ -368,7 +368,7 @@ fn randomized_pages_counts_and_selection_match_memory() {
             .unwrap()
             .query_map(params_from_iter(args), |r| r.get::<_, i64>(0))
             .unwrap()
-            .collect::<rusqlite::Result<Vec<_>>>()
+            .collect::<crate::sql::Result<Vec<_>>>()
             .unwrap();
         assert_eq!(
             got,
@@ -607,7 +607,7 @@ fn reads_remain_consistent_during_commits() {
     let writer_stop = Arc::clone(&stop);
     let start = Arc::clone(&barrier);
     let writer = std::thread::spawn(move || {
-        let mut conn = rusqlite::Connection::open(path).unwrap();
+        let mut conn = crate::sql::Connection::open(path).unwrap();
         conn.busy_timeout(std::time::Duration::from_secs(5))
             .unwrap();
         start.wait();
@@ -616,7 +616,7 @@ fn reads_remain_consistent_during_commits() {
                 break;
             }
             let tx = conn.transaction().unwrap();
-            tx.execute("UPDATE companies SET status=CASE WHEN id>20 AND (id+?)%3=0 THEN 5 ELSE 0 END,name=CASE WHEN (id+?)%2=0 THEN '検索対象' ELSE '改名対象' END", rusqlite::params![epoch,epoch]).unwrap();
+            tx.execute("UPDATE companies SET status=CASE WHEN id>20 AND (id+?)%3=0 THEN 5 ELSE 0 END,name=CASE WHEN (id+?)%2=0 THEN '検索対象' ELSE '改名対象' END", crate::sql::params![epoch,epoch]).unwrap();
             tx.execute("UPDATE companies SET name_key=name,owner_id=?", [epoch])
                 .unwrap();
             tx.execute(

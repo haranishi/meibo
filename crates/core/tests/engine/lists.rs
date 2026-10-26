@@ -73,7 +73,7 @@ fn frozen_lists_bulk_atomicity_and_exclusions() {
     for d in &before {
         assert_eq!(db.company_detail(d.company.id, &fields()).unwrap(), *d);
     }
-    let conn = rusqlite::Connection::open(db.path().unwrap()).unwrap();
+    let conn = crate::sql::Connection::open(db.path().unwrap()).unwrap();
     conn.execute_batch("CREATE TRIGGER bulk_failure BEFORE UPDATE OF status ON companies WHEN OLD.id=2 BEGIN SELECT RAISE(ABORT,'injected'); END;").unwrap();
     change.include_excluded = false;
     change.status = Some(Status::InProgress);

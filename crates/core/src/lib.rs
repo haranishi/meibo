@@ -1,4 +1,10 @@
 //! 営業リストの型と保存・検索の土台。
+
+#[cfg(feature = "cloud")]
+pub(crate) use meibo_db as sql;
+#[cfg(not(feature = "cloud"))]
+pub(crate) use rusqlite as sql;
+
 mod bulk;
 pub mod crm;
 pub mod custom_fields;

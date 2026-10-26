@@ -1,6 +1,6 @@
 //! 独立したToDo・予定・商談。基盤の保存形式とは別に拡張版を管理する。
 
-use rusqlite::{Connection, OptionalExtension, Row, params, params_from_iter, types::Value};
+use crate::sql::{Connection, OptionalExtension, Row, params, params_from_iter, types::Value};
 
 use crate::{
     Engine,
@@ -397,7 +397,7 @@ impl Engine {
     }
 }
 
-fn storage(error: rusqlite::Error) -> EngineError {
+fn storage(error: crate::sql::Error) -> EngineError {
     EngineError::Storage(Box::new(error))
 }
 
@@ -613,11 +613,11 @@ fn page<T>(mut items: Vec<T>, total: u64, limit: u32, id: impl Fn(&T) -> i64) ->
     CrmPage { items, total, next }
 }
 
-fn work_row(row: &Row<'_>) -> rusqlite::Result<WorkItem> {
+fn work_row(row: &Row<'_>) -> crate::sql::Result<WorkItem> {
     let kind = match row.get::<_, i64>(4)? {
         1 => WorkKind::Task,
         2 => WorkKind::Event,
-        value => return Err(rusqlite::Error::IntegralValueOutOfRange(4, value)),
+        value => return Err(crate::sql::Error::IntegralValueOutOfRange(4, value)),
     };
     Ok(WorkItem {
         id: row.get(0)?,
@@ -635,7 +635,7 @@ fn work_row(row: &Row<'_>) -> rusqlite::Result<WorkItem> {
     })
 }
 
-fn opportunity_row(row: &Row<'_>) -> rusqlite::Result<Opportunity> {
+fn opportunity_row(row: &Row<'_>) -> crate::sql::Result<Opportunity> {
     Ok(Opportunity {
         id: row.get(0)?,
         company_name: row.get(2)?,

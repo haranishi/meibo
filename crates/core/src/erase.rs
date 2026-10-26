@@ -4,6 +4,7 @@ const ERASED_COMPANY_NAME: &str = "(消去済み)";
 const ERASE_COMPANY_CONTACTS: &str = "UPDATE contacts SET name=NULL,phone=NULL,email=NULL,erased_at=?2 WHERE company_id=?1 AND erased_at IS NULL";
 const ERASE_COMPANY: &str = "UPDATE companies SET name=?3,name_key=?4,corporate_number=NULL,phone=NULL,website=NULL,owner_id=NULL,industry_code=NULL,source_id=NULL,source_as_of=NULL,prefecture_code=0,municipality_code=NULL,erased_at=?2,updated_at=?2 WHERE id=?1";
 
+use crate::sql::OptionalExtension;
 use crate::{
     normalize,
     schema::{Db, WRITE_BASE, counts, ensure_space, fts, with_erase_gate},
@@ -13,7 +14,6 @@ use crate::{
     },
     write::{now_secs, record_activity_tx},
 };
-use rusqlite::OptionalExtension;
 use std::{fs, path::Path};
 
 fn storage(error: impl std::error::Error + Send + Sync + 'static) -> EngineError {
@@ -536,7 +536,7 @@ mod tests {
     fn compact_reports_busy_reader_and_succeeds_after_release() {
         let (_dir, mut db) = database();
         seed(&mut db, 2);
-        let reader = rusqlite::Connection::open(db.conn().path().unwrap()).unwrap();
+        let reader = crate::sql::Connection::open(db.conn().path().unwrap()).unwrap();
         reader
             .execute_batch("BEGIN; SELECT * FROM companies")
             .unwrap();

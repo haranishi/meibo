@@ -1,4 +1,10 @@
 //! 公開Engineを通した保存・操作・検索の結合試験。
+
+#[cfg(feature = "cloud")]
+use meibo_db as sql;
+#[cfg(not(feature = "cloud"))]
+use rusqlite as sql;
+
 #[path = "engine/erase.rs"]
 mod erase;
 #[path = "engine/import.rs"]

@@ -1,5 +1,5 @@
 //! 状態と電話の有無の12行を同じ確定で保つ。
-use rusqlite::{Connection, Transaction};
+use crate::sql::{Connection, Transaction};
 
 #[cfg(test)]
 use super::unsigned;

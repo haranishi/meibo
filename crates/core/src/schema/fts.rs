@@ -1,5 +1,5 @@
 //! 外部内容表の全文索引を明示的に更新する。
-use rusqlite::{Connection, Transaction};
+use crate::sql::{Connection, Transaction};
 
 use super::{EngineError, storage};
 

@@ -1,4 +1,5 @@
 //! Public corporate information, kept separate from user-owned sales information.
+use crate::sql::{OptionalExtension, params};
 use crate::{
     Engine,
     types::{CompanyInput, DataOrigin, EngineError, Status},
@@ -8,10 +9,9 @@ use crate::{
     schema::{WRITE_BASE, counts, fts},
     write,
 };
-use rusqlite::{OptionalExtension, params};
 use sha2::{Digest, Sha256};
 
-pub(crate) fn initialize(tx: &rusqlite::Transaction<'_>) -> Result<(), EngineError> {
+pub(crate) fn initialize(tx: &crate::sql::Transaction<'_>) -> Result<(), EngineError> {
     let version: Option<String> = tx
         .query_row(
             "SELECT value FROM meta WHERE key='public_data_schema_version'",
@@ -33,7 +33,7 @@ pub(crate) fn initialize(tx: &rusqlite::Transaction<'_>) -> Result<(), EngineErr
 }
 
 pub(crate) fn remember_erasure(
-    tx: &rusqlite::Transaction<'_>,
+    tx: &crate::sql::Transaction<'_>,
     id: crate::types::CompanyId,
 ) -> Result<(), EngineError> {
     let number: Option<String> = tx
@@ -143,7 +143,7 @@ impl Engine {
     }
 }
 
-fn storage(error: rusqlite::Error) -> EngineError {
+fn storage(error: crate::sql::Error) -> EngineError {
     EngineError::Storage(Box::new(error))
 }
 

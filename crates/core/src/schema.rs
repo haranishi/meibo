@@ -7,7 +7,7 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use rusqlite::{Connection, OpenFlags, Transaction, TransactionBehavior};
+use crate::sql::{Connection, OpenFlags, Transaction, TransactionBehavior};
 
 use crate::types::{DataOrigin, EngineError};
 
@@ -386,9 +386,9 @@ fn storage(err: impl std::error::Error + Send + Sync + 'static) -> EngineError {
     EngineError::Storage(Box::new(err))
 }
 
-fn database_error(err: rusqlite::Error) -> EngineError {
+fn database_error(err: crate::sql::Error) -> EngineError {
     match err.sqlite_error_code() {
-        Some(rusqlite::ErrorCode::DatabaseCorrupt | rusqlite::ErrorCode::NotADatabase) => {
+        Some(crate::sql::ErrorCode::DatabaseCorrupt | crate::sql::ErrorCode::NotADatabase) => {
             EngineError::Corrupt
         }
         _ => storage(err),
@@ -563,7 +563,7 @@ fn backup(conn: &Connection, dest: &Path) -> Result<(), EngineError> {
             .map_err(storage)?,
     );
     let result = conn
-        .backup(rusqlite::MAIN_DB, dest, None)
+        .backup(crate::sql::MAIN_DB, dest, None)
         .map_err(database_error);
     if result.is_err() {
         fs::remove_file(dest).map_err(storage)?;
@@ -571,9 +571,9 @@ fn backup(conn: &Connection, dest: &Path) -> Result<(), EngineError> {
     result
 }
 
-fn unsigned(row: &rusqlite::Row<'_>) -> rusqlite::Result<u64> {
+fn unsigned(row: &crate::sql::Row<'_>) -> crate::sql::Result<u64> {
     let value: i64 = row.get(0)?;
-    u64::try_from(value).map_err(|_| rusqlite::Error::IntegralValueOutOfRange(0, value))
+    u64::try_from(value).map_err(|_| crate::sql::Error::IntegralValueOutOfRange(0, value))
 }
 
 fn validate_options(opt: &OpenOptions) -> Result<(), EngineError> {

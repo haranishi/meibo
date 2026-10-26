@@ -136,7 +136,7 @@ fn operation_table_and_atomic_failure() {
             .windows(2)
             .all(|p| (p[0].at, p[0].id.0) > (p[1].at, p[1].id.0))
     );
-    let conn = rusqlite::Connection::open(db.path().unwrap()).unwrap();
+    let conn = crate::sql::Connection::open(db.path().unwrap()).unwrap();
     conn.execute_batch("CREATE TRIGGER injected_failure BEFORE UPDATE OF status ON companies BEGIN SELECT RAISE(ABORT,'injected'); END;").unwrap();
     assert!(db.record_activity(&call).is_err());
     assert_eq!(db.company_detail(id, &fields()).unwrap(), d);

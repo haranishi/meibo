@@ -1,7 +1,7 @@
 //! 確定後の通知だけで動くチェックポイント。
 
 use super::{EngineError, OpenOptions, configure, connect, storage};
-use rusqlite::Connection;
+use crate::sql::Connection;
 use std::{
     path::Path,
     sync::{

@@ -2,7 +2,7 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use rusqlite::{Connection, OptionalExtension, Transaction, params};
+use crate::sql::{Connection, OptionalExtension, Transaction, params};
 
 use crate::{
     houjin, normalize,
@@ -36,7 +36,7 @@ pub(crate) struct Folded {
     pub next_action_at: Option<i64>,
 }
 
-fn storage(error: rusqlite::Error) -> EngineError {
+fn storage(error: crate::sql::Error) -> EngineError {
     EngineError::Storage(Box::new(error))
 }
 
@@ -424,7 +424,7 @@ pub(crate) fn fold(base: Status, activities: impl Iterator<Item = FoldInput>) ->
     value
 }
 
-fn read_fold(row: &rusqlite::Row<'_>, start: usize) -> Result<FoldInput, EngineError> {
+fn read_fold(row: &crate::sql::Row<'_>, start: usize) -> Result<FoldInput, EngineError> {
     let kind =
         ActivityKind::from_code(row.get(start).map_err(storage)?).ok_or(EngineError::Corrupt)?;
     let after: Option<u8> = row.get(start + 2).map_err(storage)?;

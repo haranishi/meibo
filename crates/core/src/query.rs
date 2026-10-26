@@ -1,5 +1,5 @@
 //! 索引の連鎖を使う一覧、件数、詳細。
-use rusqlite::{OptionalExtension, Row, params_from_iter, types::Value};
+use crate::sql::{OptionalExtension, Row, params_from_iter, types::Value};
 
 use crate::{
     schema::Db,
@@ -29,7 +29,7 @@ pub(crate) fn list(db: &Db, q: &ListQuery) -> Result<Page, EngineError> {
                 plan.columns
                     .iter()
                     .map(|c| row.get::<_, Value>(*c))
-                    .collect::<rusqlite::Result<Vec<_>>>()
+                    .collect::<crate::sql::Result<Vec<_>>>()
                     .map_err(storage)?,
             );
             rows.push(company_row(row, db.origin(), &q.fields).map_err(storage)?);
@@ -100,7 +100,7 @@ pub(crate) fn cursor_after_offset(
     };
     let key = (0..plan.columns.len())
         .map(|i| row.get::<_, Value>(i))
-        .collect::<rusqlite::Result<Vec<_>>>()
+        .collect::<crate::sql::Result<Vec<_>>>()
         .map_err(storage)?;
     // 続きがない位置にはカーソルを返さない。
     if rows.next().map_err(storage)?.is_none() {
@@ -158,7 +158,7 @@ pub(crate) fn explain(db: &Db, q: &ListQuery) -> Result<Vec<String>, EngineError
             .query_map(params_from_iter(args), |r| r.get::<_, String>(3))
             .map_err(storage)?;
         output.extend(
-            rows.collect::<rusqlite::Result<Vec<_>>>()
+            rows.collect::<crate::sql::Result<Vec<_>>>()
                 .map_err(storage)?,
         );
     }
@@ -171,11 +171,11 @@ pub(crate) fn invalid(field: &str, reason: &str) -> EngineError {
         reason: reason.into(),
     }
 }
-pub(crate) fn unsigned(row: &Row<'_>) -> rusqlite::Result<u64> {
+pub(crate) fn unsigned(row: &Row<'_>) -> crate::sql::Result<u64> {
     let n: i64 = row.get(0)?;
-    u64::try_from(n).map_err(|_| rusqlite::Error::IntegralValueOutOfRange(0, n))
+    u64::try_from(n).map_err(|_| crate::sql::Error::IntegralValueOutOfRange(0, n))
 }
-pub(crate) fn storage(error: rusqlite::Error) -> EngineError {
+pub(crate) fn storage(error: crate::sql::Error) -> EngineError {
     EngineError::Storage(Box::new(error))
 }
 pub(crate) fn validate_limit(limit: u32) -> Result<(), EngineError> {
@@ -578,7 +578,7 @@ pub(crate) fn company_row(
     row: &Row<'_>,
     origin: DataOrigin,
     fields: &Fields,
-) -> rusqlite::Result<Company> {
+) -> crate::sql::Result<Company> {
     let sole = row.get("is_sole_proprietor")?;
     let personal = |field: Field, col: &str| {
         if !field.is_personal_for(sole) || fields.contains(&field) {
@@ -587,10 +587,10 @@ pub(crate) fn company_row(
             Ok(None)
         }
     };
-    let status = Status::from_code(row.get("status")?).ok_or(rusqlite::Error::InvalidQuery)?;
+    let status = Status::from_code(row.get("status")?).ok_or(crate::sql::Error::InvalidQuery)?;
     let industry = row
         .get::<_, Option<u8>>("industry_code")?
-        .map(|c| Industry::from_code(c).ok_or(rusqlite::Error::InvalidQuery))
+        .map(|c| Industry::from_code(c).ok_or(crate::sql::Error::InvalidQuery))
         .transpose()?;
     Ok(Company {
         id: CompanyId(row.get("id")?),
@@ -653,7 +653,7 @@ pub(crate) fn company_detail(
             })
         })
         .map_err(storage)?
-        .collect::<rusqlite::Result<Vec<_>>>()
+        .collect::<crate::sql::Result<Vec<_>>>()
         .map_err(storage)?;
     let mut stmt = db
         .conn()
@@ -662,16 +662,16 @@ pub(crate) fn company_detail(
     let activities = stmt
         .query_map([id.0], |r| {
             let kind =
-                ActivityKind::from_code(r.get("kind")?).ok_or(rusqlite::Error::InvalidQuery)?;
+                ActivityKind::from_code(r.get("kind")?).ok_or(crate::sql::Error::InvalidQuery)?;
             let status_after = r
                 .get::<_, Option<u8>>("status_after")?
-                .map(|s| Status::from_code(s).ok_or(rusqlite::Error::InvalidQuery))
+                .map(|s| Status::from_code(s).ok_or(crate::sql::Error::InvalidQuery))
                 .transpose()?;
             let next_action = match r.get::<_, u8>("next_action_kind")? {
                 0 => NextAction::Keep,
                 1 => NextAction::Clear,
                 2 => NextAction::Set(r.get("next_action_at")?),
-                _ => return Err(rusqlite::Error::InvalidQuery),
+                _ => return Err(crate::sql::Error::InvalidQuery),
             };
             Ok(Activity {
                 id: ActivityId(r.get("id")?),
@@ -687,7 +687,7 @@ pub(crate) fn company_detail(
             })
         })
         .map_err(storage)?
-        .collect::<rusqlite::Result<Vec<_>>>()
+        .collect::<crate::sql::Result<Vec<_>>>()
         .map_err(storage)?;
     Ok(Detail {
         company,
