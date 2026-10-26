@@ -33,6 +33,7 @@ graph LR
 ## Components and Interfaces
 ### 1. SQL adapter
 `Connection`はlocal/remoteの識別、同期runtimeと接続状態を持つ。`RemoteOptions`はURL/token/要求期限/応答上限を持ち、Debugは秘密を伏せる。本番はHTTPS/libsqlの許可形式だけ、HTTPは明示したloopback試験だけ許す。
+実装1.4は独立した実用の`RemoteConnection`で非transaction操作を完成させ、1.5で共有Connectionとtransactionへ統合する。1.4の各操作は同じpipeline内でforeign_keysを有効化し、要求後にstreamを閉じる。未実装transactionの代用を置かない。
 `Connection::{execute,execute_batch,query_row,prepare,prepare_cached,transaction,unchecked_transaction,transaction_with_behavior,last_insert_rowid,is_autocommit}`、`Statement::{execute,query,query_map,exists}`、`Rows::next`、`Row::get<I,T>`、`Transaction::{commit,rollback}`とConnectionへのDerefを提供する。params!/params_from_iter、OptionalExtension、Result/Error/ErrorCode、Value/ToSql/FromSqlの既存使用範囲を維持する。
 cloud buildも従来の手元CLIをcompileできるよう、local Connectionのopen/open_with_flags/path/busy_timeout/pragma_update/pragma_query_value/backupとOpenFlags/TransactionBehavior/MAIN_DBをforwardする。remote側では明示Unsupportedを返し、Core policyが呼ばない。無関係なrusqlite全APIは再実装しない。
 `Value`はNull/Integer(i64)/Real(f64)/Text/Blobを区別し、整数をf64経由で変換しない。Row変換失敗とSQL制約/重複/not-foundを既存の業務エラーへ結び付ける。last_insert_rowidは書込み応答に紐付く値であり、別接続で問い合わせない。
@@ -40,6 +41,7 @@ localのcallbackはraw値を借用し、Rowsはrow.rsのprivate raw cell buffer�
 transportは公式`proto::{PipelineReqBody,PipelineRespBody,StreamRequest,StreamResponse}`で`POST /v2/pipeline`を処理する。BEGIN以降はTransactionと元Connectionで同じbatonを更新・共有し、wrapperのtransaction操作で状態を遷移する。v2にないGetAutocommitを送らない。lastrowidはExecute応答から保持する。execute_batchはtrustedなSQL全文をSequenceで送り、trigger内のセミコロンを分割しない。HTTP経由で任意SQLを受け付けない。
 commit/rollback/Dropは正確に一度、Drop rollback失敗もpoisonする。transport失敗後の接続再使用・自動再送を禁止し、commit応答消失はOutcomeUnknownとする。応答件数・variant・batonを検証し、serverのbase_urlは設定済みoriginと一致し、userinfo/query/fragmentを持たないものだけ許す。不一致で別hostへ秘密を送らず接続をpoisonする。
 HTTP1のみ、redirect禁止、retry禁止、TLS証明書/host検証とTLS1.2以上を明示する。期限は既定30秒/最大120秒、各応答のbody上限は既定16MiB/最大32MiB。成功・errorとも受信chunkを上限内と確認してからVecへ足し、JSON decode前に制限する。cap/timeout/不完全な応答でpoisonする。HTTP2と圧縮機能は有効化しない。
+公式型のVec decode前にserdeの構造走査で累計行数10,000以下、列・要素数とdecode作業領域の上限を確認する。加算はoverflowを拒否し、500行の正当なページは許容する。走査は集合を確保せず、escaped stringの一時確保もbody上限内に制限する。既存lock内のserdeを直接参照するmanifest変更は1.4に含む。
 Rowsは上限内で受信した単一応答の行を反復し、無制限の全結果をbufferしない。長いscan/export/snapshotはcoreで500行以下のkeysetページへ分割する。requestごとの応答上限は累積DBサイズの上限ではない。全件整合は上位の排他で保証する。Linux buildにはpkg-config/libssl-dev、runtimeにはlibssl3/CAが必要で、配備側が用意する。
 
 ### 2. Core policy
