@@ -1,11 +1,11 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "meibo-beta",
-  // The real Worker/DO composition is added after remote-storage in task 2.1.
   "main": "src/index.ts",
   "compatibility_date": "2026-10-26",
   "workers_dev": true,
   "preview_urls": false,
+  "observability": { "enabled": false },
   "vars": {
     // A private deployment setting must supply the actual HTTPS origin.
     "MEIBO_ORIGIN": ""

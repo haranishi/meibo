@@ -5,7 +5,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
-RUN cargo build --locked --release -p meibo-app --features cloud
+RUN CARGO_BUILD_JOBS=2 cargo build --locked --release -p meibo-app --features cloud
 
 FROM debian:bookworm-slim
 RUN apt-get update \
@@ -15,6 +15,8 @@ RUN apt-get update \
     && useradd --uid 10001 --gid 10001 --no-create-home --shell /usr/sbin/nologin meibo
 COPY --from=build /build/target/release/meibo /usr/local/bin/meibo
 COPY --chmod=0555 cloudflare/entrypoint.sh /usr/local/bin/meibo-cloud-entrypoint
+ARG MEIBO_SOURCE_REVISION
+LABEL org.opencontainers.image.revision=$MEIBO_SOURCE_REVISION
 USER 10001:10001
 WORKDIR /tmp
 EXPOSE 4317

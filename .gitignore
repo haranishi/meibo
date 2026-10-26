@@ -41,3 +41,5 @@ meibo-remote*.json
 # ローカルの生ログ・調査資料・作業コピーと、導入用テンプレート
 /.agent-harness/
 /.kiro/settings/
+
+/cloudflare/scripts/__pycache__/
