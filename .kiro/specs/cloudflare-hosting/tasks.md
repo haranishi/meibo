@@ -29,7 +29,7 @@
   - _Requirements: 2.4, 2.5, 3.1, 3.2, 3.3, 3.4, 3.5, 4.4_
 
 - [ ] 2. 公開ゲートと実環境への統合を行う
-- [ ] 2.1 (P) 公開前検査を独立した実行部品として完成させる
+- [x] 2.1 (P) 公開前検査を独立した実行部品として完成させる
   - private planと提供者/実行物reportを厳密に検査するCLIを実装する。期待account ID、公開URL、契約/権限、容量、全control/tenant/復旧先のprimary一致、secret参照名と提供者上限、実行物との対応を検査し、不明・欠落・不一致を拒否する。
   - fixtureによるdry-runと拒否試験を通す。この段階では提供者API呼出・秘密登録・配備・契約変更を行わず、fixture合格を実環境確認や公開許可と記録しない。
   - _Boundary: publication preflight CLI/validator, package実行入口, tests and private-plan instructions_

@@ -1,7 +1,7 @@
 {
   "feature_name": "cloudflare-hosting",
   "created_at": "2026-10-26T12:20:00Z",
-  "updated_at": "2026-10-26T21:18:27.174549+00:00",
+  "updated_at": "2026-10-26T22:41:37.445551+00:00",
   "language": "ja",
   "phase": "implementing",
   "approvals": {
@@ -55,7 +55,8 @@
   "completed_tasks": [
     "1.1",
     "1.2",
-    "1.3"
+    "1.3",
+    "2.1"
   ],
   "verification": {
     "1.1": {
@@ -87,6 +88,26 @@
       "independent_review": "APPROVED",
       "actual_worker_container_integration": "pending_task_2.2",
       "evidence": ".agent-harness/runs/2026-10-26-cloudflare-turso/cloud-1.3/"
+    },
+    "2.1": {
+      "source_commit": "aec5777",
+      "isolated_source_commit": "541864b",
+      "files": 5,
+      "review": "APPROVED_parent_inline_host_thread_limit_manual_fallback",
+      "npm_check": {
+        "exit_code": 0,
+        "passed": 114,
+        "failed": 0,
+        "skipped": 0
+      },
+      "main_merged_revalidation": "same5SHA/npm114/type/shell0;links81/docscheck0",
+      "red": "actualproductionOFF positiveCLI/libraryfail;2sourcearchives/SHA;ONGREEN/flagremoved;additionalhostnameRED0pass1fail→literalhostguard→114pass",
+      "japanese_lint": 0,
+      "scoped_secrets": 0,
+      "live_provider_calls": 0,
+      "deployment_actions": 0,
+      "scope": "strictread-onlyvalidator/privateinputCLI;reportprovenance/livecollection/realartifact/publicationowned2.2",
+      "evidence_run": "2026-10-27-cloud-preflight"
     }
   }
 }
