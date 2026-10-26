@@ -56,7 +56,7 @@
   - _Depends: 2.3, 2.4_
   - _Requirements: 2.1, 2.6, 5.1, 5.2_
 
-- [ ] 3. Hostedの組織対応と共有排他
+- [x] 3. Hostedの組織対応と共有排他
 - [x] 3.1 (P) remote controlと認証・設定を接続する
   - CONFIG版/env参照/slugとDB識別を実装し、storage層の2組織3権限・session失効・再起動試験を通す。不正な版、1000組織超、秘密の欠落、重複/違うDBを拒否する。serveは3.3まで有効化しない。
   - _Boundary: app hosted remote/store/auth and shared control/sql registration, app manifest, backup.rs SQL import-only local consumer compatibility_
@@ -67,9 +67,9 @@
   - _Boundary: app hosted remote_gate, remote control schema/module/check_ready visibility, gated tests/integration-only locked fixture dependencies, db/tests/support/proxy.rs generic matching-write response-loss fixture only_
   - _Depends: 1.5, 3.1_
   - _Requirements: 2.5, 3.3, 3.4, 3.5_
-- [ ] 3.3 HTTPとremote CLIを統合する
+- [x] 3.3 HTTPとremote CLIを統合する
   - backup/restore以外のhosted-remote CONFIG管理操作とHTTPを同じgate/認証境界へ接続する。tenant-addのpositive demo-rows投入と登録順序も統合する。Replyへ変換された障害も接続poisonから確認し、503/outcome_unknownを返す。password-stdinと通常hostedの回帰を通す。backup/restoreの分岐・help・placeholderはここで作らず4.1/4.2が実装時に追加する。
-  - _Boundary: app main/args/commands, hosted cli/http/remote and stable error responses, real command/HTTP regression tests and remote usage instructions_
+  - _Boundary: app main/args/commands, hosted cli/http/remote and stable errors, gate test accessor cfg/shared Sqld include attribute only, real command/HTTP tests and remote usage instructions_
   - _Depends: 2.3, 2.5, 3.2_
   - _Requirements: 2.4, 2.5, 3.1, 3.3_
 

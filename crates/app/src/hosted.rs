@@ -5,16 +5,8 @@ mod cli;
 mod control;
 mod http;
 #[cfg(feature = "cloud")]
-#[allow(
-    dead_code,
-    reason = "Remote storage APIs are connected to CLI/HTTP in task 3.3."
-)]
 mod remote;
 #[cfg(feature = "cloud")]
-#[allow(
-    dead_code,
-    reason = "Remote operation gate APIs are connected to CLI/HTTP in task 3.3."
-)]
 mod remote_gate;
 mod store;
 
@@ -40,6 +32,11 @@ type HostedResult<T> = std::result::Result<T, Box<dyn Error>>;
 
 pub(crate) fn run(args: Vec<OsString>) -> HostedResult<()> {
     cli::run(args)
+}
+
+#[cfg(feature = "cloud")]
+pub(crate) fn run_remote(args: Vec<OsString>) -> HostedResult<()> {
+    remote::run(args)
 }
 
 fn now() -> HostedResult<i64> {

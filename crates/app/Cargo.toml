@@ -18,6 +18,11 @@ integration-tests = ["cloud", "meibo-db/integration-tests", "dep:tokio", "dep:re
 name = "meibo"
 path = "src/main.rs"
 
+[[test]]
+name = "remote_hosted"
+path = "tests/remote_hosted.rs"
+required-features = ["integration-tests"]
+
 [dependencies]
 meibo-db = { path = "../db", version = "0.1.0", optional = true }
 serde = { version = "1", features = ["derive"], optional = true }

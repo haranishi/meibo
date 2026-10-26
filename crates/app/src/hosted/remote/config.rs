@@ -13,7 +13,7 @@ use url::Url;
 
 use super::super::{HostedResult, store::valid_slug};
 
-const MAX_CONFIG: usize = 1024 * 1024;
+pub(super) const MAX_CONFIG: usize = 1024 * 1024;
 pub(super) const MAX_TENANTS: usize = 1000;
 const CONFIG_ERROR: &str = "リモート保存設定を確認してください。";
 

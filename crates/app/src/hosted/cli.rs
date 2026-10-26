@@ -28,7 +28,7 @@ restore writes to ROOT, which must not exist. Passwords are read from stdin.
 HTTP is allowed only with --allow-http-loopback and loopback origin + bind.
 ";
 
-fn password() -> HostedResult<String> {
+pub(super) fn password() -> HostedResult<String> {
     let mut input = String::new();
     std::io::stdin().take(1026).read_to_string(&mut input)?;
     if input.ends_with('\n') {
@@ -141,7 +141,10 @@ pub(super) fn run(args: Vec<OsString>) -> HostedResult<()> {
     Ok(())
 }
 
-fn print_audit(store: &Store, tenant: Option<&str>) -> HostedResult<()> {
+pub(super) fn print_audit(
+    store: &super::control::ControlStore,
+    tenant: Option<&str>,
+) -> HostedResult<()> {
     for row in store.audit_rows(tenant, 200)? {
         println!("{row}");
     }
@@ -177,7 +180,7 @@ fn sync_nta(store: &Store, tenant: &str, catalog: &str, options: &[String]) -> H
     Ok(())
 }
 
-fn serve_config(rest: &[String]) -> HostedResult<HostedConfig> {
+pub(super) fn serve_config(rest: &[String]) -> HostedResult<HostedConfig> {
     let mut origin = None;
     let mut bind = "127.0.0.1:4317".to_owned();
     let mut development = false;

@@ -68,6 +68,7 @@ pub(super) struct GateGuard {
     status: GateStatus,
 }
 impl GateGuard {
+    #[cfg(all(test, feature = "integration-tests"))]
     pub(super) fn status(&self) -> &GateStatus {
         &self.status
     }

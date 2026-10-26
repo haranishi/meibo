@@ -24,6 +24,7 @@ mod proxy {
     ));
 }
 
+#[allow(dead_code)]
 mod sqld {
     include!(concat!(
         env!("CARGO_MANIFEST_DIR"),

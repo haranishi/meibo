@@ -1,6 +1,6 @@
 # Hrana stream寿命の互換補正
 
-2026-10-27、実Tursoはtransaction外でSQLを保持しないFK設定pipelineの後に`baton=null`を返した。手元sqldはbatonを返していたため、実接続では初期確認の段階で拒否していた。業務schemaは未作成のままである。
+2026-10-27、実Tursoはtransaction外でSQLを保持しないFK設定pipelineの後に`baton=null`を返した。手元sqldはbatonを返していたため、実接続では初期確認の段階で拒否していた。初回失敗では業務schemaは作成されていなかった。
 
 [公式HTTP v2仕様](https://github.com/tursodatabase/libsql/blob/main/docs/HTTP_V2_SPEC.md)はnull batonを終了済みstreamとして扱い、stored SQLのscopeをsingle streamと定める。実提供者でも、SQLを保持したstreamはFK設定・BEGIN/COMMIT後も継続し、明示Close後に終了すると確認した。
 

@@ -3,6 +3,7 @@ use super::{
     store::RemoteStore,
 };
 
+#[allow(dead_code)]
 mod sqld {
     include!(concat!(
         env!("CARGO_MANIFEST_DIR"),
