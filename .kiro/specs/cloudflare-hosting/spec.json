@@ -1,7 +1,7 @@
 {
   "feature_name": "cloudflare-hosting",
   "created_at": "2026-10-26T12:20:00Z",
-  "updated_at": "2026-10-26T17:08:04.385263+00:00",
+  "updated_at": "2026-10-26T21:18:27.174549+00:00",
   "language": "ja",
   "phase": "implementing",
   "approvals": {
@@ -32,7 +32,7 @@
     "task_graph": "PASS_independent_second_pass",
     "final_sanity": "PASS_independent_final_on_disk_after_static_foundation_dependency_correction",
     "requirements_covered": 22,
-    "actionable_tasks": 5,
+    "actionable_tasks": 6,
     "upstream": "remote-storage tasks-generated approved",
     "japanese_lint": {
       "design": 0,
@@ -49,7 +49,8 @@
     "tls_runtime_prerequisite_delta": "PASS_inline: parent-confirmed libsql-hrana/reqwest native TLS requires build pkg-config/libssl-dev and runtime libssl3/ca-certificates; no public API, task graph, or DO contract change",
     "parallel_static_foundation_delta": "PASS_independent: static1.1 and independent1.2/1.3 may precede remote-storage; real Worker composition and AMD64 build/inspect/boot moved to2.1 with explicit upstream prerequisite",
     "runtime_config_contract_delta": "PASS_inline_existing_CONFIG_v1_env_references_explicit_shape_before_independent_coordinator_and_hosted_implementation",
-    "primary_profile_delta": "APPROVED_independent_provider_API_role_hostname_and_CLI_instance_URL_match_single_primary_no_replicas_including_restore_targets_failclosed_unknowns_and_explicit_fresh_connection_committed_read_verification"
+    "primary_profile_delta": "APPROVED_independent_provider_API_role_hostname_and_CLI_instance_URL_match_single_primary_no_replicas_including_restore_targets_failclosed_unknowns_and_explicit_fresh_connection_committed_read_verification",
+    "parallel_preflight_delta": "APPROVED_independent: executable validator and fixture-only dry-run precede upstream completion; actual entry/image/provider collection/deploy task2.2 requires remote-storage/public-entry and must call same validator with fresh matching reports; old QA renumbered2.3"
   },
   "completed_tasks": [
     "1.1",
@@ -67,7 +68,7 @@
       "npm_audit": "zero vulnerabilities",
       "security_override": "miniflare@5.20261012.1-beta -> undici 7.30.1",
       "independent_review": "APPROVED_after_scoped_dependency_fix",
-      "actual_worker_entry_image_build_and_boot": "pending_task_2.1"
+      "actual_worker_entry_image_build_and_boot": "pending_task_2.2"
     },
     "1.2": {
       "boundary_tests": 27,
@@ -75,7 +76,7 @@
       "npm_check_tests": 29,
       "type_contract_and_shell": "passed",
       "independent_review": "APPROVED",
-      "edge_entry_and_container_integration": "pending_task_2.1",
+      "edge_entry_and_container_integration": "pending_task_2.2",
       "evidence": ".agent-harness/runs/2026-10-26-cloudflare-turso/cloud-1.2/"
     },
     "1.3": {
@@ -84,7 +85,7 @@
       "npm_check_tests": 59,
       "type_contract_and_shell": "passed",
       "independent_review": "APPROVED",
-      "actual_worker_container_integration": "pending_task_2.1",
+      "actual_worker_container_integration": "pending_task_2.2",
       "evidence": ".agent-harness/runs/2026-10-26-cloudflare-turso/cloud-1.3/"
     }
   }

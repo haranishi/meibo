@@ -81,7 +81,7 @@
   - _Requirements: 4.1, 4.2_
 - [ ] 4.2 新しい空DB一式へ検証して復旧する
   - 全targetを先に検査し、restoring→ready、instance/DB対応の再発行、sequence復元、FTS/fold/件数/FK照合を実装する。最大field IDの再利用、改変、既存target、中断を試し、失敗時はsourceを保ってcandidateをofflineにする。
-  - _Boundary: app hosted remote_backup restore/source validation reuse, real source/target CLI dispatch, control atomic restoring initialization and tests_
+  - _Boundary: app hosted remote_backup restore/source validation reuse, real source/target CLI dispatch, control atomic restoring initialization and tests, remote/config normalized endpoint fingerprints/disjoint comparison only_
   - _Depends: 2.5, 3.3, 4.1_
   - _Requirements: 4.3, 4.4, 4.5_
 - [ ] 4.3 process・CLI・browserの回帰を確認する

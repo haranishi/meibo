@@ -50,10 +50,11 @@ readinessはport4317への`GET /health`を30秒以内で検査する。これは
 forwardの応答期限は180秒。応答本文は既存export上限32MiBを含めて最大33MiBまで確認してqueueを解放する。起動失敗は503、転送開始後のtimeout/切断は503/outcome_unknownであり、更新を再送しない。containerの停止/killや永続gateの解除をerror handlerから行わない。Set-Cookie、no-store/CSP等の既存headerを維持し、edge側エラーもno-storeで秘密を含まない。
 
 ### 3. Publication gateと運用
+2.1はprivate planと提供者/実行物reportを厳密に検査する実行可能なread-only CLIを完成させ、fixtureで拒否条件を検証する。提供者照会・秘密登録・配備は2.2が所有し、remote-storage/public-entry完了後に最新の実測を同じpreflight実装へ必ず渡す。fixtureや過去のreportを公開許可へ転用しない。
 preflightは明示された`CLOUDFLARE_ACCOUNT_ID`と別途渡す期待IDの一致、対象アカウントへのアクセス、workers.dev subdomain、Containers利用可否、Turso DB識別/容量/必要なsecret名、imageのLinux/amd64と起動を検査する。アカウントIDと期待名はprivateな運用設定から渡し、追跡ファイルへ書かない。既定アカウントへfallbackしない。
 初期対応はcontrol・全tenant・復旧先ごとにprimaryが1つ、replicaが0の配置とする。提供者APIの役割/hostnameとCLIのinstance URLを照合し、設定URLがそのprimary endpointに一致する場合だけ許す。primaryとの一致を確認できない一般URL・replica・未知の役割・照会失敗は拒否する。HTTP、管理CLI、backup/restoreは同じ検証済み設定を使い、配置変更前に旧設定の利用を止めて再検証する。提供者の将来の配置変化を一度のpreflightで保証しない。
 2026-10-26の対象アカウントへの実照会はContainers利用にWorkers Paidが必要という拒否を返した。`default_usage_model=standard`は契約の証拠ではない。プラン不足を検知したら公開を止め、実装/ローカル検証は続行する。新規契約・プラン変更を自動実行しない。
-秘密登録は`wrangler secret bulk`へ標準入力から行い、TursoのDB限定tokenを使う。各secret/設定の提供者上限をWrangler/schema/実APIで検査し、超過は事前拒否する。通常ログは固定した操作名・status・所要時間だけとし、URL query、request/response本文、env、cookie、tokenを出さない。
+秘密登録は`wrangler secret bulk`へ標準入力から行い、TursoのDB限定tokenを使う。各secret/設定の提供者上限をWrangler/schema/実APIで検査し、超過は事前拒否する。Workers Paidは既存分を含むsecret/text計128個、各5KBが上限で、appの1MiB/1000組織より小さい配備上限を適用する。bulk一要求100 secretsの上限も守る。通常ログは固定した操作名・status・所要時間だけとし、URL query、request/response本文、env、cookie、tokenを出さない。
 配備は明示したアカウントで`wrangler deploy --config cloudflare/wrangler.jsonc`を実行し、version/image digestを証拠へ記録する。secret変更時は既存containerのenvが自動更新されたと仮定せず、旧要求終了とgate状態を確認して再起動する。公開側の未認証管理endpointは作らない。
 verifyは同じテスト集合をlocalのHTTPS前段と公開URLへ向けられる。期待origin/Host/認証/CSRF/context、合成2組織3権限、DB更新、logout/旧tab、休止・再起動・container再作成、remote backup→新DB復旧→再ログイン→件数/内容照合を検査する。運用CLIはremote-storageの型付きsnapshotとgate-recover規則を再利用し、単なるprovider exportを最新backupとは扱わない。
 提供者検証ではCOMMIT成功後にstreamを閉じ、別の新しい接続から更新が見えることも確認する。SELECT 1の疎通確認を更新可視性の証拠に置き換えない。任意replica対応へ広げる場合はreplication-index等の整合性制御を再設計する。
