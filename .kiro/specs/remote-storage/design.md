@@ -35,12 +35,14 @@ graph LR
 `Connection`はlocal/remoteの識別、同期runtimeと接続状態を持つ。`RemoteOptions`はURL/token/要求期限/応答上限を持ち、Debugは秘密を伏せる。本番はHTTPS/libsqlの許可形式だけ、HTTPは明示したloopback試験だけ許す。
 実装1.4は独立した実用の`RemoteConnection`で非transaction操作を完成させ、1.5で共有Connectionとtransactionへ統合する。1.4の各操作は同じstream内でforeign_keysを有効化・照合してから業務SQLを送り、要求後にstreamを閉じる。v2は先行要求のSQL失敗でも後続を実行するため、設定と照合の成功応答を受けてから次のpipelineで業務SQLを送る。未実装transactionの代用を置かない。
 `Connection::{execute,execute_batch,query_row,prepare,prepare_cached,transaction,unchecked_transaction,transaction_with_behavior,last_insert_rowid,is_autocommit}`、`Statement::{execute,query,query_map,exists}`、`Rows::next`、`Row::get<I,T>`、`Transaction::{commit,rollback}`とConnectionへのDerefを提供する。params!/params_from_iter、OptionalExtension、Result/Error/ErrorCode、Value/ToSql/FromSqlの既存使用範囲を維持する。
+1.5は`Connection::open_remote(RemoteOptions)`と`Connection::{is_remote,is_poisoned}`を加え、後者2つはlocalでfalseを返す。元ConnectionとTransactionは一つのremote接続状態を参照し、poisonを上位のHTTP/CLI終端から検査できる。remoteの生transaction SQLはwrapperの状態を迂回させず、対応外なら送信前に拒否する。
 cloud buildも従来の手元CLIをcompileできるよう、local Connectionのopen/open_with_flags/path/busy_timeout/pragma_update/pragma_query_value/backupとOpenFlags/TransactionBehavior/MAIN_DBをforwardする。remote側では明示Unsupportedを返し、Core policyが呼ばない。無関係なrusqlite全APIは再実装しない。
 `Value`はNull/Integer(i64)/Real(f64)/Text/Blobを区別し、整数をf64経由で変換しない。Row変換失敗とSQL制約/重複/not-foundを既存の業務エラーへ結び付ける。last_insert_rowidは書込み応答に紐付く値であり、別接続で問い合わせない。
 localのcallbackはraw値を借用し、Rowsはrow.rsのprivate raw cell bufferへ保持して取得列だけを変換することで、不正UTF-8の未取得列やInfの読取りをnative同様に扱う。有限実数の制約はparamsと公開from_valuesによるowned/remote入力に適用し、local行へ一律に課さない。
+remote行は列名による取得を保つが、変換失敗の診断用列名を固定値へ置き換える。式を列名として返すproviderからSQL本文がエラーへ混入することを防ぎ、localと公開owned行の診断は維持する。
 transportは公式`proto::{PipelineReqBody,PipelineRespBody,StreamRequest,StreamResponse}`で`POST /v2/pipeline`を処理する。BEGIN以降はTransactionと元Connectionで同じbatonを更新・共有し、wrapperのtransaction操作で状態を遷移する。v2にないGetAutocommitを送らない。lastrowidはExecute応答から保持する。execute_batchはtrustedなSQL全文をSequenceで送り、trigger内のセミコロンを分割しない。HTTP経由で任意SQLを受け付けない。
 commit/rollback/Dropは正確に一度、Drop rollback失敗もpoisonする。transport失敗後の接続再使用・自動再送を禁止し、commit応答消失はOutcomeUnknownとする。応答件数・variant・batonを検証し、serverのbase_urlは設定済みoriginと一致し、userinfo/query/fragmentを持たないものだけ許す。不一致で別hostへ秘密を送らず接続をpoisonする。
-HTTP1のみ、redirect禁止、retry禁止、TLS証明書/host検証とTLS1.2以上を明示する。期限は既定30秒/最大120秒、各応答のbody上限は既定16MiB/最大32MiB。成功・errorとも受信chunkを上限内と確認してからVecへ足し、JSON decode前に制限する。cap/timeout/不完全な応答でpoisonする。HTTP2と圧縮機能は有効化しない。
+HTTP1のみ、redirect禁止、retry禁止、TLS証明書/host検証とTLS1.2以上を明示する。idle poolを0にしてhyper-util内部の再利用接続に対する再送経路も止める。期限は既定30秒/最大120秒、各応答のbody上限は既定16MiB/最大32MiB。成功・errorとも受信chunkを上限内と確認してからVecへ足し、JSON decode前に制限する。cap/timeout/不完全な応答でpoisonする。HTTP2と圧縮機能は有効化しない。
 公式型のVec decode前にserdeの構造走査で累計行数10,000以下、列・要素数とdecode作業領域の上限を確認する。加算はoverflowを拒否し、500行の正当なページは許容する。走査は集合を確保せず、escaped stringの一時確保もbody上限内に制限する。既存lock内のserdeを直接参照するmanifest変更は1.4に含む。
 Rowsは上限内で受信した単一応答の行を反復し、無制限の全結果をbufferしない。長いscan/export/snapshotはcoreで500行以下のkeysetページへ分割する。requestごとの応答上限は累積DBサイズの上限ではない。全件整合は上位の排他で保証する。Linux buildにはpkg-config/libssl-dev、runtimeにはlibssl3/CAが必要で、配備側が用意する。
 
@@ -86,6 +88,7 @@ stateDiagram-v2
 | 5.1, 5.2, 5.3, 5.4 | Core maintenance、全件verify/CSV、Integration、既存品質門 |
 
 ## Error Handling and Testing Strategy
+公開appはlogger/tracing subscriberを初期化せず、reqwest/hyperの接続先を含む上流debug traceを有効化しない。将来loggingを導入する場合は対象filterと実診断の秘密検査を再検証する。adapterは元のtransport errorやSQL本文を診断へ渡さない。
 通常buildの既存check-all/MSRV/性能経路を保つ。実sqld/fault試験はintegration-tests featureを明示した別入口/CIで実行し、runtime単体試験にsqldを要求しない。default-localの通信禁止bansを保つgraphとcloud用policyを分け、双方でadvisory/license/source検査を続ける。旧SDK/Hyper0.14をtest helperからも除く。
 defaultの依存検査はapp/coreのnormal/build cargo treeを使い、default featuresを有効なまま調べる。optional依存が載るlockfile全体を通常版のlink graphと混同せず、禁止package一覧とdeny.tomlの検査は維持する。この試験修正と全workspace回帰はfoundation完了条件に含め、policy分離を待たない。
 cloud buildは実sqldの合成DBで同一の業務契約、500行境界のCSV、2文字/3文字検索、取消・消去・独自項目、2組織3権限、session変更とブラウザcontextを確認する。接続秘密の漏れ、timeout/サイズ上限、SQL失敗rollback、commit後の応答を落とすproxy、process停止後gate保持・owner違いの解除拒否・明示復旧、保存→新DB一式復旧→再ログイン→全表照合を試験する。本物のCloudflareとTursoの確認はcloudflare-hostingで別に記録する。
