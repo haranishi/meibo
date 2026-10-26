@@ -1,7 +1,7 @@
 {
   "feature_name": "remote-storage",
   "created_at": "2026-10-26T12:00:00Z",
-  "updated_at": "2026-10-26T16:30:43.860435+00:00",
+  "updated_at": "2026-10-26T16:37:16.378853+00:00",
   "language": "ja",
   "phase": "implementing",
   "approvals": {
@@ -63,7 +63,8 @@
     "1.2",
     "1.3",
     "1.4",
-    "1.5"
+    "1.5",
+    "2.1"
   ],
   "verification": {
     "1.1": {
@@ -126,8 +127,29 @@
       "clippy_fmt_msrv_app_cloud": "passed",
       "independent_review": "APPROVED",
       "source_hashes_checked_by_parent": 11,
-      "core_alias_merged_revalidation": "pending_parent_integration",
+      "core_alias_merged_revalidation": "passed_default_and_cloud_core171_each_background_thread_Send_cloud_clippy_app_compile",
       "evidence": ".agent-harness/runs/2026-10-26-cloudflare-turso/task-1.5/"
+    },
+    "2.1": {
+      "source_commit": "351c948",
+      "isolated_source_commit": "3a44f9a",
+      "default_core_passed": 171,
+      "cloud_local_core_passed": 171,
+      "failed": 0,
+      "existing_ignored_each": 3,
+      "merged_backend": "task1.5 fa78495",
+      "merged_tests_exit_codes": [
+        0,
+        0
+      ],
+      "merged_cloud_clippy_app_check_exit_codes": [
+        0,
+        0
+      ],
+      "Connection_Send_and_background_checkpoint": "passed_combined_cloud_compile_and_local_regressions",
+      "independent_review": "APPROVED",
+      "remote_persistence": "not_claimed",
+      "evidence": ".agent-harness/runs/2026-10-26-cloudflare-turso/merged-local/"
     }
   }
 }

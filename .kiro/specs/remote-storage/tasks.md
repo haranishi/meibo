@@ -25,7 +25,7 @@
   - _Requirements: 2.2, 2.3, 2.4, 2.6_
 
 - [ ] 2. Coreの保存方針を分ける
-- [ ] 2.1 (P) SQL aliasを既存coreへ接続する
+- [x] 2.1 (P) SQL aliasを既存coreへ接続する
   - 内部試験を含むSQL参照をaliasへ寄せる。defaultの直接rusqlite経路と公開Engine APIを保ち、default試験とcloudの手元CLIをcompileする。
   - _Boundary: core lib, SQL imports and tests_
   - _Depends: 1.3_
