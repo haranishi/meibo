@@ -15,6 +15,8 @@ pub(crate) mod checkpoint;
 pub(crate) mod counts;
 pub(crate) mod fts;
 mod migration;
+#[cfg(feature = "cloud")]
+pub(crate) mod remote;
 pub(crate) use migration::{MIGRATIONS, migrate_with};
 
 pub(crate) struct Migration {

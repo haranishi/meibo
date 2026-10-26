@@ -23,5 +23,7 @@ pub mod types;
 mod write;
 
 pub use engine::{Engine, LoadReport};
+#[cfg(feature = "cloud")]
+pub use schema::remote::RemoteIdentity;
 pub use schema::{Durability, Integrity, OpenOptions, SpaceProbe};
 pub use types::{DuplicatePolicy, ImportBatchError, ImportBatchReport};

@@ -11,6 +11,8 @@ use crate::{
 };
 use sha2::{Digest, Sha256};
 
+pub(crate) const VERSION: u32 = 1;
+
 pub(crate) fn initialize(tx: &crate::sql::Transaction<'_>) -> Result<(), EngineError> {
     let version: Option<String> = tx
         .query_row(
@@ -22,14 +24,23 @@ pub(crate) fn initialize(tx: &crate::sql::Transaction<'_>) -> Result<(), EngineE
         .map_err(storage)?;
     if let Some(version) = version {
         let found = version.parse().map_err(|_| EngineError::Corrupt)?;
-        if found != 1 {
+        if found != VERSION {
             return Err(EngineError::UnsupportedVersion {
                 found,
-                supported: 1,
+                supported: VERSION,
             });
         }
     }
-    tx.execute_batch("CREATE TABLE IF NOT EXISTS erased_corporate_numbers(number_hash BLOB PRIMARY KEY);INSERT OR IGNORE INTO meta(key,value) VALUES('public_data_schema_version','1');").map_err(storage)
+    tx.execute_batch(
+        "CREATE TABLE IF NOT EXISTS erased_corporate_numbers(number_hash BLOB PRIMARY KEY);",
+    )
+    .map_err(storage)?;
+    tx.execute(
+        "INSERT OR IGNORE INTO meta(key,value) VALUES('public_data_schema_version',?1)",
+        [VERSION.to_string()],
+    )
+    .map_err(storage)?;
+    Ok(())
 }
 
 pub(crate) fn remember_erasure(

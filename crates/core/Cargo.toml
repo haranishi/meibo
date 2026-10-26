@@ -12,6 +12,12 @@ workspace = true
 [features]
 default = []
 cloud = ["dep:meibo-db"]
+integration-tests = ["cloud", "meibo-db/integration-tests"]
+
+[[test]]
+name = "remote_lifecycle"
+path = "tests/remote_lifecycle.rs"
+required-features = ["integration-tests"]
 
 [dependencies]
 meibo-db = { path = "../db", version = "0.1.0", optional = true }

@@ -12,7 +12,7 @@ use crate::{
 /// ブラウザでも整数として正確に扱える最大金額。
 pub const MAX_AMOUNT_JPY: i64 = 9_007_199_254_740_991;
 const MAX_TIME: i64 = 253_402_300_799;
-const EXTENSION_VERSION: u32 = 1;
+pub(crate) const EXTENSION_VERSION: u32 = 1;
 
 /// 仕事の種類。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

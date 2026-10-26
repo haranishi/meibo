@@ -30,11 +30,12 @@
   - _Boundary: core lib, SQL imports and tests_
   - _Depends: 1.3_
   - _Requirements: 1.1, 5.4_
-- [ ] 2.2 remoteの初期化と識別を追加する
+- [x] 2.2 remoteの初期化と識別を追加する
   - Engine create_remote/open_remoteとmarker/版/DB識別/種別を追加する。実sqldの空DBだけを初期化し、欠落・未来版・不一致・既存内容を拒否し、手元へfallbackしないことを確認する。
-  - _Boundary: core engine, schema/remote, extension version constant visibility/reuse, cloud-only Engine exports and explicit real-server integration test setup_
+  - integration-onlyのremote_lifecycle.rsはCargo required-featuresとcrate-level cfgの両方で囲む。defaultのno_network source scanは、この正確なfileの二重gateとfeature設定を先に検査して除外し、他file・禁止symbol・default依存graph・deny検査を保つ。
+  - _Boundary: core engine, schema/remote, extension version constant visibility/reuse, cloud-only Engine exports and explicit real-server integration test setup/no_network exact fixture gate_
   - _Depends: 2.1, 1.5_
-  - _Requirements: 1.2, 1.3, 1.4_
+  - _Requirements: 1.1, 1.2, 1.3, 1.4, 5.4_
 - [ ] 2.3 remoteの更新・snapshot方針へ業務処理を接続する
   - fs/WALに依存しないremote transactionを使い、CRUD・取消・件数・索引・独自項目・一括処理・論理消去とtombstoneの実sqld回帰、制約失敗時の全取消を通す。
   - _Boundary: core schema/write policy and domain regression_

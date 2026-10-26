@@ -86,7 +86,7 @@ pub struct CustomFieldPage {
     pub indexed: bool,
 }
 
-const VERSION: u32 = 1;
+pub(crate) const VERSION: u32 = 1;
 const DDL: &str = r"
 CREATE TABLE IF NOT EXISTS custom_field_definitions(
  id INTEGER PRIMARY KEY AUTOINCREMENT,

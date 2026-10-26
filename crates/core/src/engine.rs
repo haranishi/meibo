@@ -31,6 +31,44 @@ pub struct LoadReport {
 }
 
 impl Engine {
+    /// Create a CRM schema on an empty, explicitly identified remote database.
+    ///
+    /// # Errors
+    /// Rejects invalid configuration, existing content and storage failures.
+    #[cfg(feature = "cloud")]
+    pub fn create_remote(
+        endpoint: meibo_db::RemoteOptions,
+        identity: &crate::RemoteIdentity,
+        origin: DataOrigin,
+        opt: &OpenOptions,
+    ) -> Result<Self, EngineError> {
+        Ok(Self {
+            db: Db::create_remote(endpoint, identity, origin, opt)?,
+        })
+    }
+
+    /// Open a remote CRM database only when its recorded identity is valid.
+    ///
+    /// # Errors
+    /// Rejects missing, incompatible or mismatched metadata and storage failures.
+    #[cfg(feature = "cloud")]
+    pub fn open_remote(
+        endpoint: meibo_db::RemoteOptions,
+        identity: &crate::RemoteIdentity,
+        opt: &OpenOptions,
+    ) -> Result<Self, EngineError> {
+        Ok(Self {
+            db: Db::open_remote(endpoint, identity, opt)?,
+        })
+    }
+
+    /// Whether the selected SQL connection forbids further operations.
+    #[cfg(feature = "cloud")]
+    #[must_use]
+    pub fn is_poisoned(&self) -> bool {
+        self.db.conn().is_poisoned()
+    }
+
     /// 新しい保存先を作る。既存ファイルは上書きしない。
     /// # Errors
     /// `InvalidInput`（設定）、`Corrupt`（DB破損）、`Storage`（作成・初期化の失敗）。

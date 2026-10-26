@@ -1,7 +1,7 @@
 {
   "feature_name": "remote-storage",
   "created_at": "2026-10-26T12:00:00Z",
-  "updated_at": "2026-10-26T17:08:04.384733+00:00",
+  "updated_at": "2026-10-26T17:37:43.742323+00:00",
   "language": "ja",
   "phase": "implementing",
   "approvals": {
@@ -51,7 +51,8 @@
     "core_terminal_observability_setup": "PASS_inline_cloud_Engine_is_poisoned_and_explicit_real_server_test_setup_for2.2",
     "primary_profile_delta": "APPROVED_independent_initial_single_primary_no_replica_verified_instance_endpoint_for_HTTP_CLI_backup_restore_topology_change_requires_revalidation_replica_support_not_claimed",
     "opaque_meta_delta": "PASS_inline_validate_required_markers_and_versions_preserve_unrelated_meta_keys_without_interpreting_as_configuration_or_SQL",
-    "extension_constant_setup_delta": "PASS_inline_existing_extension_version_visibility_and_public_data_constant_reuse_only_no_business_DDL_behavior_change"
+    "extension_constant_setup_delta": "PASS_inline_existing_extension_version_visibility_and_public_data_constant_reuse_only_no_business_DDL_behavior_change",
+    "exact_integration_fixture_scan_delta": "APPROVED_independent_skip_only_exact_remote_lifecycle_file_after_crate_cfg_Cargo_required_features_and_feature_assertions_other_sources_symbols_default_graph_and_deny_unchanged"
   },
   "transport_preflight": {
     "stack": "libsql-hrana =0.10.0 + reqwest =0.13.5 default-features=false json/native-tls-no-alpn + shared Tokio",
@@ -67,7 +68,8 @@
     "1.3",
     "1.4",
     "1.5",
-    "2.1"
+    "2.1",
+    "2.2"
   ],
   "verification": {
     "1.1": {
@@ -153,6 +155,19 @@
       "independent_review": "APPROVED",
       "remote_persistence": "not_claimed",
       "evidence": ".agent-harness/runs/2026-10-26-cloudflare-turso/merged-local/"
+    },
+    "2.2": {
+      "real_lifecycle_tests": 14,
+      "default_core_passed": 171,
+      "integration_core_passed": 185,
+      "existing_ignored_each": 3,
+      "author_validation_shape": "preserved_initial_source_scan_failure_then_successful_affected_rechecks_with_unchanged_unit_engine_groups",
+      "independent_validation_shape": "fresh_canonical_default_and_integration_full_commands_exit0",
+      "clippy_fmt_msrv_app_cloud": "passed",
+      "independent_review": "APPROVED",
+      "parent_source_hashes_checked": 10,
+      "remote_domain_policy": "pending2.3",
+      "evidence": ".agent-harness/runs/2026-10-26-cloudflare-turso/task-2.2/"
     }
   }
 }
