@@ -74,7 +74,7 @@
   - _Requirements: 2.4, 2.5, 3.1, 3.3_
 
 - [ ] 4. 保存・復旧と全体の検証
-- [ ] 4.1 gate中に型付き保存と目録検証を行う
+- [x] 4.1 gate中に型付き保存と目録検証を行う
   - privateな新規directoryへ全DBの最新行を逐次保存し、件数/hash/形式を検証する。sessions/gate/秘密を除き、symlink・不正行・未知sequenceを拒否する実2組織試験を通す。
   - _Boundary: app hosted remote_backup creation/validation, real backup CLI/shared gate, remote/store opaque_id/valid_dummy_hash hosted visibility only_
   - _Depends: 2.5, 3.3_

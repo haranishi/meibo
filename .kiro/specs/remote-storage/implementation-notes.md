@@ -9,3 +9,5 @@
 2.1は完成済みlocal adapterのalias接続として1.5と独立worktreeで並行できる。sqlite_versionは同梱rusqliteの直接呼出しを保ち、統合後にConnectionのSendとdefault/cloudの手元経路を再検証する。remote初期化2.2は両方の完了を待つ。
 
 2.3のfault fixtureはDB側の既存helperを再利用する。必要なTokio・reqwest=0.13.5（defaultなし、既存TLS/json）・libsql-hrana=0.10.0の既存lock内edgeはintegration-testsだけで有効にし、default graphと禁止symbol検査を保つ。
+
+4.1はsource `ee237b2`（統合`a016c02`）を独立レビューで受け入れた。13ファイルのSHA照合、app default/cloud/integration 59/69/105件、strict Clippy、実Rust 1.88両profile、通信禁止guard、リンク、秘密検査を確認した。CLIのproduction OFFによるREDとGREENの記録はあるが、RED時の旧source archiveはなくtool記録で追跡した。復旧・全体process/browser・提供者環境の確認は4.2/4.3と配備仕様に残る。
