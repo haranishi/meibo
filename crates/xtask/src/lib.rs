@@ -30,7 +30,7 @@ pub fn run(root: &Path, args: &[String]) -> Result<i32> {
 pub fn run_with_temp_dir(root: &Path, args: &[String], temp_dir: &Path) -> Result<i32> {
     let (command, rest) = args
         .split_first()
-        .ok_or("使い方: cargo xtask <check-links|check-spec-trace|mutate|bench|docs-check|docs-render|check-all>")?;
+        .ok_or("使い方: cargo xtask <check-links|check-spec-trace|mutate|bench|docs-check|docs-render|check-all|check-cloud>")?;
     match command.as_str() {
         "check-links" => links::run(root),
         "check-spec-trace" => trace::run(root, rest.iter().any(|a| a == "--strict")),
@@ -44,6 +44,7 @@ pub fn run_with_temp_dir(root: &Path, args: &[String], temp_dir: &Path) -> Resul
             root,
             rest.first().is_some_and(|s| s == "--quick"),
         )),
+        "check-cloud" if rest.is_empty() => Ok(pipeline::check_cloud(root)),
         _ => Err(format!("不明なコマンド: {command}").into()),
     }
 }

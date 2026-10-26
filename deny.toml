@@ -3,7 +3,9 @@
 # 下の許可リストにあるライセンスのものだけ。
 
 [graph]
-all-features = true
+# Run with --manifest-path crates/app/Cargo.toml so the default app is the root.
+all-features = false
+exclude-dev = true
 
 [licenses]
 allow = [

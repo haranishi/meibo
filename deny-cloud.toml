@@ -1,0 +1,44 @@
+# Audit every cloud/integration workspace dependency, including test fixtures.
+[graph]
+all-features = true
+exclude-dev = false
+
+[licenses]
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Zlib",
+    "CC0-1.0",
+]
+confidence-threshold = 0.93
+unused-allowed-license = "allow"
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+# Only the approved HTTP1/native-TLS adapter stack is used by the cloud build.
+deny = [
+    { name = "libsql" },
+    { name = "hyper", version = "<1" },
+    { name = "h2" },
+    { name = "ureq" },
+    { name = "isahc" },
+    { name = "surf" },
+    { name = "attohttpc" },
+    { name = "curl" },
+    { name = "curl-sys" },
+    { name = "async-std" },
+    { name = "rustls" },
+]
+
+[advisories]
+yanked = "deny"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

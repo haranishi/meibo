@@ -12,14 +12,34 @@ Cargo downloads dependencies on the first run; use `--offline` after fetching th
 cargo fetch --locked
 cargo install cargo-deny --version 0.20.2 --locked
 cargo xtask check-all
-cargo deny check licenses bans sources
+cargo deny --manifest-path crates/app/Cargo.toml --config deny.toml --locked check all
 cargo +1.88.0 check --workspace --all-targets --locked
 ```
 
-`check-all` runs formatting, clippy, workspace tests, Markdown links, specification trace,
-and benchmark documentation checks. CI installs cargo-deny explicitly and requires policy checks.
-The separate advisory job needs network access to its advisory database. A skipped or failed
-advisory check must be reported separately from passing offline checks.
+`check-all` runs formatting, clippy, default workspace tests, Markdown links, specification trace,
+benchmark documentation checks, and all four dependency policy checks. cargo-deny is required.
+The default policy uses the app manifest as its root and keeps default features and every network ban.
+Policy checks refresh the advisory database online; passing offline Rust checks does not replace them.
+
+## Verify the cloud profile
+
+Use a compatible sqld 0.24.32 binary for isolated synthetic fixtures. On Linux x86_64, the setup
+helper downloads the pinned official archive and verifies its SHA-256 before installing it:
+
+```sh
+sh scripts/install-ci-sqld.sh /tmp/meibo-ci-tools
+export MEIBO_SQLD_BINARY=/tmp/meibo-ci-tools/sqld
+cargo xtask check-cloud
+cargo +1.88.0 check --workspace --all-targets --locked \
+  --features meibo-db/integration-tests,meibo-core/integration-tests,meibo-app/integration-tests
+```
+
+On other hosts, set `MEIBO_SQLD_BINARY` to an existing compatible native binary.
+`check-cloud` requires sqld and cargo-deny, builds the production cloud profile, then lints and
+runs every workspace target with all three explicit `integration-tests` features. It audits the
+complete cloud and test dependency graph with `deny-cloud.toml`, including online advisories.
+Use `RUST_TEST_THREADS=2` to limit contention without filtering tests. The fixtures use loopback
+and synthetic data; these checks do not verify a Cloudflare deployment or Turso Cloud account.
 
 ## Propose a change
 
