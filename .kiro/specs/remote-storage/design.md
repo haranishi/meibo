@@ -33,7 +33,7 @@ graph LR
 ## Components and Interfaces
 ### 1. SQL adapter
 `Connection`はlocal/remoteの識別、同期runtimeと接続状態を持つ。`RemoteOptions`はURL/token/要求期限/応答上限を持ち、Debugは秘密を伏せる。本番はHTTPS/libsqlの許可形式だけ、HTTPは明示したloopback試験だけ許す。
-実装1.4は独立した実用の`RemoteConnection`で非transaction操作を完成させ、1.5で共有Connectionとtransactionへ統合する。1.4の各操作は同じstream内でforeign_keysを有効化・照合してから業務SQLを送り、要求後にstreamを閉じる。v2は先行要求のSQL失敗でも後続を実行するため、設定と照合の成功応答を受けてから次のpipelineで業務SQLを送る。未実装transactionの代用を置かない。
+実装1.4は独立した実用の`RemoteConnection`で非transaction操作を完成させ、1.5で共有Connectionとtransactionへ統合する。各操作は同じstream内でforeign_keysを有効化・照合してから業務SQLを送り、要求後にstreamを閉じる。v2は先行要求のSQL失敗でも後続を実行するため、設定と照合の成功応答を受けてから次のpipelineで業務SQLを送る。実提供者の自動終了は[stream寿命](stream-lifetime.md)のFK読戻し用StoreSqlで防ぎ、baton検査を緩めない。未実装transactionの代用を置かない。
 `Connection::{execute,execute_batch,query_row,prepare,prepare_cached,transaction,unchecked_transaction,transaction_with_behavior,last_insert_rowid,is_autocommit}`、`Statement::{execute,query,query_map,exists}`、`Rows::next`、`Row::get<I,T>`、`Transaction::{commit,rollback}`とConnectionへのDerefを提供する。params!/params_from_iter、OptionalExtension、Result/Error/ErrorCode、Value/ToSql/FromSqlの既存使用範囲を維持する。
 1.5は`Connection::open_remote(RemoteOptions)`と`Connection::{is_remote,is_poisoned}`を加え、後者2つはlocalでfalseを返す。元ConnectionとTransactionは一つのremote接続状態を参照し、poisonを上位のHTTP/CLI終端から検査できる。既存Error互換を保ち、固定した予約メッセージとcodeに対する`RemoteErrorKind`分類でOutcomeUnknown/ConnectionPoisoned/Unsupportedを識別する。remoteの生transaction SQLはwrapperの状態を迂回させず、対応外なら送信前に拒否する。
 cloud buildも従来の手元CLIをcompileできるよう、local Connectionのopen/open_with_flags/path/busy_timeout/pragma_update/pragma_query_value/backupとOpenFlags/TransactionBehavior/MAIN_DBをforwardする。remote側では明示Unsupportedを返し、Core policyが呼ばない。無関係なrusqlite全APIは再実装しない。

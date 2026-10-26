@@ -1,0 +1,11 @@
+# 実装上の補足
+
+旧libsql SDK/TLS connector案は依存監査不合格で置換済み。公式Hrana型と現行reqwestはRust1.88/online advisories/licenses/sourcesを通過した。1.4はchunk受信中の上限を試験し、Rowsは単一の上限付き応答だけを保持する。大量scanは2.5でページ化する。Cloudflare版のLinux build/runtimeにはOpenSSLとCAを配備側が用意する。
+
+1.1のdefault graph試験修正はoptional packageがlockfileへ載ることと通常版へlinkされることを区別する。4.4の監査policy分離は別タスクであり、1.1で禁止packageや既存policyを緩めない。
+
+1.3のrow.rsとprimitives.rsは既存の列選択とlocal変換の互換性を保つ範囲である。query/query_row/query_mapの未取得の不正列とlocalのInf読取りをnativeと照合し、params/公開from_valuesの拒否試験を残す。
+
+2.1は完成済みlocal adapterのalias接続として1.5と独立worktreeで並行できる。sqlite_versionは同梱rusqliteの直接呼出しを保ち、統合後にConnectionのSendとdefault/cloudの手元経路を再検証する。remote初期化2.2は両方の完了を待つ。
+
+2.3のfault fixtureはDB側の既存helperを再利用する。必要なTokio・reqwest=0.13.5（defaultなし、既存TLS/json）・libsql-hrana=0.10.0の既存lock内edgeはintegration-testsだけで有効にし、default graphと禁止symbol検査を保つ。

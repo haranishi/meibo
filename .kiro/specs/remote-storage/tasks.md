@@ -1,6 +1,6 @@
 # Implementation Plan
 
-- [x] 1. SQL adapterの土台と接続
+- [ ] 1. SQL adapterの土台と接続
 - [x] 1.1 optional crate・依存・実server/fault fixtureを用意する
   - meibo-dbとcloud feature、libsql-hrana =0.10.0、reqwest =0.13.5（defaultなし、json/native-tls-no-alpn）、共有Tokio runtimeを追加する。実sqld/fault試験は明示integration-tests featureでgateし、runtime単体試験は通常実行する。旧SDK/Hyper0.14をtest helper/proxyからも除き、fixture起動終了・MSRV・依存監査を確認する。
   - 既存no_network試験の全lockfile走査を、default app/coreのnormal/build cargo treeへ限定して直す。default featuresを無効化せず、禁止package一覧とdeny.tomlの検査を保つ。全workspace試験を通してから次へ進む。
@@ -23,6 +23,11 @@
   - 元Connection経由を含む同batonのtransaction、commit/rollback/Drop/lastrowidを共有する。SequenceでSQL全文/triggerを分割せず実行し、v2 GetAutocommitを使わない。commit後の応答を落としOutcomeUnknownと再使用/再送拒否を確認する。
   - _Boundary: crates/db Connection local/remote backend integration, transaction, remote state, Statement private readonly metadata, error classification/adapter exports, fault tests_
   - _Requirements: 2.2, 2.3, 2.4, 2.6_
+- [ ] 1.6 (P) 実Tursoのstream寿命へ接続を合わせる
+  - 公式StoreSqlで実際に使うFK読戻しSQLを保持し、sql_idで照合する。baton検査・既存transaction/再送禁止を維持し、自動終了を再現する実fixtureと実提供者の作成→確定→Close→新接続読取りを確認する。
+  - _Boundary: db remote transport/state setup, gated protocol/fault fixtures and their bootstrap responses_
+  - _Depends: 1.5_
+  - _Requirements: 2.1, 2.2, 2.4, 2.6_
 
 - [x] 2. Coreの保存方針を分ける
 - [x] 2.1 (P) SQL aliasを既存coreへ接続する
@@ -91,8 +96,4 @@
   - _Requirements: 1.1, 5.4_
 
 ## Implementation Notes
-旧libsql SDK/TLS connector案は依存監査不合格で置換済み。公式Hrana型+現行reqwestの組合せはRust1.88/online advisories/licenses/sourcesを通過した。1.4はchunk受信中の上限を試験し、Rowsは単一の上限付き応答だけを保持する。大量scanは2.5でページ化する。Cloudflare版のLinux build/runtimeにはOpenSSLとCAを配備側が用意する。
-1.1のdefault graph試験修正はoptional packageがlockfileへ載ることと通常版へlinkされることを区別する。4.4の監査policy分離は別タスクであり、1.1で禁止packageや既存policyを緩めない。
-1.3のrow.rsとprimitives.rsの変更は既存の列選択とlocal変換の互換性を保つ範囲である。query/query_row/query_mapの未取得の不正列とlocalのInf読取りをnativeと照合し、params/公開from_valuesの拒否試験を残す。
-2.1は完成済みlocal adapterのalias接続として1.5と独立worktreeで並行できる。sqlite_versionは同梱rusqliteの直接呼出しを保ち、統合後にConnectionのSendとdefault/cloudの手元経路を再検証する。remote初期化2.2は両方の完了を待つ。
-2.3のfault fixtureはDB側の既存helperを再利用する。必要なTokio・reqwest=0.13.5（defaultなし、既存TLS/json）・libsql-hrana=0.10.0の既存lock内edgeはintegration-testsだけで有効にし、default graphと禁止symbol検査を保つ。
+[実装上の補足](implementation-notes.md)と[実提供者のstream寿命](stream-lifetime.md)を参照する。
