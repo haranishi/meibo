@@ -108,7 +108,7 @@ test("only Rust's exact CSV import path gets the 32 MiB limit", () => {
   const csv = validateRequest(incoming("/api/import?encoding=utf8", { method: "POST" }), ORIGIN);
   assert.equal(csv.bodyLimitBytes, 32 * MIB);
   for (const path of ["/auth/login", "/api/import/", "/api/imported", "/api/%69mport"]) {
-    assert.equal(validateRequest(incoming(path, { method: "POST" }), ORIGIN).bodyLimitBytes, MIB);
+    assert.equal(validateRequest(incoming(path, { method: "POST" }), ORIGIN).bodyLimitBytes, path === "/auth/login" ? 8192 : MIB);
   }
 });
 

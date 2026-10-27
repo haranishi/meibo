@@ -6,6 +6,8 @@ const ERROR_DETAILS = {
   invalid_configuration: [503, "処理を完了できませんでした。"],
   invalid_request: [400, "要求を確認してください。"],
   unexpected_origin: [403, "公開URLからアクセスしてください。"],
+  forbidden_request: [403, "この画面から操作してください。"],
+  unsupported_media_type: [415, "送信形式を確認してください。"],
   method_not_allowed: [405, "この操作には対応していません。"],
   payload_too_large: [413, "送信内容が上限を超えています。"],
   unavailable: [503, "処理を完了できませんでした。"],
@@ -60,13 +62,26 @@ export function validateRequest(request: Request, origin: ValidatedPublicOrigin)
   }
   const method = request.method;
   if (method !== "GET" && method !== "POST") throw new BoundaryError("method_not_allowed");
-  const bodyLimitBytes = url.pathname === "/api/import" ? CSV_LIMIT_BYTES : JSON_LIMIT_BYTES;
+  const bodyLimitBytes = url.pathname === "/auth/login" ? 8192 : url.pathname === "/api/import" ? CSV_LIMIT_BYTES : JSON_LIMIT_BYTES;
   const declared = request.headers.get("Content-Length");
   if (declared !== null) {
     if (!/^[0-9]+$/.test(declared)) throw new BoundaryError("invalid_request");
     if (Number(declared) > bodyLimitBytes) throw new BoundaryError("payload_too_large");
   }
   return { request, origin, method, bodyLimitBytes };
+}
+
+/** Match Rust's metadata rejection before opening its private HTTP connection.
+ * Early rejection there can leave an unread chunked body on a pooled socket. */
+export function validatePostMetadata({ request, origin, method }: ValidatedRequest): void {
+  if (method !== "POST") return;
+  if (request.headers.get("Origin") !== origin.origin || request.headers.get("X-Meibo-Local") !== "1") {
+    throw new BoundaryError("forbidden_request");
+  }
+  const expected = new URL(request.url).pathname === "/api/import" ? "text/csv" : "application/json";
+  if (request.headers.get("Content-Type")?.split(";")[0]?.trim() !== expected) {
+    throw new BoundaryError("unsupported_media_type");
+  }
 }
 
 const HOP_BY_HOP = [

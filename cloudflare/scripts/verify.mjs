@@ -20,7 +20,7 @@ export async function verifyService({ origin, credentials, output, profile, life
   const { chromium } = await import(process.env.PLAYWRIGHT_MODULE || "playwright");
   const browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({ ignoreHTTPSErrors: profile === "local", serviceWorkers: "block", viewport: { width: 1440, height: 1050 } });
-  const report = { ok: false, phase: "health", steps: [], lifecycle: [], widths: [], externalRequests: 0, assetFailures: 0, pageErrors: 0, browser: browser.version() };
+  const report = { ok: false, phase: "health", steps: [], lifecycle: [], widths: [], externalRequests: 0, assetFailures: 0, badRequests: 0, pageErrors: 0, browser: browser.version() };
   const mark = (name) => { report.phase = name; report.steps.push(name); console.log(`verify: ${name}`); };
   await context.route("**/*", (route) => {
     if (new URL(route.request().url()).origin !== origin) { report.externalRequests++; return route.abort(); }
@@ -29,6 +29,7 @@ export async function verifyService({ origin, credentials, output, profile, life
   context.on("page", (page) => {
     page.on("pageerror", () => report.pageErrors++);
     page.on("response", (response) => {
+      if (response.status() === 400) report.badRequests++;
       if (/\.(?:css|js|png)$/.test(new URL(response.url()).pathname) && response.status() >= 400) report.assetFailures++;
     });
   });
@@ -64,7 +65,7 @@ export async function verifyService({ origin, credentials, output, profile, life
     assert.equal(loginPage.status(), 200); assert.ok(loginPage.headers()["content-security-policy"]);
     assert.ok((await page.locator('link[rel="canonical"]').getAttribute("href")).startsWith(origin)); mark("public-boundary-and-metadata");
     await login("admin", "alpha"); mark("admin-login");
-    const marker = `合成alpha確認-${randomUUID().slice(0, 8)}`, note = "合成Cloudflare保存確認";
+    const marker = `合成alpha確認-${randomUUID().slice(0, 8)}`, note = `${marker}の保存確認`, betaNote = `合成beta確認-${randomUUID().slice(0, 8)}`;
     await page.locator("#company-rows .company-name").first().click();
     await page.getByRole("button", { name: "取引先を編集", exact: true }).click();
     await page.locator("#company-name").fill(marker); await page.locator("#company-submit").click();
@@ -88,8 +89,8 @@ export async function verifyService({ origin, credentials, output, profile, life
     assert.ok(await old.evaluate(() => document.body.hidden && getComputedStyle(document.body).display === "none"));
     release(); await old.waitForURL("**/login", { timeout: 90000 }); await old.close(); mark("old-tab-and-tenant-isolation");
     await page.locator("#company-rows .company-name").first().click();
-    await page.locator("#activity-note").fill("合成betaのeditor記録"); await page.locator("#activity-form button[type=submit]").click();
-    await page.locator(".timeline-note").filter({ hasText: "合成betaのeditor記録" }).first().waitFor();
+    await page.locator("#activity-note").fill(betaNote); await page.locator("#activity-form button[type=submit]").click();
+    await page.locator(".timeline-note").filter({ hasText: betaNote }).first().waitFor();
     assert.equal((await api("/api/companies/1/contacts/1/erase", "POST", { wipe_notes: false })).status, 403); mark("editor-write-and-admin-restriction");
     await logout(); await login("viewer", "alpha"); await page.locator("#company-rows .company-name").first().click();
     await page.locator("#activity-note").fill("拒否する合成viewer記録"); await page.locator("#activity-form button[type=submit]").click();
@@ -124,7 +125,7 @@ export async function verifyService({ origin, credentials, output, profile, life
       }
       report.lifecycle.push("restore"); mark("restored-two-tenants-three-roles");
     } else await logout();
-    assert.equal(report.externalRequests, 0); assert.equal(report.assetFailures, 0); assert.equal(report.pageErrors, 0); report.ok = true;
+    assert.equal(report.externalRequests, 0); assert.equal(report.assetFailures, 0); assert.equal(report.badRequests, 0); assert.equal(report.pageErrors, 0); report.ok = true;
   } catch (error) {
     report.error = { kind: ["Error", "AssertionError", "TimeoutError"].includes(error?.name) ? error.name : "Error",
       location: error?.stack?.match(/verify\.mjs:\d+:\d+/)?.[0] || "unavailable" };

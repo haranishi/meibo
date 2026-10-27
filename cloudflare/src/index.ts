@@ -1,5 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
-import { BoundaryError, boundaryErrorResponse, forwardResponse, prepareContainerRequest, validatePublicOrigin, validateRequest } from "./boundary.ts";
+import { BoundaryError, boundaryErrorResponse, forwardResponse, prepareContainerRequest, validatePostMetadata, validatePublicOrigin, validateRequest } from "./boundary.ts";
 import { ContainerCoordinator } from "./container.ts";
 import type { Env } from "./contracts.ts";
 
@@ -24,7 +24,7 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     let attempted = false;
     try {
-      validateRequest(request, validatePublicOrigin(env.MEIBO_ORIGIN));
+      validatePostMetadata(validateRequest(request, validatePublicOrigin(env.MEIBO_ORIGIN)));
       const stub = env.MEIBO_CONTAINER.getByName(INSTANCE_NAME);
       attempted = true;
       return forwardResponse(await stub.fetch(request));
@@ -42,6 +42,7 @@ export class MeiboContainer extends DurableObject<Env> {
     try {
       const origin = validatePublicOrigin(this.env.MEIBO_ORIGIN);
       const validated = validateRequest(request, origin);
+      validatePostMetadata(validated);
       if (!this.ctx.container) throw new BoundaryError("unavailable");
       this.coordinator ??= new ContainerCoordinator(this.ctx.container, this.env, origin);
       return await this.coordinator.forward(validated, () => prepareContainerRequest(validated),

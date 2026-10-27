@@ -47,6 +47,7 @@ Workerは`MEIBO_CONTAINER.getByName("meibo-beta-v1")`だけへ送る。外部入
 起動前にremote-storage設計3のCONFIG version=1の形・参照名・必須secretの存在を検査する。0組織の初期化設定は許容する。接続先の識別・ready判定・認証はRustの責務とし、WorkerはDBへ接続しない。
 readinessはport4317への`GET /health`を30秒以内で検査する。これはDB初期化ではなく既存serviceの起動確認で、readiness再試行から更新は発行しない。稼働中は休止期限180秒、処理完了後は無要求60秒で休止させる。DO再起動時も稼働containerへ休止条件を再設定する。
 転送先は`getTcpPort(4317)`。内部URLのschemeだけHTTPへ変え、公開authority/path/query/method/body、Origin・Cookie・CSRF/context headerを維持する。検査済みの公開Hostを設定し、Forwarded/X-Forwarded-*は除く。公式例の`Host: container`への変更や、外部forwarded headerに基づくOriginの許可は採らない。
+Rustと同じPOSTのOrigin・`X-Meibo-Local`・Content-Type条件をWorker/DOでも転送前に検査し、拒否する本文を内部HTTPへ送らない。`/auth/login`の既存8KiB上限も入口へ反映する。Rustの検査は維持し、未消費chunked本文が後続要求へ混ざる経路を除く。
 forwardの応答期限は180秒。応答本文は既存export上限32MiBを含めて最大33MiBまで確認してqueueを解放する。起動失敗は503、転送開始後のtimeout/切断は503/outcome_unknownであり、更新を再送しない。containerの停止/killや永続gateの解除をerror handlerから行わない。Set-Cookie、no-store/CSP等の既存headerを維持し、edge側エラーもno-storeで秘密を含まない。
 
 ### 3. Publication gateと運用

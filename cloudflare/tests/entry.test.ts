@@ -19,7 +19,8 @@ const origin = "https://meibo-beta.example.workers.dev";
 const config = JSON.stringify({ version: 1, control: { url_env: "MEIBO_DB_CONTROL_URL", token_env: "MEIBO_DB_CONTROL_TOKEN" }, tenants: {} });
 
 function request(path = "/health", init = {}) {
-  return new Request(`${origin}${path}`, { ...init, headers: { Host: new URL(origin).host, ...init.headers } });
+  return new Request(`${origin}${path}`, { ...init, headers: { Host: new URL(origin).host,
+    ...(init.method === "POST" ? { Origin: origin, "X-Meibo-Local": "1", "Content-Type": path === "/api/import" ? "text/csv" : "application/json" } : {}), ...init.headers } });
 }
 
 function runtime() {
@@ -50,6 +51,27 @@ function environment(namespace = { getByName() { throw new Error("unexpected all
     MEIBO_DB_CONTROL_URL: "https://synthetic.example", MEIBO_DB_CONTROL_TOKEN: "synthetic",
     MEIBO_CONTAINER: namespace, UNRELATED_SECRET: "must-not-forward" };
 }
+
+for (const [header, value, status] of [
+  ["Origin", "https://foreign.example", 403], ["Origin", null, 403],
+  ["X-Meibo-Local", "0", 403], ["X-Meibo-Local", null, 403],
+  ["Content-Type", "text/plain", 415], ["Content-Type", null, 415],
+]) test(`invalid POST ${header}/${value} never reaches the container`, async () => {
+  const rt = runtime(); let allocated = 0; const env = environment();
+  const object = new MeiboContainer({ container: rt.fake }, env);
+  env.MEIBO_CONTAINER = { getByName() { allocated++; return { fetch: (req) => object.fetch(req) }; } };
+  const input = request("/api/companies", { method: "POST", body: "{}" });
+  if (value === null) input.headers.delete(header); else input.headers.set(header, value);
+  assert.equal((await worker.fetch(input.clone(), env)).status, status);
+  assert.equal((await object.fetch(input)).status, status);
+  assert.equal(allocated, 0); assert.equal(rt.starts.length, 0); assert.equal(rt.forwarded.length, 0);
+});
+
+test("the login body's existing smaller limit is applied before container allocation", async () => {
+  let allocated = 0; const env = environment({ getByName() { allocated++; throw new Error("unexpected allocation"); } });
+  assert.equal((await worker.fetch(request("/auth/login", { method: "POST", body: "x".repeat(8193), headers: { "Content-Length": "8193" } }), env)).status, 413);
+  assert.equal(allocated, 0);
+});
 
 test("actual Worker and DO compose startup, boundaries, headers and secret allowlist", async () => {
   const rt = runtime();
