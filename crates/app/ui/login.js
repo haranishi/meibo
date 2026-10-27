@@ -45,25 +45,32 @@
 
   const form = document.getElementById("login-form");
   if (form) {
+    const access = form.hasAttribute("data-cloudflare-access");
     let saving = false;
     form.addEventListener("submit", async (event) => {
       event.preventDefault(); if (saving || !form.reportValidity()) return;
       saving = true;
       const fields = document.getElementById("login-fields"), error = document.getElementById("login-error");
       const control = document.getElementById("login-submit"), password = document.getElementById("login-password");
+      const idleText = access ? "Cloudflareでログイン" : "ログイン";
       error.hidden = true; fields.disabled = true; control.textContent = "ログインしています…";
       try {
+        const body = { tenant: document.getElementById("login-tenant").value.trim() };
+        if (!access) { body.username = document.getElementById("login-username").value.trim(); body.password = password.value; }
         const response = await nativeFetch("/auth/login", { method: "POST", cache: "no-store", credentials: "same-origin",
-          headers: { "Content-Type": "application/json", "X-Meibo-Local": "1" },
-          body: JSON.stringify({ tenant: document.getElementById("login-tenant").value.trim(), username: document.getElementById("login-username").value.trim(), password: password.value }) });
+          headers: { "Content-Type": "application/json", "X-Meibo-Local": "1", "X-Requested-With": "XMLHttpRequest" },
+          body: JSON.stringify(body) });
+        if (access && response.status === 401) { window.location.replace("/login"); return; }
         const data = await response.json();
         if (!response.ok) throw new Error(typeof data.error === "string" ? data.error : "ログインできませんでした。");
-        password.value = ""; cleanStorage(true); signalChange(); window.location.replace("/");
+        if (password) password.value = "";
+        cleanStorage(true); signalChange(); window.location.replace("/");
       } catch (failure) {
-        password.value = ""; error.textContent = failure.message || "接続できませんでした。もう一度お試しください。"; error.hidden = false;
+        if (password) password.value = "";
+        error.textContent = failure.message || "接続できませんでした。もう一度お試しください。"; error.hidden = false;
       } finally {
-        saving = false; fields.disabled = false; control.textContent = "ログイン";
-        if (!error.hidden) password.focus();
+        saving = false; fields.disabled = false; control.textContent = idleText;
+        if (!error.hidden) (password || document.getElementById("login-tenant")).focus();
       }
     });
     return;
@@ -71,7 +78,7 @@
 
   hideBusiness();
   async function session() {
-    const response = await nativeFetch("/auth/session", { cache: "no-store", credentials: "same-origin" });
+    const response = await nativeFetch("/auth/session", { cache: "no-store", credentials: "same-origin", headers: { "X-Requested-With": "XMLHttpRequest" } });
     if (!response.ok) throw new Error("authentication required");
     const identity = await response.json();
     if (!/^[a-f0-9]{64}$/.test(identity.storage_scope) || typeof identity.tenant !== "string" || !["viewer", "editor", "admin"].includes(identity.role)) throw new Error("invalid context");
@@ -107,7 +114,7 @@
       const url = new URL(typeof input === "string" ? input : input.url, window.location.href);
       const business = url.origin === location.origin && (url.pathname.startsWith("/api/") || ["/auth/logout", "/auth/audit"].includes(url.pathname));
       const headers = new Headers(options.headers || (input instanceof Request ? input.headers : undefined));
-      if (business) headers.set("X-Meibo-Context", scope);
+      if (business) { headers.set("X-Meibo-Context", scope); headers.set("X-Requested-With", "XMLHttpRequest"); }
       const response = await nativeFetch(input, { ...options, headers });
       if (business && response.status === 401) leave();
       if (business && response.status === 409) {

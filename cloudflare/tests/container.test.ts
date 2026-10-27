@@ -13,6 +13,18 @@ const CONFIG = {
   tenants: { alpha: { url_env: "MEIBO_DB_ALPHA_URL", token_env: "MEIBO_DB_ALPHA_TOKEN" } },
 };
 
+test("explicit Cloudflare Access config is forwarded without leaking other bindings", () => {
+  const access = JSON.stringify({ version: 1, issuer: "https://synthetic.cloudflareaccess.com", audience: "synthetic-audience", users: [{ email: "operator@example.invalid", username: "operator" }] });
+  const output = runtimeEnvironment({ ...environment(), MEIBO_ACCESS_CONFIG: access }, ORIGIN);
+  assert.equal(output.MEIBO_ACCESS_CONFIG, access);
+  assert.equal(Object.hasOwn(output, "ANOTHER_BINDING"), false);
+});
+test("a supplied invalid Access config refuses startup instead of choosing password login", () => {
+  for (const access of ["", "not-json", "{}", "null", JSON.stringify({ version: 2 }), "x".repeat(32 * 1024 + 1)]) {
+    assert.throws(() => runtimeEnvironment({ ...environment(), MEIBO_ACCESS_CONFIG: access }, ORIGIN));
+  }
+});
+
 function environment(config: unknown = CONFIG): Record<string, string> {
   return {
     MEIBO_ORIGIN: ORIGIN.origin,

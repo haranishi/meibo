@@ -56,3 +56,5 @@ UX: 戦略=組織の分離、要件=login/失敗復帰/所属表示、構造=log
 同一browserのA→logout→B、別利用者、旧tab/bfcacheでrecent企業・保存view・下書き・APIが混ざらないことも確認する。復帰時のauth応答を止め、header/検索語/レコード名/title/dialog/通知が隠れたままであることを確認する。
 hostedのhigh availability・分散構成・MFA/SSO・課金・公開signup・API tokenはこの仕様へ含めない。
 TLS/DNS/Volumeの実配備は対象環境が確定してから同じ構成で検証し、未実施と区別する。
+
+Cloudflareでの本人確認は[cloudflare-access設計](../cloudflare-access/design.md)へ引き継ぐ。組織権限・session・保存先の契約を維持する。

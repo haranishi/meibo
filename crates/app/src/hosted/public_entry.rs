@@ -10,7 +10,7 @@ const SHARE_START: &str = "<!-- public-entry:share:start -->";
 const SHARE_END: &str = "<!-- public-entry:share:end -->";
 
 pub(super) fn login(config: &HostedConfig) -> Reply {
-    let template = include_str!("../../ui/login.html");
+    let template = login_template(config);
     let html = if config.development {
         let (before, rest) = template.split_once(SHARE_START).expect("fixed share start");
         let (_, after) = rest.split_once(SHARE_END).expect("fixed share end");
@@ -50,6 +50,28 @@ pub(super) fn login(config: &HostedConfig) -> Reply {
         mime: "text/html; charset=utf-8",
         body: html.into_bytes(),
         attachment: false,
+    }
+}
+
+fn login_template(config: &HostedConfig) -> String {
+    const START: &str = "<!-- auth:password:start -->";
+    const END: &str = "<!-- auth:password:end -->";
+    let template = include_str!("../../ui/login.html");
+    if config.access_mode() {
+        let (before, rest) = template.split_once(START).expect("fixed password start");
+        let (_, after) = rest.split_once(END).expect("fixed password end");
+        format!("{before}{after}")
+            .replace(
+                "<form id=\"login-form\">",
+                "<form id=\"login-form\" data-cloudflare-access>",
+            )
+            .replace(
+                "招待された組織のアカウントでログインしてください。",
+                "Cloudflareで確認したアカウントを使います。招待された組織IDを入力してください。",
+            )
+            .replace(">ログイン</button>", ">Cloudflareでログイン</button>")
+    } else {
+        template.replace(START, "").replace(END, "")
     }
 }
 

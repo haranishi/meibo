@@ -56,7 +56,7 @@ jobs:
       - name: Install development toolchain
         run: rustup toolchain install 1.99.0 --profile minimal --component rustfmt --component clippy
       - name: Install native TLS build dependencies
-        run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends pkg-config libssl-dev
+        run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends pkg-config libssl-dev cmake
       - name: Install dependency policy checker
         run: cargo install cargo-deny --version 0.20.2 --locked
       - name: Fetch locked dependencies
@@ -76,7 +76,7 @@ jobs:
       - name: Install minimum supported Rust
         run: rustup toolchain install 1.88.0 --profile minimal
       - name: Install native TLS build dependencies
-        run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends pkg-config libssl-dev
+        run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends pkg-config libssl-dev cmake
       - name: Check all workspace targets on MSRV
         run: cargo check --workspace --all-targets --locked
       - name: Check all cloud integration targets on MSRV
@@ -94,7 +94,7 @@ jobs:
       - name: Install development toolchain
         run: rustup toolchain install 1.99.0 --profile minimal --component rustfmt --component clippy
       - name: Install native TLS build dependencies
-        run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends pkg-config libssl-dev
+        run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends pkg-config libssl-dev cmake
       - name: Install dependency policy checker
         run: cargo install cargo-deny --version 0.20.2 --locked
       - name: Install the checksummed synthetic database fixture

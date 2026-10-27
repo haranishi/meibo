@@ -34,6 +34,14 @@ function fixture() {
 }
 function refreshed(input) { input.report.planSha256 = planFingerprint(input.plan, input.secrets); return input; }
 
+test("Access config is an explicit counted secret, with the same binding size limit", () => {
+  const input = fixture();
+  input.secrets.MEIBO_ACCESS_CONFIG = JSON.stringify({ version: 1, issuer: "https://synthetic.cloudflareaccess.com", audience: "synthetic", users: [{ email: "operator@example.invalid", username: "operator" }] });
+  assert.equal(validatePreflight(refreshed(input)).ok, true);
+  input.secrets.MEIBO_ACCESS_CONFIG = "x".repeat(5121);
+  assert.throws(() => validatePreflight(refreshed(input)));
+});
+
 test("valid explicit account, all source/restore primaries and amd64 artifact validate as fixture only", () => {
   const result = validatePreflight(fixture());
   assert.equal(result.ok, true); assert.equal(result.kind, "fixture"); assert.equal(result.deploymentAuthorized, false);

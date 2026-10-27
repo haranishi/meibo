@@ -47,6 +47,12 @@ function endpoint(raw) {
 function configuration(plan, secrets) {
   if (!Array.isArray(plan.restoreConfigs) || plan.restoreConfigs.length > 8 || !record(secrets)) reject("invalid_plan");
   const references = new Set(), endpoints = new Set(), databases = [], profiles = [];
+  const access = Object.hasOwn(secrets, "MEIBO_ACCESS_CONFIG");
+  if (access) {
+    const value = secrets.MEIBO_ACCESS_CONFIG;
+    if (typeof value !== "string" || !value || Buffer.byteLength(value) > MAX_BINDING_BYTES) reject("secret");
+    references.add("MEIBO_ACCESS_CONFIG");
+  }
   for (const [index, config] of [plan.remoteConfig, ...plan.restoreConfigs].entries()) {
     let origin, environment;
     try {
@@ -54,7 +60,7 @@ function configuration(plan, secrets) {
       environment = runtimeEnvironment({ ...secrets, MEIBO_ORIGIN: plan.origin, MEIBO_REMOTE_CONFIG: JSON.stringify(config) }, origin);
     } catch { reject("configuration"); }
     if (Buffer.byteLength(environment.MEIBO_REMOTE_CONFIG) > MAX_BINDING_BYTES) reject("binding_limit");
-    const profileNames = [], namespace = index === 0 ? "source" : `restore${index - 1}`;
+    const profileNames = access ? ["MEIBO_ACCESS_CONFIG"] : [], namespace = index === 0 ? "source" : `restore${index - 1}`;
     for (const [key, reference] of [[`${namespace}:control`, config.control],
       ...Object.entries(config.tenants).map(([slug, value]) => [`${namespace}:tenant:${slug}`, value])]) {
       for (const name of [reference.url_env, reference.token_env]) {
