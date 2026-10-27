@@ -63,3 +63,5 @@ HTTPS到達、未認証APIの拒否、2組織/3権限、同一browserの利用�
 利用者が入力する個人情報の取扱方針、運用窓口、障害時の復旧担当と保存期間は、実際の提供者が公開前に定めます。未配備のTLS/DNS/Volumeは検証済みとは扱いません。
 
 Cloudflare向けの準備と公開ゲートは[配備手順](hosting-cloudflare.md)を参照してください。
+
+[Cloudflareアカウントでログインする手順](hosting-cloudflare-access.md)。

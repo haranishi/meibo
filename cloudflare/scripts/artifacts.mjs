@@ -131,10 +131,16 @@ export async function bootImage(image, plan, secrets) {
     requireArtifact(ready);
     const login = await containerProbe(address, new URL(plan.origin).host, "/login");
     const text = login.body;
-    requireArtifact(login.status === 200 && text.includes('id="login-submit"') && text.includes(plan.origin)
+    const access = Object.hasOwn(runtime, "MEIBO_ACCESS_CONFIG");
+    requireArtifact((access ? login.status === 401 && !text.includes('id="login-password"')
+      : login.status === 200 && text.includes('id="login-submit"') && text.includes(plan.origin))
       && login.headers["content-security-policy"] && String(login.headers["cache-control"]).includes("no-store"));
     const configMode = await capture(docker, ["exec", id, "stat", "-c", "%a:%u", "/tmp/meibo-remote.json"]);
     requireArtifact(configMode === "600:10001");
+    if (access) {
+      const accessMode = await capture(docker, ["exec", id, "stat", "-c", "%a:%u", "/tmp/meibo-access.json"]);
+      requireArtifact(accessMode === "600:10001");
+    }
     return { bootVerified: true, nonRootUid: 10001 };
   } finally {
     await capture(docker, ["stop", "--time", "30", id], { timeout: 45000 });

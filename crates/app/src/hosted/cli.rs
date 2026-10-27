@@ -14,6 +14,7 @@ Commands:
   init
   tenant-add SLUG [--origin real|synthetic] [--demo-rows 0..100000]
   user-add USER --password-stdin
+  user-add USER --cloudflare-access (cloud build)
   password-set USER --password-stdin
   user-disable USER
   member-set USER SLUG viewer|editor|admin|none
@@ -22,7 +23,7 @@ Commands:
   sync-nta SLUG CATALOG [--limit COUNT]
   backup NEW_DIRECTORY
   restore SNAPSHOT_DIRECTORY
-  serve --origin https://domain [--bind 127.0.0.1:4317]
+  serve --origin https://domain [--bind 127.0.0.1:4317] [--access-config PRIVATE_JSON]
 
 restore writes to ROOT, which must not exist. Passwords are read from stdin.
 HTTP is allowed only with --allow-http-loopback and loopback origin + bind.
@@ -70,10 +71,11 @@ pub(super) fn run(args: Vec<OsString>) -> HostedResult<()> {
         println!("restored");
         return Ok(());
     }
-    let mut store = Store::open(&root)?;
     if command == "serve" {
-        return Hosted::new(store, serve_config(&rest)?).serve();
+        let config = serve_config(&rest)?;
+        return Hosted::new(Store::open(&root)?, config).serve();
     }
+    let mut store = Store::open(&root)?;
     if command == "backup" && rest.len() == 1 {
         backup::create(&store, std::path::Path::new(&rest[0]))?;
         println!("backed-up");
@@ -82,31 +84,16 @@ pub(super) fn run(args: Vec<OsString>) -> HostedResult<()> {
     let _guard = store.lock()?;
     match (command.as_str(), rest.as_slice()) {
         ("tenant-add", [slug, options @ ..]) => {
-            let mut origin = DataOrigin::Real;
-            let mut rows = 0;
-            let mut i = 0;
-            while i < options.len() {
-                let value = options.get(i + 1).ok_or("optionの値が必要です。")?;
-                match options[i].as_str() {
-                    "--origin" => {
-                        origin = match value.as_str() {
-                            "real" => DataOrigin::Real,
-                            "synthetic" => DataOrigin::Synthetic,
-                            _ => return Err("originを確認してください。".into()),
-                        }
-                    }
-                    "--demo-rows" => {
-                        rows = value.parse().map_err(|_| "合成件数を確認してください。")?;
-                    }
-                    _ => return Err("tenant-addの引数を確認してください。".into()),
-                }
-                i += 2;
-            }
-            store.add_tenant(slug, origin, rows)?;
+            add_tenant(&mut store, slug, options)?;
             println!("tenant-created");
         }
         ("user-add", [name, flag]) if flag == "--password-stdin" => {
             store.add_user(name, &password()?)?;
+            println!("user-created");
+        }
+        #[cfg(feature = "cloud")]
+        ("user-add", [name, flag]) if flag == "--cloudflare-access" => {
+            store.add_user(name, &super::auth::random_hex(32)?)?;
             println!("user-created");
         }
         ("password-set", [name, flag]) if flag == "--password-stdin" => {
@@ -139,6 +126,30 @@ pub(super) fn run(args: Vec<OsString>) -> HostedResult<()> {
     }
     std::io::stdout().flush()?;
     Ok(())
+}
+
+fn add_tenant(store: &mut Store, slug: &str, options: &[String]) -> HostedResult<()> {
+    let mut origin = DataOrigin::Real;
+    let mut rows = 0;
+    let mut i = 0;
+    while i < options.len() {
+        let value = options.get(i + 1).ok_or("optionの値が必要です。")?;
+        match options[i].as_str() {
+            "--origin" => {
+                origin = match value.as_str() {
+                    "real" => DataOrigin::Real,
+                    "synthetic" => DataOrigin::Synthetic,
+                    _ => return Err("originを確認してください。".into()),
+                }
+            }
+            "--demo-rows" => {
+                rows = value.parse().map_err(|_| "合成件数を確認してください。")?;
+            }
+            _ => return Err("tenant-addの引数を確認してください。".into()),
+        }
+        i += 2;
+    }
+    store.add_tenant(slug, origin, rows)
 }
 
 pub(super) fn print_audit(
@@ -184,6 +195,7 @@ pub(super) fn serve_config(rest: &[String]) -> HostedResult<HostedConfig> {
     let mut origin = None;
     let mut bind = "127.0.0.1:4317".to_owned();
     let mut development = false;
+    let mut access_config = None;
     let mut i = 0;
     while i < rest.len() {
         match rest[i].as_str() {
@@ -196,9 +208,33 @@ pub(super) fn serve_config(rest: &[String]) -> HostedResult<HostedConfig> {
                 bind.clone_from(rest.get(i).ok_or("bindが必要です。")?);
             }
             "--allow-http-loopback" if !development => development = true,
+            "--access-config" if access_config.is_none() => {
+                i += 1;
+                access_config = Some(std::path::PathBuf::from(
+                    rest.get(i).ok_or("Access設定が必要です。")?,
+                ));
+            }
             _ => return Err("serveの引数を確認してください。".into()),
         }
         i += 1;
     }
-    HostedConfig::parse(&origin.ok_or("--originが必要です。")?, &bind, development)
+    let config = HostedConfig::parse(&origin.ok_or("--originが必要です。")?, &bind, development)?;
+    match access_config {
+        None => Ok(config),
+        Some(path) => {
+            #[cfg(feature = "cloud")]
+            {
+                let mut config = config;
+                config.access = Some(super::access::Access::new(super::access::Config::load(
+                    &path,
+                )?)?);
+                Ok(config)
+            }
+            #[cfg(not(feature = "cloud"))]
+            {
+                let _ = path;
+                Err("Cloudflareログインにはcloud buildが必要です。".into())
+            }
+        }
+    }
 }

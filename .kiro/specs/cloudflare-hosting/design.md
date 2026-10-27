@@ -74,3 +74,5 @@ verifyは同じテスト集合をlocalのHTTPS前段と公開URLへ向けられ�
 
 ## Testing Strategy
 Worker境界とcoordinatorは依存をfakeした単体試験、実runtimeはWrangler localと本物の合成sqldへ接続して検証する。queue検査は32MiB相当の未消費streamを並べ、待機中のreadが0回、飽和拒否時も本文を読み込まないことを確認する。既存のcheck-all/MSRV・cloud試験に加え、Cloudflare向けのamd64 imageとWorker bundleを確認する。外部公開を試す前にpreflightを成功させ、公開後に同じHTTP/保持/復旧検査を行う。新プラン不足等で未配備なら、その検査だけを未実施と残し、ソースの準備完了とは分ける。
+
+Cloudflareでの本人確認は[cloudflare-access設計](../cloudflare-access/design.md)へ引き継ぐ。組織権限・session・保存先の契約を維持する。

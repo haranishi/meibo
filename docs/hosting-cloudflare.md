@@ -72,3 +72,5 @@ privateな初回配備が残った場合も、既存対象として拒否する�
 本番相当のWorker/Container結合、同一実行物でのHTTPS・2組織3権限、
 休止・再作成・復旧後の保持、公開先への同じ検査を完了してから公開検証済みとする。
 `npm run check`の成功を提供者への配備成功として扱わない。
+
+[Cloudflareアカウントでログインする手順](hosting-cloudflare-access.md)。

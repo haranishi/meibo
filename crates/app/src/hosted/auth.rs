@@ -186,6 +186,45 @@ impl ControlStore {
             tenant.into(),
             role.as_deref().ok_or("認証状態を確認できません。")?,
         )?;
+        Ok(LoginOutcome::Success(self.issue_session(
+            identity,
+            at,
+            Some(&account),
+        )?))
+    }
+
+    #[cfg(feature = "cloud")]
+    pub(super) fn login_access(
+        &mut self,
+        tenant: &str,
+        name: &str,
+        at: i64,
+    ) -> HostedResult<LoginOutcome> {
+        if tenant.len() > 48 {
+            return Ok(LoginOutcome::Invalid);
+        }
+        let name = store::username(name)?;
+        let user: Option<(i64, String)> = self.conn.query_row(
+            "SELECT u.id,m.role FROM users u JOIN memberships m ON m.user_id=u.id WHERE u.username=?1 AND u.disabled=0 AND m.tenant=?2",
+            params![name, tenant], |r| Ok((r.get(0)?, r.get(1)?))).optional()?;
+        let Some((id, role)) = user else {
+            self.audit("unauthenticated", None, "login", "denied")?;
+            return Ok(LoginOutcome::Invalid);
+        };
+        let identity = self.identity(id, name, tenant.into(), &role)?;
+        Ok(LoginOutcome::Success(
+            self.issue_session(identity, at, None)?,
+        ))
+    }
+
+    fn issue_session(
+        &mut self,
+        identity: Identity,
+        at: i64,
+        account: Option<&str>,
+    ) -> HostedResult<Login> {
+        let id = identity.user_id;
+        let tenant = &identity.tenant;
         let token = random_hex(32)?;
         self.conn.execute(
             "DELETE FROM sessions WHERE expires_at<=?1 OR last_seen<=?2",
@@ -193,13 +232,34 @@ impl ControlStore {
         )?;
         self.conn.execute("DELETE FROM sessions WHERE digest IN (SELECT digest FROM sessions WHERE user_id=?1 ORDER BY created_at DESC LIMIT -1 OFFSET 19)",[id])?;
         self.conn.execute("INSERT INTO sessions(digest,user_id,tenant,created_at,last_seen,expires_at) VALUES(?1,?2,?3,?4,?4,?5)",params![digest(token.as_bytes()),id,tenant,at,at+ABSOLUTE])?;
-        self.conn
-            .execute("DELETE FROM login_attempts WHERE bucket=?1", [account])?;
+        if let Some(account) = account {
+            self.conn
+                .execute("DELETE FROM login_attempts WHERE bucket=?1", [account])?;
+        }
         self.audit(&identity.username, Some(tenant), "login", "success")?;
-        Ok(LoginOutcome::Success(Login { token, identity }))
+        Ok(Login { token, identity })
     }
 
     pub(super) fn authenticate(&self, token: &str, at: i64) -> HostedResult<Option<Identity>> {
+        self.authenticate_for(token, at, None)
+    }
+
+    #[cfg(feature = "cloud")]
+    pub(super) fn authenticate_access(
+        &self,
+        token: &str,
+        name: &str,
+        at: i64,
+    ) -> HostedResult<Option<Identity>> {
+        self.authenticate_for(token, at, Some(name))
+    }
+
+    fn authenticate_for(
+        &self,
+        token: &str,
+        at: i64,
+        expected: Option<&str>,
+    ) -> HostedResult<Option<Identity>> {
         if token.len() != 64
             || !token
                 .bytes()
@@ -210,6 +270,9 @@ impl ControlStore {
         let key = digest(token.as_bytes());
         let row:Option<(i64,String,String,String)>=self.conn.query_row("SELECT u.id,u.username,s.tenant,m.role FROM sessions s JOIN users u ON u.id=s.user_id JOIN memberships m ON m.user_id=s.user_id AND m.tenant=s.tenant WHERE s.digest=?1 AND u.disabled=0 AND s.created_at<=?2 AND s.last_seen<=?2 AND s.expires_at>?2 AND s.last_seen>?3",params![&key,at,at-IDLE],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))).optional()?;
         if let Some((id, name, tenant, role)) = row {
+            if expected.is_some_and(|expected| expected != name) {
+                return Ok(None);
+            }
             self.conn.execute(
                 "UPDATE sessions SET last_seen=?2 WHERE digest=?1",
                 params![key, at],

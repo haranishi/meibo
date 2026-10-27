@@ -1,0 +1,37 @@
+{
+  "feature_name": "cloudflare-access",
+  "language": "ja",
+  "phase": "implemented",
+  "approvals": {
+    "requirements": {
+      "generated": true,
+      "approved": true
+    },
+    "design": {
+      "generated": true,
+      "approved": true
+    },
+    "tasks": {
+      "generated": true,
+      "approved": true
+    }
+  },
+  "ready_for_implementation": true,
+  "authorization": "2026-10-27 user explicitly requested Cloudflare login; autonomous progression within that scope",
+  "constraints": [
+    "no new paid subscription",
+    "no hosting-provider switch",
+    "no automatic user or role provisioning",
+    "no changes to unrelated Access apps"
+  ],
+  "evidence": {
+    "provider_read": "existing Lirac organization and restricted Cloudflare IdP reused",
+    "provider_write": "owner-only Access application created and fresh readback verified; no global IdP or unrelated application changed",
+    "implementation": "implemented; local required check-all/check-cloud, focused auth, browser, MSRV, dependency and license checks passed",
+    "live_jwks": "production Rust verifier fetched actual HTTPS public keys and rejected a synthetic forged signature with the real kid (401)",
+    "browser": "synthetic authority: common eight cases and login at three widths passed for Access and password modes",
+    "msrv": "Rust 1.88 all workspace targets, default and cloud integration features passed",
+    "public_login": "not_verified; application backend not deployed; no actual user SSO/MFA",
+    "verification": "evidence.md"
+  }
+}

@@ -83,3 +83,5 @@ Playwrightを導入した環境で、`integration-tests` featureのappをbuild�
 実企業データは使用せず、生成証明書の例外は当該browser contextだけに限定する。
 検証用DB前段には小さな通信遅延を置き、Mac上の一時port枯渇を避ける。SQLの再送はしない。
 この結果はCloudflare/Tursoの提供環境や実端末での検証を示すものではない。
+
+[Cloudflareアカウントでログインする手順](hosting-cloudflare-access.md)。

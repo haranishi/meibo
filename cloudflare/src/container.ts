@@ -70,6 +70,16 @@ export function runtimeEnvironment(env: RuntimeBindings, origin: ValidatedPublic
       throw new CoordinatorError("invalid_configuration");
     }
     const output: Record<string, string> = { MEIBO_ORIGIN: origin.origin, MEIBO_REMOTE_CONFIG: config };
+    if (Object.hasOwn(env, "MEIBO_ACCESS_CONFIG")) {
+      const access = env.MEIBO_ACCESS_CONFIG;
+      if (typeof access !== "string" || access.length === 0 || new TextEncoder().encode(access).byteLength > 32 * 1024) {
+        throw new CoordinatorError("invalid_configuration");
+      }
+      const parsedAccess: unknown = JSON.parse(access);
+      if (!record(parsedAccess) || parsedAccess.version !== 1) throw new CoordinatorError("invalid_configuration");
+      // Rust owns the complete identity/issuer validation before it opens storage.
+      output.MEIBO_ACCESS_CONFIG = access;
+    }
     const references = new Set<string>();
     function databaseReference(value: unknown): void {
       if (!record(value) || !exactKeys(value, ["url_env", "token_env"])) {

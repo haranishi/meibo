@@ -1,6 +1,7 @@
 /** Worker bindings. Database values are registered as secrets, never tracked vars. */
 export interface Env extends CloudflareBindings {
   readonly MEIBO_REMOTE_CONFIG: string;
+  readonly MEIBO_ACCESS_CONFIG?: string;
   readonly [name: `MEIBO_DB_${string}`]: string | undefined;
 }
 

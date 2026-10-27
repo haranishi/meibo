@@ -1,7 +1,7 @@
 FROM rust:1.99.1-bookworm AS build
 WORKDIR /build
 RUN apt-get update \
-    && apt-get install --yes --no-install-recommends pkg-config libssl-dev \
+    && apt-get install --yes --no-install-recommends pkg-config libssl-dev cmake \
     && rm -rf /var/lib/apt/lists/*
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates

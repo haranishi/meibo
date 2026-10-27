@@ -26,6 +26,7 @@ Commands:
   init
   tenant-add SLUG [--origin real|synthetic] [--demo-rows 0..100000]
   user-add USER --password-stdin
+  user-add USER --cloudflare-access (cloud build)
   password-set USER --password-stdin
   user-disable USER
   member-set USER SLUG viewer|editor|admin|none
@@ -36,7 +37,7 @@ Commands:
   restore SNAPSHOT_DIRECTORY --target-config TARGET_CONFIG
   gate-status
   gate-recover OWNER --prior-work-terminated
-  serve --origin https://domain [--bind 127.0.0.1:4317]
+  serve --origin https://domain [--bind 127.0.0.1:4317] [--access-config PRIVATE_JSON]
 
 CONFIG contains environment variable references only. Passwords are read from stdin.
 HTTP frontend testing requires explicit loopback origin and bind.
@@ -107,6 +108,10 @@ fn parse(command: &str, args: &[String]) -> HostedResult<Action> {
         ("user-add", [name, flag]) if flag == "--password-stdin" => {
             Ok(Action::AddUser(name.clone(), cli::password()?))
         }
+        ("user-add", [name, flag]) if flag == "--cloudflare-access" => Ok(Action::AddUser(
+            name.clone(),
+            crate::hosted::auth::random_hex(32)?,
+        )),
         ("password-set", [name, flag]) if flag == "--password-stdin" => {
             Ok(Action::Password(name.clone(), cli::password()?))
         }

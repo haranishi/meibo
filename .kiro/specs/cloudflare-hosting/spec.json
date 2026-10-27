@@ -150,5 +150,11 @@
       "local_lifecycle": "process restart passed, with SDK recreating the container; 70s no-request observation did not show idle stop, whose documented timer begins after DO inactivity; longer observation attempt stopped at API timeout. Idle/recreate/fault-recovery/restore remain unaccepted",
       "cleanup": "owned SDK/fixture processes and containers stopped; direct gate-status confirmed real source and current synthetic source free; no gate recovery needed during final cleanup"
     }
+  },
+  "cloudflare_access_followup": {
+    "spec": "../cloudflare-access/spec.json",
+    "status": "optional authentication implemented; owner-only provider app configured; backend and real SSO not deployed/verified",
+    "artifact": "prior artifact 7 predates authentication changes and cannot be used for this source revision",
+    "publication_tasks": "2.2 and 2.3 remain open; Workers Paid remains held"
   }
 }

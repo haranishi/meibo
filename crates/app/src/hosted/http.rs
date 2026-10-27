@@ -20,11 +20,16 @@ const MAX_JSON: usize = 1024 * 1024;
 const MAX_IMPORT: usize = 32 * 1024 * 1024;
 const COOKIE: &str = "__Host-meibo-session";
 
+#[cfg(all(test, feature = "cloud"))]
+mod access_tests;
+
 pub(super) struct HostedConfig {
     pub(super) origin: String,
     pub(super) host: String,
     pub(super) bind: SocketAddr,
     pub(super) development: bool,
+    #[cfg(feature = "cloud")]
+    pub(super) access: Option<super::access::Access>,
 }
 impl HostedConfig {
     pub(super) fn parse(origin: &str, bind: &str, development: bool) -> HostedResult<Self> {
@@ -76,7 +81,21 @@ impl HostedConfig {
             host: host.into(),
             bind,
             development,
+            #[cfg(feature = "cloud")]
+            access: None,
         })
+    }
+    // The same interface serves the native build without the optional verifier.
+    #[cfg_attr(not(feature = "cloud"), allow(clippy::unused_self))]
+    pub(super) fn access_mode(&self) -> bool {
+        #[cfg(feature = "cloud")]
+        {
+            self.access.is_some()
+        }
+        #[cfg(not(feature = "cloud"))]
+        {
+            false
+        }
     }
     fn cookie_name(&self) -> &'static str {
         if self.development {
@@ -276,6 +295,13 @@ impl<S: HostedStorage> Hosted<S> {
         if let Some(reply) = self.boundary(input) {
             return reply;
         }
+        #[cfg(feature = "cloud")]
+        let access_user = match self.access_user(input, at) {
+            Ok(user) => user,
+            Err(reply) => return reply,
+        };
+        #[cfg(not(feature = "cloud"))]
+        let access_user: Option<String> = None;
         if self.store.remote() && (self.uncertain || self.poisoned()) {
             return unknown();
         }
@@ -290,7 +316,7 @@ impl<S: HostedStorage> Hosted<S> {
                 return error(503, "保守処理中、または管理者の確認待ちです。");
             }
         };
-        let result = self.dispatch_checked(input, at);
+        let result = self.dispatch_checked(input, at, access_user.as_deref());
         let result = self
             .store
             .complete(guard, result, self.uncertain || self.poisoned());
@@ -307,7 +333,33 @@ impl<S: HostedStorage> Hosted<S> {
         }
     }
 
-    fn dispatch_checked(&mut self, input: &Input, at: i64) -> HostedResult<HostedReply> {
+    #[cfg(feature = "cloud")]
+    fn access_user(&mut self, input: &Input, at: i64) -> Result<Option<String>, HostedReply> {
+        if let Some(access) = &mut self.config.access {
+            if input.method == "GET" && path(input) == "/health" {
+                return Ok(None);
+            }
+            let Some(token) = input.single_header("Cf-Access-Jwt-Assertion") else {
+                return Err(error(401, "Cloudflareでログインし直してください。"));
+            };
+            return access.verify(token, at).map(Some).map_err(|cause| {
+                let status = if cause == super::access::AccessError::Unavailable {
+                    503
+                } else {
+                    401
+                };
+                error(status, cause.message())
+            });
+        }
+        Ok(None)
+    }
+
+    fn dispatch_checked(
+        &mut self,
+        input: &Input,
+        at: i64,
+        access_user: Option<&str>,
+    ) -> HostedResult<HostedReply> {
         let path = path(input);
         if input.method == "GET"
             && let Some(reply) = super::public_entry::asset(path)
@@ -333,12 +385,16 @@ impl<S: HostedStorage> Hosted<S> {
                 )
                 .into());
             }
-            ("POST", "/auth/login") => return self.login(input, at),
+            ("POST", "/auth/login") => return self.login(input, at, access_user),
             _ => {}
         }
         let token = self.token(input);
         let identity = match token {
-            Some(token) => self.store.authenticate(token, at)?,
+            Some(token) => match access_user {
+                #[cfg(feature = "cloud")]
+                Some(name) => self.store.authenticate_access(token, name, at)?,
+                _ => self.store.authenticate(token, at)?,
+            },
             None => None,
         };
         let Some(identity) = identity else {
@@ -460,11 +516,32 @@ impl<S: HostedStorage> Hosted<S> {
         Ok(error(403, "この操作を行う権限がありません。"))
     }
 
-    fn login(&mut self, input: &Input, at: i64) -> HostedResult<HostedReply> {
+    fn login(
+        &mut self,
+        input: &Input,
+        at: i64,
+        access_user: Option<&str>,
+    ) -> HostedResult<HostedReply> {
+        #[cfg(not(feature = "cloud"))]
+        let _ = access_user;
         let value: Value = match serde_json::from_slice(&input.body) {
             Ok(v) => v,
             Err(_) => return Ok(error(400, "入力内容を確認してください。")),
         };
+        #[cfg(feature = "cloud")]
+        if self.config.access_mode() {
+            let Some(tenant) = value.get("tenant").and_then(Value::as_str) else {
+                return Ok(error(400, "組織IDを確認してください。"));
+            };
+            if value.as_object().is_none_or(|v| v.len() != 1) {
+                return Ok(error(400, "組織IDだけを指定してください。"));
+            }
+            let Some(name) = access_user else {
+                return Ok(error(401, "Cloudflareでログインし直してください。"));
+            };
+            let outcome = self.store.login_access(tenant, name, at)?;
+            return Ok(self.login_response(outcome));
+        }
         let Some((tenant, name, password)) = value
             .get("tenant")
             .and_then(Value::as_str)
@@ -474,19 +551,27 @@ impl<S: HostedStorage> Hosted<S> {
         else {
             return Ok(error(400, "入力内容を確認してください。"));
         };
-        match self.store.login(tenant, name, password, at)? {
-            LoginOutcome::Invalid => Ok(error(401, "組織・利用者名・passwordを確認してください。")),
-            LoginOutcome::Throttled => Ok(error(
+        let outcome = self.store.login(tenant, name, password, at)?;
+        Ok(self.login_response(outcome))
+    }
+
+    fn login_response(&self, outcome: LoginOutcome) -> HostedReply {
+        match outcome {
+            LoginOutcome::Invalid if self.config.access_mode() => {
+                error(403, "このアカウントは指定の組織で利用できません。")
+            }
+            LoginOutcome::Invalid => error(401, "組織・利用者名・passwordを確認してください。"),
+            LoginOutcome::Throttled => error(
                 429,
                 "ログイン試行の上限です。15分後にもう一度操作してください。",
-            )),
+            ),
             LoginOutcome::Success(login) => {
                 let mut reply: HostedReply =
                     Reply::json(200, &identity_json(&login.identity)).into();
                 reply
                     .headers
                     .push(("Set-Cookie", self.config.cookie(&login.token, 8 * 3600)));
-                Ok(reply)
+                reply
             }
         }
     }

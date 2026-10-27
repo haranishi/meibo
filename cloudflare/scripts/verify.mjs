@@ -9,7 +9,7 @@ import { readPrivateJson } from "./preflight-input.mjs";
 
 /** The same synthetic UI cases run against local and public HTTPS. Lifecycle
  * adapters belong to the authenticated operator, never a public HTTP endpoint. */
-export async function verifyService({ origin, credentials, output, profile, lifecycle = {} }) {
+export async function verifyService({ origin, credentials, output, profile, lifecycle = {}, loginIdentity }) {
   assert.equal(validatePublicOrigin(origin).origin, origin);
   const target = new URL(origin);
   assert.ok((profile === "public" && /^meibo-beta\.[a-z0-9-]+\.workers\.dev$/.test(target.hostname) && !target.port)
@@ -35,9 +35,13 @@ export async function verifyService({ origin, credentials, output, profile, life
   });
   const page = await context.newPage(); page.setDefaultTimeout(90000); page.setDefaultNavigationTimeout(90000);
   async function login(role, tenant) {
+    if (loginIdentity) await loginIdentity({ context, page, role, tenant });
     await page.goto(`${origin}/login`);
-    await page.locator("#login-tenant").fill(tenant); await page.locator("#login-username").fill(role);
-    await page.locator("#login-password").fill(credentials.password); await page.locator("#login-submit").click();
+    await page.locator("#login-tenant").fill(tenant);
+    if (!(await page.locator("#login-form").evaluate((form) => form.hasAttribute("data-cloudflare-access")))) {
+      await page.locator("#login-username").fill(role); await page.locator("#login-password").fill(credentials.password);
+    }
+    await page.locator("#login-submit").click();
     await page.waitForURL((url) => url.origin === origin && url.pathname === "/", { waitUntil: "commit" });
     await page.locator("#company-rows .company-name").first().waitFor();
   }
@@ -59,6 +63,7 @@ export async function verifyService({ origin, credentials, output, profile, life
     assert.equal((await api("/auth/session")).body.storage_scope, scope);
   }
   try {
+    if (loginIdentity) await loginIdentity({ context, page, role: "admin", tenant: "alpha" });
     assert.equal((await page.request.get(`${origin}/health`, { timeout: 90000 })).status(), 200);
     assert.equal((await page.request.get(`${origin}/api/summary`)).status(), 401);
     const loginPage = await page.goto(`${origin}/login`);

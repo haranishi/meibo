@@ -1,4 +1,8 @@
 //! 招待制サービスの認証と組織別データ境界。
+#[cfg(feature = "cloud")]
+mod access;
+#[cfg(all(test, feature = "cloud"))]
+mod access_tests;
 mod assets;
 mod auth;
 mod backup;
