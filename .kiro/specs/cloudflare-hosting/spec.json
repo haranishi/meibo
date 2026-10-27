@@ -1,7 +1,7 @@
 {
   "feature_name": "cloudflare-hosting",
   "created_at": "2026-10-26T12:20:00Z",
-  "updated_at": "2026-10-26T23:26:49.702668+00:00",
+  "updated_at": "2026-10-27T02:58:40.003452+00:00",
   "language": "ja",
   "phase": "implementing",
   "approvals": {
@@ -111,14 +111,42 @@
     },
     "2.2_checkpoint": {
       "status": "incomplete_not_accepted",
-      "worker_unit_tests": 154,
+      "source_commit": "aa2104300bcbadcbb4fc78f98b0795a470b5529c",
+      "source_revision": "3d59fe41b67a40c36d386eb4bb0bcacc9e62d157ed49f1d3303fec2094188f7e",
+      "worker_unit_tests": 175,
       "worker_typecheck_bundle_shell": "passed",
-      "amd64_image": "built; linux/amd64 UID10001 TLS deps verified; actual remote CLI12/12 passed",
-      "provider_collection": "live failclosed: Turso returns empty size_limit despite creation flag; effective cap not verified",
-      "oci_collection": "gzip layer normalization added; complete prepare still rejected artifact check; diagnose before accepting",
+      "current_toolchain": {
+        "wrangler": "4.153.0",
+        "miniflare": "5.20261023.0-beta",
+        "compatibility_date": "2026-10-23",
+        "npm_audit": "zero vulnerabilities"
+      },
+      "amd64_image": "actual final build/inspect/boot verified; linux/amd64 UID10001 and CONFIG600:10001; TLS dependencies present",
+      "oci_collection": {
+        "status": "passed_actual_rehash_and_boot",
+        "docker_image_id": "sha256:4062ed78cd8521ad639c3fb2b7a4ea16e4df908be217e74197e23bfb2c61921b",
+        "config_digest": "sha256:1fe5df4b999fb8c51105e50a8704830f0032fbf20d8bf73218b7608b940f5309",
+        "oci_manifest_digest": "sha256:8a33c541865c9c238219e8370b3e929a07c01342d98e912bca225951312ecabb"
+      },
+      "provider_collection": "six verified single-primary API/CLI/token reads passed; empty DB-API cap requires actual finite PRAGMA bound intersected with organization quota",
+      "quality": {
+        "default_passed": 331,
+        "cloud_passed": 479,
+        "failed": 0,
+        "existing_ignored_each": 3,
+        "msrv_1_88": "default and integration all-target checks passed",
+        "reuse": "passed"
+      },
+      "hosted_assets": "actual focused RED -> GREEN; CSS/JS bundled in original order; unchanged auth/gate/CSP/queue deadline",
+      "native_browser": "new hosted bundle: native Chromium13steps, complete typed restore/all6role logins passed; external/page/database errors0; Rust binary unchanged by later Worker metadata fix",
+      "local_worker_container_turso": "health/login/CRM document observed; full browser timed out before rows; not accepted",
       "public_deployment": "not_attempted; Workers Paid prerequisite unmet",
-      "review": "parent manual checkpoint review; native agent thread limit; no task acceptance",
-      "next": "finish live artifact/provider proofs, local Worker/Container QA and public QA before marking2.2/2.3 complete"
+      "review": "parent manual source/contract review and frozen-source proof; SDK browser acceptance remains incomplete",
+      "evidence_run": "2026-10-27-cloud-live",
+      "next": "resolve actual SDK concurrent HTTP/API timeout and complete local lifecycle; new paid subscription requires explicit authorization; then fresh preflight/publish/public QA",
+      "post_metadata": "7 added actual RED cases then full175 GREEN; Worker/DO reject the same Origin/local/content-type metadata as Rust before container allocation; existing login8KiB cap; no body read or SQL forwarding on these rejections",
+      "local_worker_container_sqld": "same production binary with fixture-only CA; native and SDK sequential HTTPS health/login/CRM/API passed; diagnostic browser8steps/3widths passed on earlier bundle but wire400 observed; final bundle still produced unknown API outcomes/queued503; local lifecycle callbacks unexecuted",
+      "live_preflight": "actual final image/bundle/six-primary API+CLI+DB-token/capacity proofs passed; live publication check refused only missing Workers Paid; check mode only"
     }
   }
 }
