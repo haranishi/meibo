@@ -139,14 +139,16 @@
       },
       "hosted_assets": "actual focused RED -> GREEN; CSS/JS bundled in original order; unchanged auth/gate/CSP/queue deadline",
       "native_browser": "new hosted bundle: native Chromium13steps, complete typed restore/all6role logins passed; external/page/database errors0; Rust binary unchanged by later Worker metadata fix",
-      "local_worker_container_turso": "health/login/CRM document observed; full browser timed out before rows; not accepted",
+      "local_worker_container_turso": "source secret references/config verified; direct Docker gate-status passed; SDK readiness returned503/unavailable after30s, internal health503/outcome_unknown; same managed container OpenSSL TLS/certificate verification passed. Browser stopped at health; not accepted",
       "public_deployment": "not_attempted; Workers Paid prerequisite unmet",
       "review": "parent manual source/contract review and frozen-source proof; SDK browser acceptance remains incomplete",
-      "evidence_run": "2026-10-27-cloud-live",
-      "next": "resolve actual SDK concurrent HTTP/API timeout and complete local lifecycle; new paid subscription requires explicit authorization; then fresh preflight/publish/public QA",
+      "evidence_run": "2026-10-27-cloud-runtime-r2; retains earlier cloud-live failures",
+      "next": "classify actual SDK pre-HTTP/TLS and readiness failures, complete remaining lifecycle; no paid subscription authorized; then fresh preflight/publish/public QA",
       "post_metadata": "7 added actual RED cases then full175 GREEN; Worker/DO reject the same Origin/local/content-type metadata as Rust before container allocation; existing login8KiB cap; no body read or SQL forwarding on these rejections",
-      "local_worker_container_sqld": "same production binary with fixture-only CA; native and SDK sequential HTTPS health/login/CRM/API passed; diagnostic browser8steps/3widths passed on earlier bundle but wire400 observed; final bundle still produced unknown API outcomes/queued503; local lifecycle callbacks unexecuted",
-      "live_preflight": "actual final image/bundle/six-primary API+CLI+DB-token/capacity proofs passed; live publication check refused only missing Workers Paid; check mode only"
+      "local_worker_container_sqld": "same production binary and Worker bundle with fixture-only CA: 18 parallel API requests passed; browser core8/3widths passed with unexpected400/assets/external/page errors0; another run passed core8 plus process-restart session/data retention. Other runs still produced ~33s outcome_unknown correlated with one pre-HTTP TLS ECONNRESET; cause unconfirmed",
+      "live_preflight": "fresh actual provider/artifact check refused contract: workersPaid=false, containersAllowed=false; no deployment or subscription change",
+      "local_lifecycle": "process restart passed, with SDK recreating the container; 70s no-request observation did not show idle stop, whose documented timer begins after DO inactivity; longer observation attempt stopped at API timeout. Idle/recreate/fault-recovery/restore remain unaccepted",
+      "cleanup": "owned SDK/fixture processes and containers stopped; direct gate-status confirmed real source and current synthetic source free; no gate recovery needed during final cleanup"
     }
   }
 }
