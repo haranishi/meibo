@@ -4,7 +4,7 @@ use super::{
     configure, connect, database_error, ensure_space, read_origin, should_check, space_needed,
     storage, suffixed, unix_seconds, validate_header, version,
 };
-use rusqlite::{Connection, TransactionBehavior};
+use crate::sql::{Connection, TransactionBehavior};
 use std::{io, path::Path};
 
 pub(crate) const MIGRATIONS: &[Migration] = &[];
@@ -153,9 +153,9 @@ fn restore(
     before: &[i64; 5],
 ) -> Result<(), EngineError> {
     conn.restore(
-        rusqlite::MAIN_DB,
+        crate::sql::MAIN_DB,
         backup_path,
-        None::<fn(rusqlite::backup::Progress)>,
+        None::<fn(crate::sql::backup::Progress)>,
     )
     .map_err(database_error)?;
     verify_restored(conn, from, before)

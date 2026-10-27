@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta name="color-scheme" content="light">
   <title>ログイン · meibo</title>
+  <!-- public-entry:head -->
   <link rel="stylesheet" href="/login.css">
   <script src="/login.js" defer></script>
 </head>
@@ -23,6 +24,23 @@
       </fieldset>
     </form>
     <p class="login-help">アカウントや組織IDが分からない場合は、招待した管理者へお問い合わせください。</p>
+    <!-- public-entry:share:start -->
+    <footer id="public-entry-share" class="public-share" aria-labelledby="public-share-heading">
+      <h2 id="public-share-heading">ログインURLを共有</h2>
+      <p class="public-share-help">ログイン画面のURLを共有します。ご利用には管理者からの案内が必要です。</p>
+      <div class="public-share-actions">
+        <a id="public-share-x" href="{{PUBLIC_X}}" target="_blank" rel="noopener noreferrer" aria-label="Xで共有（新しいタブ）">X</a>
+        <a id="public-share-line" href="{{PUBLIC_LINE}}" target="_blank" rel="noopener noreferrer" aria-label="LINEで共有（新しいタブ）">LINE</a>
+        <button id="public-share-copy" type="button" disabled>リンクをコピー</button>
+        <button id="public-share-native" type="button" hidden>端末で共有</button>
+      </div>
+      <p id="public-share-status" class="public-share-status" role="status" aria-live="polite" aria-atomic="true"></p>
+      <div id="public-share-fallback" class="public-share-fallback" hidden>
+        <label for="public-share-url">ログインURL（選択してコピー）</label>
+        <input id="public-share-url" type="url" readonly value="{{PUBLIC_CANONICAL}}" autocomplete="off" spellcheck="false">
+      </div>
+    </footer>
+    <!-- public-entry:share:end -->
   </main>
 </body>
 </html>

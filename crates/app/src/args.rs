@@ -34,6 +34,8 @@ pub(crate) enum Command {
     SyncNta(PathBuf, PathBuf, Option<u64>),
     Mcp(PathBuf, bool),
     Hosted(Vec<OsString>),
+    #[cfg(feature = "cloud")]
+    HostedRemote(Vec<OsString>),
 }
 
 struct Arguments {
@@ -104,6 +106,10 @@ pub(crate) fn parse(mut args: Vec<OsString>) -> Result<Command, String> {
     let command = name.as_str();
     if command == "hosted" {
         return Ok(Command::Hosted(args));
+    }
+    #[cfg(feature = "cloud")]
+    if command == "hosted-remote" {
+        return Ok(Command::HostedRemote(args));
     }
     let (values, flags): (&[&str], &[&str]) = match command {
         "--help" | "-h" | "help" if args.is_empty() => return Ok(Command::Help),

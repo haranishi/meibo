@@ -191,7 +191,7 @@ fn failure_after_fulltext_insert_rolls_back_rows_index_and_counts() {
     let (_dir, mut db) = database();
     db.import_companies(&[numbered(0)], DuplicatePolicy::Error)
         .unwrap();
-    let conn = rusqlite::Connection::open(db.path().unwrap()).unwrap();
+    let conn = crate::sql::Connection::open(db.path().unwrap()).unwrap();
     conn.execute_batch("CREATE TRIGGER fail_import BEFORE UPDATE ON counts WHEN NEW.status=3 BEGIN SELECT RAISE(ABORT,'injected'); END;").unwrap();
     let error = db
         .import_companies(

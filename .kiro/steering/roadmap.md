@@ -38,6 +38,8 @@
 - [x] api-mcp -- 画面用のloopback APIは追加済み。版付きAPIとstdio MCPをapi-mcpで完了。Dependencies: list-engine
 - [x] public-data-importers -- 国税庁の法人番号など公的データの取込器。データは同梱しない。Dependencies: csv-import-export
 - [x] team-access -- 複数の利用者、権限、監査ログ。Dependencies: web-ui, api-mcp
+- [ ] remote-storage -- 公開版だけにTurso Cloud libSQL接続を追加し、ローカルSQLite・既存業務契約を維持する。Dependencies: list-engine, team-access
+- [ ] cloudflare-hosting -- Cloudflare上の招待制ベータ、HTTPS転送、秘密管理と公開後の永続化・復旧検証。Dependencies: remote-storage
 
 ## 次の一手
 
@@ -45,3 +47,8 @@
 
 ## 2026-10-26の提供境界
 無料・招待制ベータを既定とし、組織別DB、認証/権限、監査、HTTPS前段とVolume/復旧を追加する。実企業データは別保存先に取り込み、Gitや配布物へ含めない。ソース公開と外部サーバーへのSaaS配備は別の完了条件とする。外部domain/公開先が未指定なら、配備済みと報告しない。
+
+## Cloudflareでの公開（本人承認、2026-10-26）
+公開先は事業用Cloudflare、公開版DBはTurso Cloud、既存の招待制認証を使う。domainが未定の間はworkers.devを使う。通常のOSS版は引き続きローカルSQLiteで動く。
+現行schemaに必要なFTS5 trigram・STORED生成列・更新可能なWITHOUT ROWIDを維持するため、公開版はTurso CloudのlibSQL engineを対象にする。新しいRust engineとの互換性を仮定しない。
+remote-storageはSQL adapterとcore/hosted保存方針、cloudflare-hostingはWorker/Containerと配備を所有する。鍵・アカウントID・実データは追跡しない。提供者へのログインが必要でも、依存しない実装・合成試験は継続する。

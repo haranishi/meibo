@@ -1,5 +1,6 @@
 //! 企業と活動を一度の確定で追加する内部の口。
 
+use crate::sql::{OptionalExtension, params};
 use crate::{
     schema::{Db, SECONDARY_INDEXES, WRITE_BASE, counts, fts},
     synth::SynthRecord,
@@ -9,7 +10,6 @@ use crate::{
     },
     write::{self, FoldInput},
 };
-use rusqlite::{OptionalExtension, params};
 
 pub(crate) const INSERT_COMPANY: &str = "INSERT INTO companies(corporate_number,name,name_key,prefecture_code,municipality_code,industry_code,status,phone,website,owner_id,base_status,is_sole_proprietor,source_id,source_as_of,created_at,updated_at,last_activity_at,next_action_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?7,?11,?12,?13,?14,?14,0,NULL)";
 const INSERT_ACTIVITY: &str = "INSERT INTO activities(company_id,kind,at,status_after,next_action_kind,next_action_at) VALUES(?1,?2,?3,?4,?5,?6)";
@@ -69,7 +69,7 @@ impl From<SynthRecord> for BulkRecord {
         }
     }
 }
-fn storage(e: rusqlite::Error) -> EngineError {
+fn storage(e: crate::sql::Error) -> EngineError {
     EngineError::Storage(Box::new(e))
 }
 fn uses_bulk(total_hint: Option<u64>, opt: &BulkOptions) -> bool {
@@ -89,8 +89,8 @@ fn estimated_space(total_hint: Option<u64>, opt: &BulkOptions) -> Result<u64, En
 
 /// 企業を1社追加して内部IDを返す。法人番号の重複は既存の企業を示して拒否する。
 pub(crate) fn insert_company(
-    tx: &rusqlite::Transaction<'_>,
-    stmt: &mut rusqlite::Statement<'_>,
+    tx: &crate::sql::Transaction<'_>,
+    stmt: &mut crate::sql::Statement<'_>,
     normalized: &write::NormalizedCompany,
 ) -> Result<i64, EngineError> {
     let c = &normalized.company;
@@ -181,7 +181,7 @@ pub(crate) fn import_companies(
 }
 
 fn insert_activities(
-    stmt: &mut rusqlite::Statement<'_>,
+    stmt: &mut crate::sql::Statement<'_>,
     id: i64,
     status: Status,
     activities: &[BulkActivity],
@@ -233,7 +233,7 @@ pub(crate) fn load(
     total_hint: Option<u64>,
     opt: &BulkOptions,
 ) -> Result<BulkReport, EngineError> {
-    let needed = estimated_space(total_hint, opt)?;
+    let needed = db.local_growth_estimate(|| estimated_space(total_hint, opt))?;
     // write は可変借用するため、種別の照合結果を先に固定する。
     let synthetic_ok = db.check_origin(DataOrigin::Synthetic).is_ok();
     let real_ok = db.check_origin(DataOrigin::Real).is_ok();
@@ -306,12 +306,12 @@ pub(crate) fn load(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::sql::{Connection, types::Value};
     use crate::{
         schema::OpenOptions,
         synth::{Profile, Synth, SynthConfig},
         types::ActivityInput,
     };
-    use rusqlite::{Connection, types::Value};
     use std::path::Path;
     use std::{
         fs,

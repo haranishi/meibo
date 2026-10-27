@@ -1,0 +1,329 @@
+{
+  "feature_name": "remote-storage",
+  "created_at": "2026-10-26T12:00:00Z",
+  "updated_at": "2026-10-26T22:30:58.423262+00:00",
+  "language": "ja",
+  "phase": "completed",
+  "approvals": {
+    "requirements": {
+      "generated": true,
+      "approved": true
+    },
+    "design": {
+      "generated": true,
+      "approved": true
+    },
+    "tasks": {
+      "generated": true,
+      "approved": true
+    }
+  },
+  "ready_for_implementation": true,
+  "authorization": {
+    "basis": "2026-10-26 user accepted Cloudflare business account, Turso Cloud, existing invitation authentication, and continuation",
+    "default_local_sqlite_unchanged": true,
+    "paid_plan_changes": false,
+    "real_data_upload": false
+  },
+  "reviews": {
+    "requirements": "PASS_inline",
+    "design": "APPROVED_independent_after_sqlite_sequence_fix",
+    "task_graph": "PASS_independent_after_task_split_and_fixture_coverage",
+    "final_sanity": "PASS_independent_read_final_requirements_design_tasks",
+    "requirements_covered": 24,
+    "actionable_tasks": 18,
+    "design_transport_refinement": "typed_Hrana_v2_current_reqwest_bounded_body_obsoletes_legacy_SDK_and_metered_connector",
+    "transport_delta": "APPROVED_focused_independent_on_updated_design_research_tasks_and_test_profiles",
+    "task_1_1_next_action": "RETRY_TASK",
+    "foundation_default_graph_delta": "PASS_inline_existing_test_actual_default_app_core_normal_build_graph_forbidden_list_and_policy_unchanged",
+    "local_projection_compatibility_delta": "PASS_inline_task_1_3_boundary_existing_1_1_2_1_raw_borrowed_buffered_local_cells_native_projection_and_Inf_params_public_from_values_finite_only",
+    "bounded_decode_staging_delta": "PASS_inline_requirements_2.1_2.6_real_nontransaction_RemoteConnection_then_1.5_backend_integration_structural_budget_before_official_Vec_decode_direct_serde_existing_lock",
+    "runtime_config_contract_delta": "PASS_inline_existing_CONFIG_v1_env_references_explicit_shape_before_independent_coordinator_and_hosted_implementation",
+    "foreign_key_setup_delta": "PASS_inline_same_stream_verified_PRAGMA_before_user_SQL_separate_pipeline_due_v2_sequential_error_semantics",
+    "remote_diagnostics_delta": "PASS_inline_remote_only_row_labels_redacted_local_public_owned_unchanged_no_app_logger_subscriber_upstream_debug_requires_revalidation",
+    "no_implicit_retry_delta": "PASS_inline_idle_pool_zero_prevents_internal_hyper_util_reused_connection_retry_actual_RED_GREEN",
+    "task_1_5_connection_contract_delta": "PASS_inline_planned_open_remote_is_remote_is_poisoned_with_shared_backend_state_and_explicit_connection_exports_boundary",
+    "parallel_local_alias_delta": "APPROVED_independent_current_local_adapter_API_complete_2.1_depends_1.3_then_2.2_depends_2.1_and_1.5_isolated_worktrees_native_sqlite_version_Send_and_combined_local_checks",
+    "task_1_5_error_classification_delta": "PASS_inline_fixed_reserved_SQLite_error_messages_and_codes_OutcomeUnknown_ConnectionPoisoned_Unsupported_raw_Error_compatibility",
+    "parallel_snapshot_codec_delta": "APPROVED_independent_2.4_depends_2.1_core_CRM_registry_shared_codec_sequences_only_2.5_depends_2.3_and_2.4_control_registry_owned_app_4.1",
+    "snapshot_format_contract_delta": "APPROVED_independent_canonical_v1_rows_exact_typed_values_bounds_explicit_sequence_high_water_no_snapshot_missing_default_no_schema_SQL",
+    "task_1_5_readonly_seam": "APPROVED_independent_private_Describe_readonly_metadata_write_OutcomeUnknown_preserve_read_limit_diagnostics",
+    "core_terminal_observability_setup": "PASS_inline_cloud_Engine_is_poisoned_and_explicit_real_server_test_setup_for2.2",
+    "primary_profile_delta": "APPROVED_independent_initial_single_primary_no_replica_verified_instance_endpoint_for_HTTP_CLI_backup_restore_topology_change_requires_revalidation_replica_support_not_claimed",
+    "opaque_meta_delta": "PASS_inline_validate_required_markers_and_versions_preserve_unrelated_meta_keys_without_interpreting_as_configuration_or_SQL",
+    "extension_constant_setup_delta": "PASS_inline_existing_extension_version_visibility_and_public_data_constant_reuse_only_no_business_DDL_behavior_change",
+    "exact_integration_fixture_scan_delta": "APPROVED_independent_skip_only_exact_remote_lifecycle_file_after_crate_cfg_Cargo_required_features_and_feature_assertions_other_sources_symbols_default_graph_and_deny_unchanged",
+    "parallel_hosted_store_delta": "APPROVED_independent_3.1_control_auth_real_tenant_registration_depends2.2_and1.5_positive_demo_seed_order_owned3.3_after2.3_no_stub_no_HTTP_claim_3.3_depends2.3_and3.2",
+    "domain_policy_fixture_setup_delta": "PASS_inline_existing_locked_Tokio_reqwest_Hrana_edges_only_integration_tests_exact_feature_map_proof_no_new_source_exemption",
+    "private_callback_loss_test_delta": "PASS_inline_schema_unit_module_cfg_all_test_and_integration_tests_real_proxy_loss_after_BEGIN_prepare_no_public_API_or_new_raw_networking",
+    "provider_stream_lifetime_delta": "APPROVED_inline_after_independent_real_provider_debug_Hrana_StoreSql_actual_FK_sql_id_reference_preserves_strict_baton_and_transaction_contract_task1.6_parallel",
+    "restore_endpoint_disjoint_delta": "APPROVED_inline: reuse existing normalized_endpoint, retain private SHA256 set, compare all source/target endpoints, existing Endpoints fields hosted visibility only; no URL getter or diagnostic exposure"
+  },
+  "transport_preflight": {
+    "stack": "libsql-hrana =0.10.0 + reqwest =0.13.5 default-features=false json/native-tls-no-alpn + shared Tokio",
+    "msrv": "Rust 1.88 passed",
+    "online_cargo_deny": "advisories/licenses/sources passed",
+    "local_sequence_trigger_rollback": "passed actual sqld synthetic database",
+    "provider_protocol": "passed synthetic Turso Cloud Sequence and approximately 11.75-second transaction",
+    "source_implementation_review": "adapter1.1_through1.6_approved; real provider synthetic commit-close-fresh-read verified; full service publication not claimed"
+  },
+  "completed_tasks": [
+    "1.1",
+    "1.2",
+    "1.3",
+    "1.4",
+    "1.5",
+    "1.6",
+    "2.1",
+    "2.2",
+    "2.3",
+    "2.4",
+    "2.5",
+    "3.1",
+    "3.2",
+    "3.3",
+    "4.1",
+    "4.2",
+    "4.3",
+    "4.4"
+  ],
+  "verification": {
+    "1.1": {
+      "default_workspace_passed": 290,
+      "failed": 0,
+      "existing_ignored_benchmarks": 3,
+      "db_runtime_tests": 1,
+      "real_sqld_fixture_tests": 7,
+      "msrv": "1.88 passed",
+      "online_advisories_licenses_sources": "passed",
+      "default_artifact_network_graph": "clean",
+      "independent_review": "APPROVED",
+      "production_remote_adapter": "pending_tasks_1.2_to_1.5",
+      "cloud_policy_ci": "pending_task_4.4"
+    },
+    "1.2": {
+      "primitive_tests": 14,
+      "runtime_tests": 1,
+      "real_fixtures_regression": 7,
+      "tuple_arities_checked": "1 through 5; actual erasure/list shapes",
+      "clippy_fmt_msrv_cloud_check": "passed",
+      "independent_review": "APPROVED_after_tuple_compatibility_fix",
+      "evidence": ".agent-harness/runs/2026-10-26-cloudflare-turso/task-1.2/"
+    },
+    "1.3": {
+      "local_tests": 16,
+      "primitive_tests": 14,
+      "runtime_tests": 1,
+      "root_fresh_local_exit_code": 0,
+      "native_projection_and_transaction_backup_parity": "passed",
+      "clippy_fmt_msrv_cloud_check": "passed",
+      "independent_review": "APPROVED_after_deferred_local_conversion_fix",
+      "evidence": ".agent-harness/runs/2026-10-26-cloudflare-turso/task-1.3/"
+    },
+    "1.4": {
+      "db_tests": 63,
+      "remote_tests": 22,
+      "unit_tests": 4,
+      "root_fresh_unit_remote_tests": 26,
+      "root_fresh_exit_code": 0,
+      "clippy_fmt_msrv_app_cloud": "passed",
+      "independent_review": "APPROVED_after_evidence_remediation_cycle_1",
+      "initial_red_evidence": "invalid_test_guard_failure_preserved_and_explicitly_retracted",
+      "remediation": "post_implementation_real_production_OFF_20_fail_ON_removed_63_pass_source_hashes_identical",
+      "genuine_regression_red_green": [
+        "remote_conversion_label",
+        "internal_connection_pool_retry",
+        "base_url_path_prefix"
+      ],
+      "transaction_integration": "pending_task_1.5",
+      "evidence": ".agent-harness/runs/2026-10-26-cloudflare-turso/task-1.4/"
+    },
+    "1.5": {
+      "db_tests": 77,
+      "transaction_acceptance_tests": 14,
+      "failed": 0,
+      "original_tests_retained": 63,
+      "real_production_off_red": "1_pass_12_fail_before_implementation",
+      "autocommit_loss_regression": "actual_RED_then_GREEN",
+      "clippy_fmt_msrv_app_cloud": "passed",
+      "independent_review": "APPROVED",
+      "source_hashes_checked_by_parent": 11,
+      "core_alias_merged_revalidation": "passed_default_and_cloud_core171_each_background_thread_Send_cloud_clippy_app_compile",
+      "evidence": ".agent-harness/runs/2026-10-26-cloudflare-turso/task-1.5/"
+    },
+    "2.1": {
+      "source_commit": "351c948",
+      "isolated_source_commit": "3a44f9a",
+      "default_core_passed": 171,
+      "cloud_local_core_passed": 171,
+      "failed": 0,
+      "existing_ignored_each": 3,
+      "merged_backend": "task1.5 fa78495",
+      "merged_tests_exit_codes": [
+        0,
+        0
+      ],
+      "merged_cloud_clippy_app_check_exit_codes": [
+        0,
+        0
+      ],
+      "Connection_Send_and_background_checkpoint": "passed_combined_cloud_compile_and_local_regressions",
+      "independent_review": "APPROVED",
+      "remote_persistence": "not_claimed",
+      "evidence": ".agent-harness/runs/2026-10-26-cloudflare-turso/merged-local/"
+    },
+    "2.2": {
+      "real_lifecycle_tests": 14,
+      "default_core_passed": 171,
+      "integration_core_passed": 185,
+      "existing_ignored_each": 3,
+      "author_validation_shape": "preserved_initial_source_scan_failure_then_successful_affected_rechecks_with_unchanged_unit_engine_groups",
+      "independent_validation_shape": "fresh_canonical_default_and_integration_full_commands_exit0",
+      "clippy_fmt_msrv_app_cloud": "passed",
+      "independent_review": "APPROVED",
+      "parent_source_hashes_checked": 10,
+      "remote_domain_policy": "pending2.3",
+      "evidence": ".agent-harness/runs/2026-10-26-cloudflare-turso/task-2.2/"
+    },
+    "2.4": {
+      "source_commit": "2753b6a",
+      "isolated_source_commit": "e51d3fe",
+      "isolated_cloud_core_passed": 188,
+      "isolated_default_core_passed": 171,
+      "existing_ignored_each": 3,
+      "focused_codec_tests": 17,
+      "independent_review": "APPROVED",
+      "source_hashes_checked_by_parent": 8,
+      "merged_adapter": "1.5",
+      "merged_lifecycle": "2.2",
+      "merged_codec_tests": 17,
+      "merged_lifecycle_tests": 14,
+      "merged_default_safety_tests": 2,
+      "merged_test_exit_codes": [
+        0,
+        0,
+        0
+      ],
+      "merged_clippy_app_check_exit_codes": [
+        0,
+        0
+      ],
+      "manifest_merge": "preserved_cloud_codec_optional_edges_and_explicit_integration_test_gate",
+      "remote_pages_and_service_backup": "pending2.5_and4.x",
+      "evidence": ".agent-harness/runs/2026-10-26-cloudflare-turso/merged-snapshot/"
+    },
+    "1.6": {
+      "source_commit": "20be11b",
+      "independent_review": "APPROVED",
+      "evidence_run": "2026-10-27-stream-lifetime",
+      "scope": "accepted_component_snapshot; final integrated and provider publication checks remain separate"
+    },
+    "2.3": {
+      "source_commit": "5d10b36",
+      "independent_review": "APPROVED",
+      "evidence_run": "2026-10-26-cloudflare-turso/task-2.3",
+      "scope": "accepted_component_snapshot; final integrated and provider publication checks remain separate"
+    },
+    "2.5": {
+      "source_commit": "63daa32",
+      "independent_review": "APPROVED",
+      "evidence_run": "2026-10-27-merged-gate",
+      "scope": "accepted_component_snapshot; final integrated and provider publication checks remain separate"
+    },
+    "3.1": {
+      "source_commit": "bea083a",
+      "independent_review": "APPROVED",
+      "evidence_run": "2026-10-27-hosted-store",
+      "scope": "accepted_component_snapshot; final integrated and provider publication checks remain separate"
+    },
+    "3.2": {
+      "source_commit": "48e095f",
+      "independent_review": "APPROVED",
+      "evidence_run": "2026-10-27-merged-gate",
+      "scope": "accepted_component_snapshot; final integrated and provider publication checks remain separate"
+    },
+    "3.3": {
+      "source_commit": "04fd3dd",
+      "independent_review": "APPROVED",
+      "evidence_run": "2026-10-27-remote-http-cli",
+      "scope": "accepted_component_snapshot; final integrated and provider publication checks remain separate"
+    },
+    "4.4": {
+      "source_commit": "48549fb",
+      "independent_review": "APPROVED",
+      "evidence_run": "2026-10-27-cloud-validation",
+      "scope": "accepted_component_snapshot; final integrated and provider publication checks remain separate"
+    },
+    "4.1": {
+      "source_commit": "a016c02",
+      "isolated_source_commit": "ee237b2",
+      "independent_review": "APPROVED",
+      "source_files": 13,
+      "aggregate_sha256": "e2120c726a45fcd5e9638f53b2bc4bc6d559e03c801967f54ba29c1240112902",
+      "app_default_cloud_integration_passed": [
+        59,
+        69,
+        105
+      ],
+      "failed": 0,
+      "strict_clippy_actual_msrv_both_profiles_no_network_links_scoped_secrets": "passed",
+      "red_evidence": "real production OFF CLI exit101 then GREEN; historical source traced via tool record, no separate old source archive",
+      "evidence_run": "2026-10-27-remote-backup/review",
+      "restore_and_full_service_verification": "pending4.2_and4.3"
+    },
+    "4.2": {
+      "isolated_source_commit": "4a3779a",
+      "review": "APPROVED_parent_independent_manual_fallback_host_agent_thread_limit",
+      "source_files": 11,
+      "aggregate_sha256": "520058b0d15067a1090166543eee001dc7915565cdd6632e79b000c813097d53",
+      "parent_default_cloud_integration_passed": [
+        59,
+        70,
+        112
+      ],
+      "parent_failed": 0,
+      "strict_clippy_fmt": "passed",
+      "actual_msrv_default_integration_workspace_guards_links_scoped_secrets": "passed evidence checked against frozen source",
+      "red": "preimplementation production OFF realCLI exit101,3fullsourcearchives_and_SHA; thenGREEN/flagremoved",
+      "initial_failures": "author3existingCLI transport failures and parentmissingTMPDIR preserved; isolated complete parent112pass, no production/timeout/retry changes",
+      "evidence_run": "2026-10-27-remote-restore/review",
+      "full_process_browser": "pending4.3"
+    },
+    "4.3": {
+      "source_commit": "5c105e5",
+      "review": "APPROVED_parent_inline_host_thread_limit_fallback",
+      "real_browser": "SQLD6/HTTPS/Chromium156;13steps;390/768/1440;2tenants3roles/all6restoredlogins;alltypedtables/gatecrash/manualrecovery;exit0",
+      "privacy": "externalrequests0/pageerrors0/databasefailures0",
+      "fixture_capacity": "17251pipelines/17245upstreamreuse; deterministic5msfixtureRTT; TIME_WAITpeak3563 versus initially16373; EADDRNOTAVAILcauseverified; productretry/transportunchanged",
+      "evidence_run": "2026-10-27-remote-browser"
+    },
+    "final_integration": {
+      "source_baseline": "fbcfae3+5c105e5 testfixture/docs",
+      "check_all": {
+        "exit_code": 0,
+        "passed": 331,
+        "existing_ignored": 3
+      },
+      "check_cloud": {
+        "exit_code": 0,
+        "passed": 479,
+        "existing_ignored": 3
+      },
+      "actual_msrv": "Cargo/Rust1.88 default/integration allworkspace alltargets exit0",
+      "audits": "default/cloud advisories,bans,licenses,sources passed online",
+      "reuse": "6.2.0 passed",
+      "evidence_run": "2026-10-27-final-runtime",
+      "deployment": "not claimed; cloudflare-hosting remainspending"
+    }
+  },
+  "feature_validation": {
+    "decision": "GO",
+    "requirements_covered": 24,
+    "requirements_total": 24,
+    "all_actionable_tasks_completed": 18,
+    "runtime_smoke": "actual integration-feature CLI/HTTPS/browser first usable state and full lifecycle; productioncloud build separate passed",
+    "boundary_audit": "CLEAN",
+    "blocked_tasks": [],
+    "scope": "remote-storage on realcompatibleSQLD, actualTursoCorecapability separatelyproved; Cloudflareartifact andproviderpublication checks ownedadjacent"
+  }
+}

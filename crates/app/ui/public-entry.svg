@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-labelledby="title desc">
+  <title id="title">meibo · 営業ワークスペース</title>
+  <desc id="desc">企業情報と営業活動を、チームのワークスペースで。</desc>
+  <rect width="1200" height="630" fill="#f3f6fa"/>
+  <rect x="64" y="64" width="1072" height="502" rx="24" fill="#fff" stroke="#dbe2ea" stroke-width="2"/>
+  <rect x="116" y="120" width="76" height="76" rx="16" fill="#edf4fb"/>
+  <g font-family="-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans JP',sans-serif">
+    <text x="134" y="177" font-size="63" font-weight="750" fill="#1863a8">m</text>
+    <text x="214" y="180" font-size="60" font-weight="750" fill="#203246">meibo</text>
+    <text x="116" y="300" font-size="48" font-weight="700" fill="#203246">営業ワークスペース</text>
+    <text x="116" y="366" font-size="30" fill="#526579">企業情報と営業活動を、</text>
+    <text x="116" y="412" font-size="30" fill="#526579">チームのワークスペースで。</text>
+  </g>
+  <g stroke="#dbe2ea" stroke-width="2">
+    <rect x="818" y="210" width="254" height="270" rx="12" fill="#f8fafc"/>
+    <rect x="846" y="242" width="48" height="48" rx="10" fill="#edf4fb" stroke="none"/>
+    <path d="M858 268h24M870 256v24" stroke="#1863a8" stroke-width="3" stroke-linecap="round"/>
+    <path d="M916 254h124M916 276h88M846 326h194M846 358h164M846 390h194M846 422h124" stroke-linecap="round"/>
+  </g>
+  <rect x="116" y="478" width="78" height="5" rx="2.5" fill="#1863a8"/>
+</svg>

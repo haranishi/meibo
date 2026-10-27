@@ -7,7 +7,7 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use rusqlite::{Connection, OpenFlags, Transaction, TransactionBehavior};
+use crate::sql::{Connection, OpenFlags, Transaction, TransactionBehavior};
 
 use crate::types::{DataOrigin, EngineError};
 
@@ -15,6 +15,8 @@ pub(crate) mod checkpoint;
 pub(crate) mod counts;
 pub(crate) mod fts;
 mod migration;
+#[cfg(feature = "cloud")]
+pub(crate) mod remote;
 pub(crate) use migration::{MIGRATIONS, migrate_with};
 
 pub(crate) struct Migration {
@@ -23,6 +25,8 @@ pub(crate) struct Migration {
     pub(crate) apply: fn(&Transaction<'_>) -> Result<(), EngineError>,
 }
 
+#[cfg(all(test, feature = "integration-tests"))]
+mod remote_write_tests;
 #[cfg(test)]
 mod tests;
 
@@ -250,17 +254,44 @@ impl Db {
         &self.conn
     }
 
+    // Without cloud, every Db uses the native file policy.
+    #[cfg_attr(not(feature = "cloud"), allow(clippy::unused_self))]
+    pub(crate) fn has_local_storage(&self) -> bool {
+        #[cfg(feature = "cloud")]
+        {
+            !self.conn.is_remote()
+        }
+        #[cfg(not(feature = "cloud"))]
+        {
+            true
+        }
+    }
+
+    /// File-growth estimates can query local page layout, but have no remote meaning.
+    pub(crate) fn local_growth_estimate(
+        &self,
+        estimate: impl FnOnce() -> Result<u64, EngineError>,
+    ) -> Result<u64, EngineError> {
+        if self.has_local_storage() {
+            estimate()
+        } else {
+            Ok(0)
+        }
+    }
+
     pub(crate) fn write<T>(
         &mut self,
         estimate: u64,
         f: impl FnOnce(&Transaction<'_>) -> Result<T, EngineError>,
     ) -> Result<T, EngineError> {
-        let path = self.conn.path().ok_or_else(|| EngineError::InvalidInput {
-            field: "path".into(),
-            reason: "file-backed database required".into(),
-        })?;
-        ensure_space(Path::new(path), estimate, self.space_probe())?;
-        self.apply_backpressure(estimate)?;
+        if self.has_local_storage() {
+            let path = self.conn.path().ok_or_else(|| EngineError::InvalidInput {
+                field: "path".into(),
+                reason: "file-backed database required".into(),
+            })?;
+            ensure_space(Path::new(path), estimate, self.space_probe())?;
+            self.apply_backpressure(estimate)?;
+        }
         let tx = self
             .conn
             .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -274,6 +305,12 @@ impl Db {
                 Ok(value)
             }
             Err(err) => {
+                // A lost write response already forbids further requests. Keep
+                // its original cause rather than replacing it during cleanup.
+                #[cfg(feature = "cloud")]
+                if tx.is_poisoned() {
+                    return Err(err);
+                }
                 tx.rollback().map_err(storage)?;
                 Err(err)
             }
@@ -302,6 +339,10 @@ impl Db {
 
     /// 完了または背景スレッドなしなら `true`、`busy_timeout` の期限切れなら `false`。
     pub(crate) fn settle(&self) -> Result<bool, EngineError> {
+        #[cfg(feature = "cloud")]
+        if !self.has_local_storage() {
+            return Err(storage(meibo_db::RemoteErrorKind::Unsupported.error()));
+        }
         if self.checkpoint.is_some() {
             return checkpoint::retry(&self.conn, checkpoint::Mode::Restart);
         }
@@ -325,6 +366,10 @@ impl Db {
     }
 
     pub(crate) fn backup_to(&self, dest: &Path) -> Result<(), EngineError> {
+        #[cfg(feature = "cloud")]
+        if !self.has_local_storage() {
+            return Err(storage(meibo_db::RemoteErrorKind::Unsupported.error()));
+        }
         ensure_space(
             dest,
             space_needed(&self.conn)?,
@@ -354,6 +399,10 @@ pub(crate) fn with_erase_gate<T>(
         .map_err(storage)?;
     let row = tx.last_insert_rowid();
     let result = f(tx);
+    #[cfg(feature = "cloud")]
+    if tx.is_poisoned() {
+        return result;
+    }
     tx.execute("DELETE FROM erase_gate WHERE rowid=?1", [row])
         .map_err(storage)?;
     result
@@ -386,9 +435,9 @@ fn storage(err: impl std::error::Error + Send + Sync + 'static) -> EngineError {
     EngineError::Storage(Box::new(err))
 }
 
-fn database_error(err: rusqlite::Error) -> EngineError {
+fn database_error(err: crate::sql::Error) -> EngineError {
     match err.sqlite_error_code() {
-        Some(rusqlite::ErrorCode::DatabaseCorrupt | rusqlite::ErrorCode::NotADatabase) => {
+        Some(crate::sql::ErrorCode::DatabaseCorrupt | crate::sql::ErrorCode::NotADatabase) => {
             EngineError::Corrupt
         }
         _ => storage(err),
@@ -503,6 +552,25 @@ fn should_check(path: &Path, integrity: Integrity) -> Result<bool, EngineError> 
 }
 
 fn check_integrity(conn: &Connection, quick: bool) -> Result<(), EngineError> {
+    #[cfg(feature = "cloud")]
+    if conn.is_remote() {
+        let result: String = conn
+            .query_row(
+                if quick {
+                    "PRAGMA quick_check(1)"
+                } else {
+                    "PRAGMA integrity_check(1)"
+                },
+                [],
+                |row| row.get(0),
+            )
+            .map_err(database_error)?;
+        return if result == "ok" {
+            Ok(())
+        } else {
+            Err(EngineError::Corrupt)
+        };
+    }
     let mut stmt = conn
         .prepare(if quick {
             "PRAGMA quick_check(1)"
@@ -563,7 +631,7 @@ fn backup(conn: &Connection, dest: &Path) -> Result<(), EngineError> {
             .map_err(storage)?,
     );
     let result = conn
-        .backup(rusqlite::MAIN_DB, dest, None)
+        .backup(crate::sql::MAIN_DB, dest, None)
         .map_err(database_error);
     if result.is_err() {
         fs::remove_file(dest).map_err(storage)?;
@@ -571,9 +639,9 @@ fn backup(conn: &Connection, dest: &Path) -> Result<(), EngineError> {
     result
 }
 
-fn unsigned(row: &rusqlite::Row<'_>) -> rusqlite::Result<u64> {
+fn unsigned(row: &crate::sql::Row<'_>) -> crate::sql::Result<u64> {
     let value: i64 = row.get(0)?;
-    u64::try_from(value).map_err(|_| rusqlite::Error::IntegralValueOutOfRange(0, value))
+    u64::try_from(value).map_err(|_| crate::sql::Error::IntegralValueOutOfRange(0, value))
 }
 
 fn validate_options(opt: &OpenOptions) -> Result<(), EngineError> {

@@ -2,7 +2,7 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use rusqlite::{Connection, OptionalExtension, Transaction, params};
+use crate::sql::{Connection, OptionalExtension, Transaction, params};
 
 use crate::{
     houjin, normalize,
@@ -36,7 +36,7 @@ pub(crate) struct Folded {
     pub next_action_at: Option<i64>,
 }
 
-fn storage(error: rusqlite::Error) -> EngineError {
+fn storage(error: crate::sql::Error) -> EngineError {
     EngineError::Storage(Box::new(error))
 }
 
@@ -285,14 +285,16 @@ pub(crate) fn update_company(
     c: &CompanyInput,
 ) -> Result<(), EngineError> {
     let origin_check = db.check_origin(c.origin);
-    let old_key: Option<String> = db
-        .conn()
-        .query_row("SELECT name_key FROM companies WHERE id=?1", [id.0], |r| {
-            r.get(0)
-        })
-        .optional()
-        .map_err(storage)?;
-    let estimate = update_company_estimate(c, old_key.as_deref().unwrap_or(""));
+    let estimate = db.local_growth_estimate(|| {
+        let old_key: Option<String> = db
+            .conn()
+            .query_row("SELECT name_key FROM companies WHERE id=?1", [id.0], |r| {
+                r.get(0)
+            })
+            .optional()
+            .map_err(storage)?;
+        Ok(update_company_estimate(c, old_key.as_deref().unwrap_or("")))
+    })?;
     db.write(estimate, |tx| {
         let old = company_state(tx, id)?;
         if old.erased { return Err(invalid("id", "erased")); }
@@ -354,45 +356,45 @@ pub(crate) fn update_contact(
     if c.name.trim().is_empty() {
         return Err(EngineError::EmptyName);
     }
-    let previous_bytes: i64 = db.conn().query_row(
-        "SELECT coalesce(length(CAST(name AS BLOB)),0)+coalesce(length(CAST(phone AS BLOB)),0)+coalesce(length(CAST(email AS BLOB)),0) FROM contacts WHERE id=?1",
-        [id.0], |r| r.get(0),
-    ).optional().map_err(storage)?.unwrap_or(0);
-    let previous_bytes = u64::try_from(previous_bytes).map_err(|_| EngineError::Corrupt)?;
-    db.write(
-        contact_estimate(c).saturating_add(previous_bytes.saturating_mul(4)),
-        |tx| {
-            if company_state(tx, c.company)?.erased {
-                return Err(EngineError::NotFound);
-            }
-            let (company, erased): (i64, Option<i64>) = tx
-                .query_row(
-                    "SELECT company_id,erased_at FROM contacts WHERE id=?1",
-                    [id.0],
-                    |r| Ok((r.get(0)?, r.get(1)?)),
-                )
-                .optional()
-                .map_err(storage)?
-                .ok_or(EngineError::NotFound)?;
-            if company != c.company.0 {
-                return Err(EngineError::ForeignContact);
-            }
-            if erased.is_some() {
-                return Err(EngineError::NotFound);
-            }
-            tx.execute(
-                "UPDATE contacts SET name=?2,phone=?3,email=?4 WHERE id=?1",
-                params![
-                    id.0,
-                    c.name.trim(),
-                    phone(c.phone.as_deref()),
-                    optional_text(c.email.as_deref())
-                ],
+    let estimate = db.local_growth_estimate(|| {
+        let previous_bytes: i64 = db.conn().query_row(
+            "SELECT coalesce(length(CAST(name AS BLOB)),0)+coalesce(length(CAST(phone AS BLOB)),0)+coalesce(length(CAST(email AS BLOB)),0) FROM contacts WHERE id=?1",
+            [id.0], |r| r.get(0),
+        ).optional().map_err(storage)?.unwrap_or(0);
+        let previous_bytes = u64::try_from(previous_bytes).map_err(|_| EngineError::Corrupt)?;
+        Ok(contact_estimate(c).saturating_add(previous_bytes.saturating_mul(4)))
+    })?;
+    db.write(estimate, |tx| {
+        if company_state(tx, c.company)?.erased {
+            return Err(EngineError::NotFound);
+        }
+        let (company, erased): (i64, Option<i64>) = tx
+            .query_row(
+                "SELECT company_id,erased_at FROM contacts WHERE id=?1",
+                [id.0],
+                |r| Ok((r.get(0)?, r.get(1)?)),
             )
-            .map_err(storage)?;
-            Ok(())
-        },
-    )
+            .optional()
+            .map_err(storage)?
+            .ok_or(EngineError::NotFound)?;
+        if company != c.company.0 {
+            return Err(EngineError::ForeignContact);
+        }
+        if erased.is_some() {
+            return Err(EngineError::NotFound);
+        }
+        tx.execute(
+            "UPDATE contacts SET name=?2,phone=?3,email=?4 WHERE id=?1",
+            params![
+                id.0,
+                c.name.trim(),
+                phone(c.phone.as_deref()),
+                optional_text(c.email.as_deref())
+            ],
+        )
+        .map_err(storage)?;
+        Ok(())
+    })
 }
 
 fn apply(value: &mut Folded, a: FoldInput) {
@@ -424,7 +426,7 @@ pub(crate) fn fold(base: Status, activities: impl Iterator<Item = FoldInput>) ->
     value
 }
 
-fn read_fold(row: &rusqlite::Row<'_>, start: usize) -> Result<FoldInput, EngineError> {
+fn read_fold(row: &crate::sql::Row<'_>, start: usize) -> Result<FoldInput, EngineError> {
     let kind =
         ActivityKind::from_code(row.get(start).map_err(storage)?).ok_or(EngineError::Corrupt)?;
     let after: Option<u8> = row.get(start + 2).map_err(storage)?;
@@ -443,6 +445,19 @@ fn read_fold(row: &rusqlite::Row<'_>, start: usize) -> Result<FoldInput, EngineE
 }
 
 fn refold(conn: &Connection, id: CompanyId, base: Status) -> Result<Folded, EngineError> {
+    #[cfg(feature = "cloud")]
+    if conn.is_remote() {
+        let mut value = fold(base, std::iter::empty());
+        let sql = format!(
+            "SELECT a.kind,a.at,a.status_after,a.next_action_kind,a.next_action_at,a.id FROM activities a WHERE a.company_id={} AND a.kind<>9 AND NOT EXISTS(SELECT 1 FROM activities r WHERE r.reverses_id=a.id)",
+            id.0
+        );
+        crate::scan::visit_rows(conn, &sql, &[("a.id", 5)], crate::scan::PAGE_ROWS, |row| {
+            apply(&mut value, read_fold(row, 0)?);
+            Ok(true)
+        })?;
+        return Ok(value);
+    }
     let mut stmt = conn.prepare("SELECT a.kind,a.at,a.status_after,a.next_action_kind,a.next_action_at FROM activities a WHERE a.company_id=?1 AND a.kind<>9 AND NOT EXISTS(SELECT 1 FROM activities r WHERE r.reverses_id=a.id) ORDER BY a.id").map_err(storage)?;
     let mut rows = stmt.query([id.0]).map_err(storage)?;
     let mut value = fold(base, std::iter::empty());
@@ -453,8 +468,10 @@ fn refold(conn: &Connection, id: CompanyId, base: Status) -> Result<Folded, Engi
 }
 
 pub(crate) fn record_activity(db: &mut Db, a: &ActivityInput) -> Result<ActivityId, EngineError> {
-    let estimate = activity_estimate(a)
-        .saturating_add(company_row_bytes(db.conn(), a.company)?.saturating_mul(4));
+    let estimate = db.local_growth_estimate(|| {
+        Ok(activity_estimate(a)
+            .saturating_add(company_row_bytes(db.conn(), a.company)?.saturating_mul(4)))
+    })?;
     db.write(estimate, |tx| record_activity_tx(tx, a, false))
 }
 
@@ -556,7 +573,9 @@ pub(crate) fn release_exclusion(
     id: CompanyId,
     to: Status,
 ) -> Result<ActivityId, EngineError> {
-    let estimate = WRITE_BASE.saturating_add(company_row_bytes(db.conn(), id)?.saturating_mul(4));
+    let estimate = db.local_growth_estimate(|| {
+        Ok(WRITE_BASE.saturating_add(company_row_bytes(db.conn(), id)?.saturating_mul(4)))
+    })?;
     db.write(estimate, |tx| {
         if company_state(tx, id)?.folded.status != Status::Excluded {
             return Err(invalid("status", "not excluded"));
@@ -587,32 +606,53 @@ pub(crate) fn verify_folds(conn: &Connection) -> Result<bool, EngineError> {
         return Ok(false);
     }
     // 取り消しだけが残る企業も、元の活動を含むストリームで照合する。
+    let mut current: Option<(i64, Folded, Folded)> = None;
+    #[cfg(feature = "cloud")]
+    if conn.is_remote() {
+        let complete = crate::scan::visit_rows(
+            conn,
+            "SELECT c.id,c.base_status,c.status,c.last_activity_at,c.next_action_at,a.kind,a.at,a.status_after,a.next_action_kind,a.next_action_at,(a.kind<>9 AND r.id IS NULL),a.id FROM activities a JOIN companies c ON c.id=a.company_id LEFT JOIN activities r ON r.reverses_id=a.id WHERE 1",
+            &[("a.company_id", 0), ("a.id", 11)],
+            crate::scan::PAGE_ROWS,
+            |row| verify_fold_row(row, &mut current),
+        )?;
+        return Ok(complete && current.is_none_or(|(_, actual, expected)| actual == expected));
+    }
     let mut stmt = conn.prepare("SELECT c.id,c.base_status,c.status,c.last_activity_at,c.next_action_at,a.kind,a.at,a.status_after,a.next_action_kind,a.next_action_at,(a.kind<>9 AND r.id IS NULL) FROM activities a JOIN companies c ON c.id=a.company_id LEFT JOIN activities r ON r.reverses_id=a.id ORDER BY a.company_id,a.id").map_err(storage)?;
     let mut rows = stmt.query([]).map_err(storage)?;
-    let mut current: Option<(i64, Folded, Folded)> = None;
     while let Some(row) = rows.next().map_err(storage)? {
-        let id: i64 = row.get(0).map_err(storage)?;
-        if current.as_ref().is_none_or(|c| c.0 != id) {
-            if current.is_some_and(|(_, actual, expected)| actual != expected) {
-                return Ok(false);
-            }
-            current = Some((
-                id,
-                fold(status(row.get(1).map_err(storage)?)?, std::iter::empty()),
-                Folded {
-                    status: status(row.get(2).map_err(storage)?)?,
-                    last_activity_at: row.get(3).map_err(storage)?,
-                    next_action_at: row.get(4).map_err(storage)?,
-                },
-            ));
-        }
-        if row.get::<_, bool>(10).map_err(storage)?
-            && let Some((_, actual, _)) = &mut current
-        {
-            apply(actual, read_fold(row, 5)?);
+        if !verify_fold_row(row, &mut current)? {
+            return Ok(false);
         }
     }
     Ok(current.is_none_or(|(_, actual, expected)| actual == expected))
+}
+
+fn verify_fold_row(
+    row: &crate::sql::Row<'_>,
+    current: &mut Option<(i64, Folded, Folded)>,
+) -> Result<bool, EngineError> {
+    let id: i64 = row.get(0).map_err(storage)?;
+    if current.as_ref().is_none_or(|c| c.0 != id) {
+        if current.is_some_and(|(_, actual, expected)| actual != expected) {
+            return Ok(false);
+        }
+        *current = Some((
+            id,
+            fold(status(row.get(1).map_err(storage)?)?, std::iter::empty()),
+            Folded {
+                status: status(row.get(2).map_err(storage)?)?,
+                last_activity_at: row.get(3).map_err(storage)?,
+                next_action_at: row.get(4).map_err(storage)?,
+            },
+        ));
+    }
+    if row.get::<_, bool>(10).map_err(storage)?
+        && let Some((_, actual, _)) = current
+    {
+        apply(actual, read_fold(row, 5)?);
+    }
+    Ok(true)
 }
 
 #[cfg(test)]

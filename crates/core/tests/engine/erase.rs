@@ -32,7 +32,7 @@ fn erasure_repeat_wipes_notes_and_compaction_removes_bytes() {
         ..activity(id)
     })
     .unwrap();
-    let conn = rusqlite::Connection::open(db.path().unwrap()).unwrap();
+    let conn = crate::sql::Connection::open(db.path().unwrap()).unwrap();
     assert!(
         conn.execute("UPDATE activities SET note='changed'", [])
             .is_err()

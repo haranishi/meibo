@@ -10,13 +10,15 @@ use meibo_core::{
     synth::{Profile, SynthConfig},
     types::DataOrigin,
 };
-use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
-use serde_json::{Value, json};
 
-use super::{HostedResult, Role, auth, now};
+use super::{
+    HostedResult, Role, auth,
+    control::ControlStore,
+    sql::{Connection, OpenFlags, params},
+};
 
 const APPLICATION_ID: i64 = 0x6d62_6874;
-const DDL: &str = "
+pub(super) const DDL: &str = "
 CREATE TABLE meta(key TEXT PRIMARY KEY,value TEXT NOT NULL);
 CREATE TABLE users(id INTEGER PRIMARY KEY,username TEXT NOT NULL UNIQUE,password_hash TEXT NOT NULL,disabled INTEGER NOT NULL DEFAULT 0 CHECK(disabled IN(0,1)));
 CREATE TABLE tenants(slug TEXT PRIMARY KEY);
@@ -30,7 +32,7 @@ CREATE INDEX audit_tenant ON audit(tenant,id);
 
 pub(super) struct Store {
     pub(super) root: PathBuf,
-    pub(super) conn: Connection,
+    control: ControlStore,
 }
 
 pub(super) struct MaintenanceGuard(File);
@@ -145,7 +147,7 @@ impl Store {
         tx.commit()?;
         let store = Self {
             root: fs::canonicalize(root)?,
-            conn,
+            control: ControlStore { conn },
         };
         let _guard = store.lock()?;
         store.audit("maintenance", None, "initialize", "success")?;
@@ -166,7 +168,7 @@ impl Store {
         configure(&conn)?;
         Ok(Self {
             root: fs::canonicalize(root)?,
-            conn,
+            control: ControlStore { conn },
         })
     }
 
@@ -233,108 +235,27 @@ impl Store {
         self.audit("maintenance", Some(slug), "tenant.add", "success")
     }
 
-    pub(super) fn add_user(&mut self, name: &str, password: &str) -> HostedResult<()> {
-        let name = username(name)?;
-        let hash = auth::hash_password(password)?;
-        self.conn.execute(
-            "INSERT INTO users(username,password_hash) VALUES(?1,?2)",
-            params![name, hash],
-        )?;
-        self.audit("maintenance", None, "user.add", "success")
-    }
-
-    pub(super) fn set_password(&mut self, name: &str, password: &str) -> HostedResult<()> {
-        let name = username(name)?;
-        let hash = auth::hash_password(password)?;
-        let tx = self.conn.transaction()?;
-        if tx.execute(
-            "UPDATE users SET password_hash=?2 WHERE username=?1",
-            params![name, hash],
-        )? != 1
-        {
-            return Err("利用者が見つかりません。".into());
-        }
-        tx.execute(
-            "DELETE FROM sessions WHERE user_id=(SELECT id FROM users WHERE username=?1)",
-            [name],
-        )?;
-        tx.commit()?;
-        self.audit("maintenance", None, "password.change", "success")
-    }
-
-    pub(super) fn disable_user(&mut self, name: &str) -> HostedResult<()> {
-        let name = username(name)?;
-        let tx = self.conn.transaction()?;
-        if tx.execute("UPDATE users SET disabled=1 WHERE username=?1", [&name])? != 1 {
-            return Err("利用者が見つかりません。".into());
-        }
-        tx.execute(
-            "DELETE FROM sessions WHERE user_id=(SELECT id FROM users WHERE username=?1)",
-            [name],
-        )?;
-        tx.commit()?;
-        self.audit("maintenance", None, "user.disable", "success")
-    }
-
     pub(super) fn set_member(
         &mut self,
         name: &str,
         tenant: &str,
         role: Option<Role>,
     ) -> HostedResult<()> {
-        let name = username(name)?;
+        username(name)?;
         self.tenant_path(tenant)?;
-        let user: i64 = self
-            .conn
-            .query_row(
-                "SELECT id FROM users WHERE username=?1 AND disabled=0",
-                [name],
-                |r| r.get(0),
-            )
-            .optional()?
-            .ok_or("利用者が見つかりません。")?;
-        let tx = self.conn.transaction()?;
-        tx.execute(
-            "DELETE FROM sessions WHERE user_id=?1 AND tenant=?2",
-            params![user, tenant],
-        )?;
-        if let Some(role) = role {
-            tx.execute("INSERT INTO memberships(user_id,tenant,role) VALUES(?1,?2,?3) ON CONFLICT(user_id,tenant) DO UPDATE SET role=excluded.role",params![user,tenant,role.name()])?;
-        } else {
-            tx.execute(
-                "DELETE FROM memberships WHERE user_id=?1 AND tenant=?2",
-                params![user, tenant],
-            )?;
-        }
-        tx.commit()?;
-        self.audit("maintenance", Some(tenant), "membership.change", "success")
+        self.control.set_member_record(name, tenant, role)
     }
+}
 
-    pub(super) fn revoke_user(&self, name: &str) -> HostedResult<()> {
-        let name = username(name)?;
-        self.conn.execute(
-            "DELETE FROM sessions WHERE user_id=(SELECT id FROM users WHERE username=?1)",
-            [name],
-        )?;
-        self.audit("maintenance", None, "session.revoke", "success")
+impl std::ops::Deref for Store {
+    type Target = ControlStore;
+    fn deref(&self) -> &Self::Target {
+        &self.control
     }
+}
 
-    pub(super) fn audit(
-        &self,
-        actor: &str,
-        tenant: Option<&str>,
-        operation: &str,
-        outcome: &str,
-    ) -> HostedResult<()> {
-        self.conn.execute(
-            "INSERT INTO audit(at,actor,tenant,operation,outcome) VALUES(?1,?2,?3,?4,?5)",
-            params![now()?, actor, tenant, operation, outcome],
-        )?;
-        Ok(())
-    }
-
-    pub(super) fn audit_rows(&self, tenant: Option<&str>, limit: u32) -> HostedResult<Vec<Value>> {
-        let mut stmt=self.conn.prepare("SELECT id,at,actor,tenant,operation,outcome FROM audit WHERE (?1 IS NULL OR tenant=?1) ORDER BY id DESC LIMIT ?2")?;
-        Ok(stmt.query_map(params![tenant,limit.min(200)],|r|Ok(json!({"id":r.get::<_,i64>(0)?,"at":r.get::<_,i64>(1)?,"actor":r.get::<_,String>(2)?,"tenant":r.get::<_,Option<String>>(3)?,"operation":r.get::<_,String>(4)?,"outcome":r.get::<_,String>(5)?})))?.collect::<std::result::Result<_,_>>()?)
+impl std::ops::DerefMut for Store {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.control
     }
 }

@@ -1,0 +1,31 @@
+{
+  "name": "meibo-cloudflare",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": "24.22.1",
+    "npm": "12.2.1"
+  },
+  "packageManager": "npm@12.2.1",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "types:generate": "wrangler types src/worker-configuration.d.ts --env-interface CloudflareBindings --include-runtime=false --strict-vars=false",
+    "types:check": "npm run types:generate -- --check",
+    "test": "node --test",
+    "test:config": "node --test tests/config.test.mjs",
+    "check:shell": "sh -n entrypoint.sh",
+    "check": "npm run types:check && npm run typecheck && npm test && npm run check:shell",
+    "preflight": "node scripts/preflight.mjs",
+    "artifacts:prepare": "node scripts/artifacts.mjs",
+    "publication": "node scripts/deploy.mjs",
+    "verify": "node scripts/verify.mjs"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "5.20261026.1",
+    "ajv": "8.20.0",
+    "jsonc-parser": "3.3.1",
+    "typescript": "7.0.2",
+    "wrangler": "4.153.0"
+  }
+}

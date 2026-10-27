@@ -86,7 +86,7 @@ fn nul_values_are_rejected_without_saving() {
     let (_dir, mut db) = database();
     let id = db.register_company(&company()).unwrap();
     let before = db.company_detail(id, &fields()).unwrap();
-    let conn = rusqlite::Connection::open(db.path().unwrap()).unwrap();
+    let conn = crate::sql::Connection::open(db.path().unwrap()).unwrap();
     for field in ["name", "phone", "website", "source_id"] {
         let mut c = company();
         match field {

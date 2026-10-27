@@ -250,9 +250,22 @@ fn hosted_boundary_tenants_roles_context_and_csrf_are_enforced_before_dispatch()
     }
     let html = app.dispatch(&request("/", "GET", Some(&alpha), &json!(null)), AT);
     let html = String::from_utf8(html.reply.body).unwrap();
-    assert!(html.contains("data-meibo-src=\"/app.js\""));
-    assert!(!html.contains("<script src=\"/app.js\""));
+    assert!(html.contains("data-meibo-src=\"/hosted-app.js\""));
+    assert_eq!(html.matches("data-meibo-src=").count(), 1);
+    assert_eq!(html.matches("rel=\"stylesheet\"").count(), 1);
+    assert!(!html.contains("<script src=\"/hosted-app.js\""));
     assert!(html.contains("src=\"/login.js\""));
+    for asset in ["/hosted-app.js", "/hosted-app.css"] {
+        assert_eq!(
+            app.dispatch(&request(asset, "GET", None, &json!(null)), AT)
+                .reply
+                .status,
+            401
+        );
+        let reply = app.dispatch(&request(asset, "GET", Some(&alpha), &json!(null)), AT);
+        assert_eq!(reply.reply.status, 200);
+        assert!(reply.reply.body.len() > 1000);
+    }
     assert!(HostedConfig::parse("http://crm.example.test", "0.0.0.0:4317", true).is_err());
     assert!(HostedConfig::parse("http://127.0.0.1:4317", "0.0.0.0:4317", true).is_err());
     assert!(HostedConfig::parse("http://127.0.0.1:4317", "127.0.0.1:4317", true).is_ok());

@@ -1,11 +1,11 @@
 //! 明示して要求した取引先の独自項目。既定の企業詳細やCSVには含めない。
 
+use crate::sql::{Connection, OptionalExtension, Transaction, params, types::Value};
 use crate::{
     Engine,
     schema::{Db, WRITE_BASE},
     types::{CompanyId, EngineError},
 };
-use rusqlite::{Connection, OptionalExtension, Transaction, params, types::Value};
 
 /// 取引先の独自項目の型。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -86,7 +86,7 @@ pub struct CustomFieldPage {
     pub indexed: bool,
 }
 
-const VERSION: u32 = 1;
+pub(crate) const VERSION: u32 = 1;
 const DDL: &str = r"
 CREATE TABLE IF NOT EXISTS custom_field_definitions(
  id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -291,7 +291,7 @@ impl Engine {
                     1 => CustomFieldValue::Text(row.get(2)?),
                     2 => CustomFieldValue::Number(row.get(3)?),
                     3 => CustomFieldValue::Boolean(row.get(4)?),
-                    _ => return Err(rusqlite::Error::InvalidQuery),
+                    _ => return Err(crate::sql::Error::InvalidQuery),
                 };
                 Ok(CompanyCustomValue {
                     field_id: row.get(0)?,
@@ -370,7 +370,7 @@ impl CustomFieldValue {
     }
 }
 
-fn storage(error: rusqlite::Error) -> EngineError {
+fn storage(error: crate::sql::Error) -> EngineError {
     EngineError::Storage(Box::new(error))
 }
 fn invalid(field: &str, reason: &str) -> EngineError {
@@ -387,12 +387,12 @@ fn valid_id(id: i64) -> Result<(), EngineError> {
     }
 }
 
-fn read_definition(row: &rusqlite::Row<'_>) -> rusqlite::Result<CustomField> {
+fn read_definition(row: &crate::sql::Row<'_>) -> crate::sql::Result<CustomField> {
     let kind = match row.get::<_, i64>(2)? {
         1 => CustomFieldKind::Text,
         2 => CustomFieldKind::Number,
         3 => CustomFieldKind::Boolean,
-        _ => return Err(rusqlite::Error::InvalidQuery),
+        _ => return Err(crate::sql::Error::InvalidQuery),
     };
     Ok(CustomField {
         id: row.get(0)?,
@@ -455,6 +455,10 @@ fn matching_type(kind: CustomFieldKind, value: &CustomFieldValue) -> Result<(), 
 }
 
 fn deletion_estimate(db: &Db, sql: &str, id: i64) -> Result<u64, EngineError> {
+    db.local_growth_estimate(|| local_deletion_estimate(db, sql, id))
+}
+
+fn local_deletion_estimate(db: &Db, sql: &str, id: i64) -> Result<u64, EngineError> {
     let (rows, bytes): (i64, i64) = db
         .conn()
         .query_row(sql, [id], |r| Ok((r.get(0)?, r.get(1)?)))

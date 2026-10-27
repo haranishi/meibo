@@ -4,6 +4,7 @@ const ERASED_COMPANY_NAME: &str = "(消去済み)";
 const ERASE_COMPANY_CONTACTS: &str = "UPDATE contacts SET name=NULL,phone=NULL,email=NULL,erased_at=?2 WHERE company_id=?1 AND erased_at IS NULL";
 const ERASE_COMPANY: &str = "UPDATE companies SET name=?3,name_key=?4,corporate_number=NULL,phone=NULL,website=NULL,owner_id=NULL,industry_code=NULL,source_id=NULL,source_as_of=NULL,prefecture_code=0,municipality_code=NULL,erased_at=?2,updated_at=?2 WHERE id=?1";
 
+use crate::sql::OptionalExtension;
 use crate::{
     normalize,
     schema::{Db, WRITE_BASE, counts, ensure_space, fts, with_erase_gate},
@@ -13,7 +14,6 @@ use crate::{
     },
     write::{now_secs, record_activity_tx},
 };
-use rusqlite::OptionalExtension;
 use std::{fs, path::Path};
 
 fn storage(error: impl std::error::Error + Send + Sync + 'static) -> EngineError {
@@ -96,21 +96,23 @@ pub(crate) fn erase_contact(
     id: ContactId,
     wipe_notes: bool,
 ) -> Result<(), EngineError> {
-    // contact_idには索引がないため、企業の活動数で上限を見込む。
-    let company: Option<i64> = db
-        .conn()
-        .query_row("SELECT company_id FROM contacts WHERE id=?1", [id.0], |r| {
-            r.get(0)
-        })
-        .optional()
-        .map_err(storage)?;
-    let estimate = match company {
-        Some(company) => {
-            erase_contact_estimate(page_size(db)?, company_count(db, ACTIVITY_COUNT, company)?)
+    let estimate = db.local_growth_estimate(|| {
+        // contact_idには索引がないため、企業の活動数で上限を見込む。
+        let company: Option<i64> = db
+            .conn()
+            .query_row("SELECT company_id FROM contacts WHERE id=?1", [id.0], |r| {
+                r.get(0)
+            })
+            .optional()
+            .map_err(storage)?;
+        Ok(match company {
+            Some(company) => {
+                erase_contact_estimate(page_size(db)?, company_count(db, ACTIVITY_COUNT, company)?)
+            }
+            None => WRITE_BASE,
         }
-        None => WRITE_BASE,
-    }
-    .saturating_add(crm_erase_estimate(db, "contact_id", id.0)?);
+        .saturating_add(crm_erase_estimate(db, "contact_id", id.0)?))
+    })?;
     db.write(estimate, |tx| {
         let erased: Option<i64> = tx
             .query_row(CONTACT_ERASED_AT, [id.0], |r| r.get(0))
@@ -135,24 +137,26 @@ pub(crate) fn erase_contact(
 }
 
 pub(crate) fn erase_company(db: &mut Db, id: CompanyId) -> Result<(), EngineError> {
-    let key: Option<String> = db
-        .conn()
-        .query_row("SELECT name_key FROM companies WHERE id=?1", [id.0], |r| {
-            r.get(0)
-        })
-        .optional()
-        .map_err(storage)?;
-    let estimate = match key {
-        Some(key) => erase_company_estimate(
-            page_size(db)?,
-            company_count(db, ACTIVITY_COUNT, id.0)?,
-            company_count(db, CONTACT_COUNT, id.0)?,
-            &key,
-        ),
-        None => WRITE_BASE,
-    }
-    .saturating_add(crm_erase_estimate(db, "company_id", id.0)?)
-    .saturating_add(crate::custom_fields::erase_estimate(db, id)?);
+    let estimate = db.local_growth_estimate(|| {
+        let key: Option<String> = db
+            .conn()
+            .query_row("SELECT name_key FROM companies WHERE id=?1", [id.0], |r| {
+                r.get(0)
+            })
+            .optional()
+            .map_err(storage)?;
+        Ok(match key {
+            Some(key) => erase_company_estimate(
+                page_size(db)?,
+                company_count(db, ACTIVITY_COUNT, id.0)?,
+                company_count(db, CONTACT_COUNT, id.0)?,
+                &key,
+            ),
+            None => WRITE_BASE,
+        }
+        .saturating_add(crm_erase_estimate(db, "company_id", id.0)?)
+        .saturating_add(crate::custom_fields::erase_estimate(db, id)?))
+    })?;
     db.write(estimate, |tx| {
         let (sole, erased, key, phone): (bool, Option<i64>, String, bool) = tx
             .query_row(COMPANY_ERASURE_STATE, [id.0], |r| {
@@ -208,6 +212,10 @@ pub(crate) fn erase_company(db: &mut Db, id: CompanyId) -> Result<(), EngineErro
 }
 
 pub(crate) fn compact(db: &mut Db) -> Result<(), EngineError> {
+    #[cfg(feature = "cloud")]
+    if !db.has_local_storage() {
+        return Err(storage(meibo_db::RemoteErrorKind::Unsupported.error()));
+    }
     let path = Path::new(db.conn().path().ok_or_else(|| EngineError::InvalidInput {
         field: "path".into(),
         reason: "file database required".into(),
@@ -536,7 +544,7 @@ mod tests {
     fn compact_reports_busy_reader_and_succeeds_after_release() {
         let (_dir, mut db) = database();
         seed(&mut db, 2);
-        let reader = rusqlite::Connection::open(db.conn().path().unwrap()).unwrap();
+        let reader = crate::sql::Connection::open(db.conn().path().unwrap()).unwrap();
         reader
             .execute_batch("BEGIN; SELECT * FROM companies")
             .unwrap();

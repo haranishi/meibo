@@ -1,7 +1,7 @@
 use super::*;
+use crate::sql::params;
 use crate::types::{OwnerChange, Status, UserId};
 use proptest::prelude::*;
-use rusqlite::params;
 use std::io::{Seek, SeekFrom, Write};
 use tempfile::TempDir;
 
@@ -352,9 +352,9 @@ proptest! {
             }).unwrap();
             states[slot]=new;
             prop_assert!(counts::matches_recount(&db.conn));
-            let before: Vec<i64> = db.conn.prepare("SELECT n FROM counts ORDER BY status,has_phone").unwrap().query_map([], |r|r.get(0)).unwrap().collect::<rusqlite::Result<_>>().unwrap();
+            let before: Vec<i64> = db.conn.prepare("SELECT n FROM counts ORDER BY status,has_phone").unwrap().query_map([], |r|r.get(0)).unwrap().collect::<crate::sql::Result<_>>().unwrap();
             counts::recount(&db.conn).unwrap();
-            let after: Vec<i64> = db.conn.prepare("SELECT n FROM counts ORDER BY status,has_phone").unwrap().query_map([], |r|r.get(0)).unwrap().collect::<rusqlite::Result<_>>().unwrap();
+            let after: Vec<i64> = db.conn.prepare("SELECT n FROM counts ORDER BY status,has_phone").unwrap().query_map([], |r|r.get(0)).unwrap().collect::<crate::sql::Result<_>>().unwrap();
             prop_assert_eq!(before,after);
         }
     }
@@ -365,7 +365,7 @@ fn ids(conn: &Connection, sql: &str, term: &str) -> Vec<i64> {
         .unwrap()
         .query_map([term], |r| r.get(0))
         .unwrap()
-        .collect::<rusqlite::Result<_>>()
+        .collect::<crate::sql::Result<_>>()
         .unwrap()
 }
 

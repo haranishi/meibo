@@ -1,5 +1,5 @@
 //! 短い語は部分一致、3文字以上はtrigramで社名を探す。
-use rusqlite::params;
+use crate::sql::params;
 
 use crate::{
     normalize,
@@ -45,7 +45,7 @@ pub(crate) fn search_name(
                 |r| company_row(r, db.origin(), &o.fields),
             )
             .map_err(storage)?
-            .collect::<rusqlite::Result<Vec<_>>>()
+            .collect::<crate::sql::Result<Vec<_>>>()
             .map_err(storage)?;
     } else {
         let mut stmt = db.conn().prepare("SELECT * FROM companies WHERE instr(name_key,?)>0 AND id>? AND (? OR status<>5) ORDER BY id LIMIT ?").map_err(storage)?;
@@ -60,7 +60,7 @@ pub(crate) fn search_name(
                 |r| company_row(r, db.origin(), &o.fields),
             )
             .map_err(storage)?
-            .collect::<rusqlite::Result<Vec<_>>>()
+            .collect::<crate::sql::Result<Vec<_>>>()
             .map_err(storage)?;
     }
     let n = if after.is_some() || !o.with_count {

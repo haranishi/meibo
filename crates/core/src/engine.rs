@@ -31,6 +31,56 @@ pub struct LoadReport {
 }
 
 impl Engine {
+    /// Create a CRM schema on an empty, explicitly identified remote database.
+    ///
+    /// # Errors
+    /// Rejects invalid configuration, existing content and storage failures.
+    #[cfg(feature = "cloud")]
+    pub fn create_remote(
+        endpoint: meibo_db::RemoteOptions,
+        identity: &crate::RemoteIdentity,
+        origin: DataOrigin,
+        opt: &OpenOptions,
+    ) -> Result<Self, EngineError> {
+        Ok(Self {
+            db: Db::create_remote(endpoint, identity, origin, opt)?,
+        })
+    }
+
+    /// Open a remote CRM database only when its recorded identity is valid.
+    ///
+    /// # Errors
+    /// Rejects missing, incompatible or mismatched metadata and storage failures.
+    #[cfg(feature = "cloud")]
+    pub fn open_remote(
+        endpoint: meibo_db::RemoteOptions,
+        identity: &crate::RemoteIdentity,
+        opt: &OpenOptions,
+    ) -> Result<Self, EngineError> {
+        Ok(Self {
+            db: Db::open_remote(endpoint, identity, opt)?,
+        })
+    }
+
+    /// Whether the selected SQL connection forbids further operations.
+    #[cfg(feature = "cloud")]
+    #[must_use]
+    pub fn is_poisoned(&self) -> bool {
+        self.db.conn().is_poisoned()
+    }
+
+    /// Visit canonical CRM snapshot rows in one bounded read snapshot.
+    /// The caller must hold the service operation gate for a cross-database backup.
+    /// # Errors
+    /// Returns storage, codec, erase-gate or visitor failures without partial success.
+    #[cfg(feature = "cloud")]
+    pub fn visit_crm_snapshot(
+        &self,
+        visitor: impl FnMut(&crate::remote_snapshot::CrmTable, &[u8]) -> Result<(), EngineError>,
+    ) -> Result<crate::remote_snapshot::CrmSequences, EngineError> {
+        crate::remote_snapshot::visit(&self.db, visitor)
+    }
+
     /// 新しい保存先を作る。既存ファイルは上書きしない。
     /// # Errors
     /// `InvalidInput`（設定）、`Corrupt`（DB破損）、`Storage`（作成・初期化の失敗）。
@@ -61,7 +111,7 @@ impl Engine {
     /// 測定用。背景の書き戻しを接続の待ち時間まで待つ。互換性は保証しない。
     /// 完了または背景スレッドなしなら `true`、`busy_timeout` の期限切れなら `false`。
     /// # Errors
-    /// チェックポイントに失敗した場合は `Storage`。
+    /// チェックポイントの失敗、またはremoteの対応外操作は `Storage`。
     #[doc(hidden)]
     pub fn settle(&self) -> Result<bool, EngineError> {
         self.db.settle()
@@ -153,7 +203,7 @@ impl Engine {
     }
     /// 全文索引と保存ファイルを再構築し、WALの切り詰めまで行う。
     /// # Errors
-    /// `InvalidInput`（ファイルなし）、`InsufficientSpace`、`CompactIncomplete`（読取中）、`Storage`。
+    /// `InvalidInput`（ファイルなし）、`InsufficientSpace`、`CompactIncomplete`（読取中）、`Storage`（remoteは対応外）。
     pub fn compact(&mut self) -> Result<(), EngineError> {
         erase::compact(&mut self.db)
     }
@@ -195,7 +245,7 @@ impl Engine {
     }
     /// 空きを確認し、既存ファイルを上書きせずに保存先のオンライン複製を作る。
     /// # Errors
-    /// `InsufficientSpace`（空き不足）、`Corrupt`、`Storage`（複製の失敗）。
+    /// `InsufficientSpace`（空き不足）、`Corrupt`、`Storage`（複製の失敗・remoteは対応外）。
     pub fn backup_to(&self, dest: &Path) -> Result<(), EngineError> {
         self.db.backup_to(dest)
     }
@@ -229,10 +279,12 @@ impl Engine {
             &BulkOptions::default(),
         )?;
         // 読み取り中の接続があっても追加の成功は取り消さない。
-        let _ = self
-            .db
-            .conn()
-            .execute_batch("PRAGMA wal_checkpoint(TRUNCATE)");
+        if self.db.has_local_storage() {
+            let _ = self
+                .db
+                .conn()
+                .execute_batch("PRAGMA wal_checkpoint(TRUNCATE)");
+        }
         Ok(LoadReport {
             companies: report.companies,
             activities: report.activities,
@@ -253,11 +305,17 @@ impl Engine {
             Err(EngineError::Corrupt) => false,
             Err(e) => return Err(e),
         };
-        Ok(VerifyReport {
+        let report = VerifyReport {
             integrity_ok,
             counts_match: counts::matches_recount(&tx),
             folds_match: write::verify_folds(&tx)?,
-        })
+        };
+        #[cfg(feature = "cloud")]
+        if tx.is_remote() {
+            tx.rollback()
+                .map_err(|error| EngineError::Storage(Box::new(error)))?;
+        }
+        Ok(report)
     }
     /// 計画試験向けの実行計画を返す。互換性は保証しない。
     /// # Errors

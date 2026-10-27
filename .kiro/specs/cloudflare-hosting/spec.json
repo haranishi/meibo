@@ -1,0 +1,152 @@
+{
+  "feature_name": "cloudflare-hosting",
+  "created_at": "2026-10-26T12:20:00Z",
+  "updated_at": "2026-10-27T02:58:40.003452+00:00",
+  "language": "ja",
+  "phase": "implementing",
+  "approvals": {
+    "requirements": {
+      "generated": true,
+      "approved": true
+    },
+    "design": {
+      "generated": true,
+      "approved": true
+    },
+    "tasks": {
+      "generated": true,
+      "approved": true
+    }
+  },
+  "ready_for_implementation": true,
+  "execution_authorization": {
+    "basis": "2026-10-26 user approved Cloudflare business account, Turso Cloud and existing invitation authentication",
+    "public_beta": true,
+    "domain": "workers.dev_until_custom_domain_decided",
+    "new_paid_subscription": false,
+    "upstream": "remote-storage"
+  },
+  "review": {
+    "requirements_gate": "PASS_inline_after_authorized_response_clarification",
+    "design_gate": "PASS_inline_and_independent_sanity_after_queue_memory_rule",
+    "task_graph": "PASS_independent_second_pass",
+    "final_sanity": "PASS_independent_final_on_disk_after_static_foundation_dependency_correction",
+    "requirements_covered": 22,
+    "actionable_tasks": 6,
+    "upstream": "remote-storage tasks-generated approved",
+    "japanese_lint": {
+      "design": 0,
+      "research": 0,
+      "requirements": {
+        "retained": 2,
+        "reason": "required EARS sentence format; statistical rhythm findings only"
+      },
+      "tasks": {
+        "retained": 1,
+        "reason": "parallel acceptance checklist; statistical rhythm finding only"
+      }
+    },
+    "tls_runtime_prerequisite_delta": "PASS_inline: parent-confirmed libsql-hrana/reqwest native TLS requires build pkg-config/libssl-dev and runtime libssl3/ca-certificates; no public API, task graph, or DO contract change",
+    "parallel_static_foundation_delta": "PASS_independent: static1.1 and independent1.2/1.3 may precede remote-storage; real Worker composition and AMD64 build/inspect/boot moved to2.1 with explicit upstream prerequisite",
+    "runtime_config_contract_delta": "PASS_inline_existing_CONFIG_v1_env_references_explicit_shape_before_independent_coordinator_and_hosted_implementation",
+    "primary_profile_delta": "APPROVED_independent_provider_API_role_hostname_and_CLI_instance_URL_match_single_primary_no_replicas_including_restore_targets_failclosed_unknowns_and_explicit_fresh_connection_committed_read_verification",
+    "parallel_preflight_delta": "APPROVED_independent: executable validator and fixture-only dry-run precede upstream completion; actual entry/image/provider collection/deploy task2.2 requires remote-storage/public-entry and must call same validator with fresh matching reports; old QA renumbered2.3"
+  },
+  "completed_tasks": [
+    "1.1",
+    "1.2",
+    "1.3",
+    "2.1"
+  ],
+  "verification": {
+    "1.1": {
+      "node": "24.22.1",
+      "wrangler": "4.151.1",
+      "worker_types": "5.20261026.1",
+      "typescript": "7.0.2",
+      "config_tests": 2,
+      "type_contract_and_shell": "passed",
+      "npm_audit": "zero vulnerabilities",
+      "security_override": "miniflare@5.20261012.1-beta -> undici 7.30.1",
+      "independent_review": "APPROVED_after_scoped_dependency_fix",
+      "actual_worker_entry_image_build_and_boot": "pending_task_2.2"
+    },
+    "1.2": {
+      "boundary_tests": 27,
+      "root_fresh_test_exit_code": 0,
+      "npm_check_tests": 29,
+      "type_contract_and_shell": "passed",
+      "independent_review": "APPROVED",
+      "edge_entry_and_container_integration": "pending_task_2.2",
+      "evidence": ".agent-harness/runs/2026-10-26-cloudflare-turso/cloud-1.2/"
+    },
+    "1.3": {
+      "coordinator_tests": 30,
+      "root_fresh_test_exit_code": 0,
+      "npm_check_tests": 59,
+      "type_contract_and_shell": "passed",
+      "independent_review": "APPROVED",
+      "actual_worker_container_integration": "pending_task_2.2",
+      "evidence": ".agent-harness/runs/2026-10-26-cloudflare-turso/cloud-1.3/"
+    },
+    "2.1": {
+      "source_commit": "aec5777",
+      "isolated_source_commit": "541864b",
+      "files": 5,
+      "review": "APPROVED_parent_inline_host_thread_limit_manual_fallback",
+      "npm_check": {
+        "exit_code": 0,
+        "passed": 114,
+        "failed": 0,
+        "skipped": 0
+      },
+      "main_merged_revalidation": "same5SHA/npm114/type/shell0;links81/docscheck0",
+      "red": "actualproductionOFF positiveCLI/libraryfail;2sourcearchives/SHA;ONGREEN/flagremoved;additionalhostnameRED0pass1fail→literalhostguard→114pass",
+      "japanese_lint": 0,
+      "scoped_secrets": 0,
+      "live_provider_calls": 0,
+      "deployment_actions": 0,
+      "scope": "strictread-onlyvalidator/privateinputCLI;reportprovenance/livecollection/realartifact/publicationowned2.2",
+      "evidence_run": "2026-10-27-cloud-preflight"
+    },
+    "2.2_checkpoint": {
+      "status": "incomplete_not_accepted",
+      "source_commit": "aa2104300bcbadcbb4fc78f98b0795a470b5529c",
+      "source_revision": "3d59fe41b67a40c36d386eb4bb0bcacc9e62d157ed49f1d3303fec2094188f7e",
+      "worker_unit_tests": 175,
+      "worker_typecheck_bundle_shell": "passed",
+      "current_toolchain": {
+        "wrangler": "4.153.0",
+        "miniflare": "5.20261023.0-beta",
+        "compatibility_date": "2026-10-23",
+        "npm_audit": "zero vulnerabilities"
+      },
+      "amd64_image": "actual final build/inspect/boot verified; linux/amd64 UID10001 and CONFIG600:10001; TLS dependencies present",
+      "oci_collection": {
+        "status": "passed_actual_rehash_and_boot",
+        "docker_image_id": "sha256:4062ed78cd8521ad639c3fb2b7a4ea16e4df908be217e74197e23bfb2c61921b",
+        "config_digest": "sha256:1fe5df4b999fb8c51105e50a8704830f0032fbf20d8bf73218b7608b940f5309",
+        "oci_manifest_digest": "sha256:8a33c541865c9c238219e8370b3e929a07c01342d98e912bca225951312ecabb"
+      },
+      "provider_collection": "six verified single-primary API/CLI/token reads passed; empty DB-API cap requires actual finite PRAGMA bound intersected with organization quota",
+      "quality": {
+        "default_passed": 331,
+        "cloud_passed": 479,
+        "failed": 0,
+        "existing_ignored_each": 3,
+        "msrv_1_88": "default and integration all-target checks passed",
+        "reuse": "passed"
+      },
+      "hosted_assets": "actual focused RED -> GREEN; CSS/JS bundled in original order; unchanged auth/gate/CSP/queue deadline",
+      "native_browser": "new hosted bundle: native Chromium13steps, complete typed restore/all6role logins passed; external/page/database errors0; Rust binary unchanged by later Worker metadata fix",
+      "local_worker_container_turso": "health/login/CRM document observed; full browser timed out before rows; not accepted",
+      "public_deployment": "not_attempted; Workers Paid prerequisite unmet",
+      "review": "parent manual source/contract review and frozen-source proof; SDK browser acceptance remains incomplete",
+      "evidence_run": "2026-10-27-cloud-live",
+      "next": "resolve actual SDK concurrent HTTP/API timeout and complete local lifecycle; new paid subscription requires explicit authorization; then fresh preflight/publish/public QA",
+      "post_metadata": "7 added actual RED cases then full175 GREEN; Worker/DO reject the same Origin/local/content-type metadata as Rust before container allocation; existing login8KiB cap; no body read or SQL forwarding on these rejections",
+      "local_worker_container_sqld": "same production binary with fixture-only CA; native and SDK sequential HTTPS health/login/CRM/API passed; diagnostic browser8steps/3widths passed on earlier bundle but wire400 observed; final bundle still produced unknown API outcomes/queued503; local lifecycle callbacks unexecuted",
+      "live_preflight": "actual final image/bundle/six-primary API+CLI+DB-token/capacity proofs passed; live publication check refused only missing Workers Paid; check mode only"
+    }
+  }
+}

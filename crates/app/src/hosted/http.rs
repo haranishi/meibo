@@ -8,7 +8,12 @@ use meibo_core::Engine;
 use serde_json::{Value, json};
 use tiny_http::{Header, Request, Response, Server, StatusCode};
 
-use super::{HostedResult, Identity, LoginOutcome, Role, Store, now, store::engine_options};
+use super::{
+    HostedResult, Identity, LoginOutcome, Role, Store,
+    control::ControlStore,
+    now,
+    store::{MaintenanceGuard, engine_options},
+};
 use crate::server::{Input, Reply};
 
 const MAX_JSON: usize = 1024 * 1024;
@@ -129,17 +134,81 @@ fn read_only_post(input: &Input) -> bool {
         && id.parse::<i64>().is_ok_and(|value| value > 0)
 }
 
-pub(super) struct Hosted {
-    pub(super) store: Store,
+pub(super) trait HostedStorage: std::ops::DerefMut<Target = ControlStore> {
+    type Guard;
+    fn acquire(&self) -> HostedResult<Self::Guard>;
+    fn complete<T>(
+        &self,
+        guard: Self::Guard,
+        result: HostedResult<T>,
+        uncertain: bool,
+    ) -> HostedResult<T>;
+    fn open_engine(&self, tenant: &str) -> HostedResult<Engine>;
+    fn remote(&self) -> bool {
+        false
+    }
+    fn poisoned(&self) -> bool {
+        false
+    }
+}
+impl HostedStorage for Store {
+    type Guard = MaintenanceGuard;
+    fn acquire(&self) -> HostedResult<Self::Guard> {
+        self.lock()
+    }
+    fn complete<T>(
+        &self,
+        guard: Self::Guard,
+        result: HostedResult<T>,
+        _uncertain: bool,
+    ) -> HostedResult<T> {
+        drop(guard);
+        result
+    }
+    fn open_engine(&self, tenant: &str) -> HostedResult<Engine> {
+        Ok(Engine::open(&self.tenant_path(tenant)?, &engine_options())?)
+    }
+}
+
+#[cfg(feature = "cloud")]
+impl HostedStorage for super::remote::store::RemoteStore {
+    type Guard = super::remote::operation::RemoteOperation;
+    fn acquire(&self) -> HostedResult<Self::Guard> {
+        super::remote::operation::RemoteOperation::begin(self, "http.request")
+    }
+    fn complete<T>(
+        &self,
+        mut guard: Self::Guard,
+        result: HostedResult<T>,
+        uncertain: bool,
+    ) -> HostedResult<T> {
+        guard.observe_uncertainty(uncertain);
+        guard.finish(self, result)
+    }
+    fn open_engine(&self, tenant: &str) -> HostedResult<Engine> {
+        self.open_tenant(tenant)
+    }
+    fn remote(&self) -> bool {
+        true
+    }
+    fn poisoned(&self) -> bool {
+        self.conn.is_poisoned()
+    }
+}
+
+pub(super) struct Hosted<S = Store> {
+    pub(super) store: S,
     config: HostedConfig,
     engines: VecDeque<(String, Engine)>,
+    uncertain: bool,
 }
-impl Hosted {
-    pub(super) fn new(store: Store, config: HostedConfig) -> Self {
+impl<S: HostedStorage> Hosted<S> {
+    pub(super) fn new(store: S, config: HostedConfig) -> Self {
         Self {
             store,
             config,
             engines: VecDeque::new(),
+            uncertain: false,
         }
     }
 
@@ -207,11 +276,30 @@ impl Hosted {
         if let Some(reply) = self.boundary(input) {
             return reply;
         }
-        let Ok(_guard) = self.store.lock() else {
-            return error(503, "保守処理中です。しばらくしてから操作してください。");
+        if self.store.remote() && (self.uncertain || self.poisoned()) {
+            return unknown();
+        }
+        let guard = match self.store.acquire() {
+            Ok(guard) => guard,
+            Err(cause) => {
+                if self.store.remote() && (self.store.poisoned() || uncertain_error(cause.as_ref()))
+                {
+                    self.uncertain = true;
+                    return unknown();
+                }
+                return error(503, "保守処理中、または管理者の確認待ちです。");
+            }
         };
-        match self.dispatch_checked(input, at) {
+        let result = self.dispatch_checked(input, at);
+        let result = self
+            .store
+            .complete(guard, result, self.uncertain || self.poisoned());
+        match result {
             Ok(reply) => reply,
+            Err(cause) if self.store.remote() && uncertain_error(cause.as_ref()) => {
+                self.uncertain = true;
+                unknown()
+            }
             Err(_) => error(
                 500,
                 "処理を完了できませんでした。時間を置いてもう一度操作してください。",
@@ -221,14 +309,15 @@ impl Hosted {
 
     fn dispatch_checked(&mut self, input: &Input, at: i64) -> HostedResult<HostedReply> {
         let path = path(input);
+        if input.method == "GET"
+            && let Some(reply) = super::public_entry::asset(path)
+        {
+            return Ok(reply.into());
+        }
         match (input.method.as_str(), path) {
             ("GET", "/health") => return Ok(Reply::json(200, &json!({"ok":true})).into()),
             ("GET", "/login") => {
-                return Ok(Reply::text(
-                    "text/html; charset=utf-8",
-                    include_str!("../../ui/login.html"),
-                )
-                .into());
+                return Ok(super::public_entry::login(&self.config).into());
             }
             ("GET", "/login.js") => {
                 return Ok(Reply::text(
@@ -303,6 +392,11 @@ impl Hosted {
         if path.starts_with("/auth/") {
             return Ok(error(404, "対象が見つかりません。"));
         }
+        if input.method == "GET"
+            && let Some(reply) = super::assets::asset(path)
+        {
+            return Ok(reply.into());
+        }
         self.dispatch_crm(input, &identity)
     }
 
@@ -324,6 +418,9 @@ impl Hosted {
                 .push(("Content-Type".into(), content.into()));
         }
         let mut reply = crate::server::dispatch(self.engine(&identity.tenant)?, &trusted, 0);
+        if self.store.remote() && self.poisoned() {
+            return Ok(unknown());
+        }
         if input.method == "POST" && !read_only_post(input) {
             self.store.audit(
                 &identity.username,
@@ -338,16 +435,12 @@ impl Hosted {
         }
         if path == "/" && reply.status == 200 {
             let html = String::from_utf8(reply.body)?;
-            reply.body = html
+            reply.body = super::assets::compact(html)
                 .replace(
                     "<script src=",
                     "<script type=\"application/x-meibo-gated\" data-meibo-src=",
                 )
                 .replace("<main ", "<main hidden data-meibo-gated ")
-                .replace(
-                    "</head>",
-                    "<link rel=\"stylesheet\" href=\"/login.css\"></head>",
-                )
                 .replace(
                     "</body>",
                     "<script src=\"/login.js\" defer></script></body>",
@@ -403,17 +496,36 @@ impl Hosted {
             let entry = self.engines.remove(pos).ok_or("接続を取得できません。")?;
             self.engines.push_back(entry);
         } else {
-            let path = self.store.tenant_path(tenant)?;
+            let opened = self.store.open_engine(tenant);
+            #[cfg(feature = "cloud")]
+            if self.store.remote()
+                && opened.as_ref().is_err_and(|error| {
+                    super::remote::operation::failed_construction(error.as_ref())
+                })
+            {
+                self.uncertain = true;
+            }
+            let engine = opened?;
             if self.engines.len() >= 4 {
                 self.engines.pop_front();
             }
-            self.engines
-                .push_back((tenant.into(), Engine::open(&path, &engine_options())?));
+            self.engines.push_back((tenant.into(), engine));
         }
         self.engines
             .back_mut()
             .map(|(_, engine)| engine)
             .ok_or_else(|| "接続を取得できません。".into())
+    }
+
+    fn poisoned(&self) -> bool {
+        #[cfg(feature = "cloud")]
+        {
+            self.store.poisoned() || self.engines.iter().any(|(_, engine)| engine.is_poisoned())
+        }
+        #[cfg(not(feature = "cloud"))]
+        {
+            self.store.poisoned()
+        }
     }
 
     pub(super) fn serve(mut self) -> HostedResult<()> {
@@ -460,6 +572,22 @@ impl Hosted {
         }
         Ok(())
     }
+}
+
+fn uncertain_error(error: &(dyn std::error::Error + 'static)) -> bool {
+    #[cfg(feature = "cloud")]
+    {
+        super::remote::operation::is_uncertain(error)
+    }
+    #[cfg(not(feature = "cloud"))]
+    {
+        let _ = error;
+        false
+    }
+}
+
+fn unknown() -> HostedReply {
+    Reply::json(503, &json!({"code":"outcome_unknown","error":"処理結果を確認できません。再送せず管理者へ連絡してください。"})).into()
 }
 
 fn identity_json(identity: &Identity) -> Value {

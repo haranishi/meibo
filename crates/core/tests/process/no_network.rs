@@ -1,6 +1,7 @@
 use std::{
     fs,
     path::{Path, PathBuf},
+    process::Command,
 };
 
 fn rust_files(dir: &Path, files: &mut Vec<PathBuf>) {
@@ -12,6 +13,41 @@ fn rust_files(dir: &Path, files: &mut Vec<PathBuf>) {
             files.push(path);
         }
     }
+}
+
+fn explicitly_gated_remote_fixture(root: &Path, file: &Path, text: &str) -> bool {
+    let fixture = root.join("crates/core/tests/remote_lifecycle.rs");
+    if file.canonicalize().unwrap() != fixture.canonicalize().unwrap() {
+        return false;
+    }
+    assert!(
+        text.lines()
+            .take(8)
+            .any(|line| line.trim() == "#![cfg(feature = \"integration-tests\")]"),
+        "remote lifecycle fixture must be absent without its explicit feature"
+    );
+    let manifest = fs::read_to_string(root.join("crates/core/Cargo.toml")).unwrap();
+    let setting = |line: &str| line.split_whitespace().collect::<String>();
+    let target = manifest
+        .split("[[test]]")
+        .skip(1)
+        .find(|block| {
+            block
+                .lines()
+                .any(|line| setting(line) == "name=\"remote_lifecycle\"")
+        })
+        .expect("remote lifecycle fixture must be an explicit Cargo test target");
+    for required in [
+        "path=\"tests/remote_lifecycle.rs\"",
+        "required-features=[\"integration-tests\"]",
+    ] {
+        assert!(target.lines().any(|line| setting(line) == required));
+    }
+    let features = manifest.split("[features]").nth(1).unwrap();
+    assert!(features.lines().any(|line| {
+        setting(line) == "integration-tests=[\"cloud\",\"meibo-db/integration-tests\",\"dep:tokio\",\"dep:reqwest\",\"dep:libsql-hrana\"]"
+    }));
+    true
 }
 
 // REQ 7.4
@@ -34,6 +70,12 @@ fn rust_sources_have_no_network_symbols() {
             continue;
         }
         let text = fs::read_to_string(&file).unwrap();
+        // The one real-server acceptance fixture is not part of either default
+        // artifacts or default test builds. Verify both permanent gates before
+        // exempting its networking; production/default sources stay scanned.
+        if explicitly_gated_remote_fixture(&root, &file, &text) {
+            continue;
+        }
         for symbol in [
             "std::net",
             "TcpStream",
@@ -52,19 +94,38 @@ fn rust_sources_have_no_network_symbols() {
 
 // REQ 7.4
 #[test]
-fn dependency_packages_and_deny_policy_exclude_network() {
+fn default_dependency_graph_and_deny_policy_exclude_network() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let lock = fs::read_to_string(root.join("Cargo.lock")).unwrap();
-    let names: Vec<_> = lock
-        .split("[[package]]")
-        .skip(1)
-        .map(|package| {
-            package
-                .lines()
-                .find_map(|line| line.trim().strip_prefix("name = "))
-                .unwrap()
-                .trim_matches('"')
-        })
+    // The lockfile also records the optional cloud adapter. Check the actual
+    // default artifacts, retaining defaults so accidental cloud opt-in fails.
+    let graph = Command::new(env!("CARGO"))
+        .args([
+            "tree",
+            "--locked",
+            "--offline",
+            "--package",
+            "meibo-core",
+            "--package",
+            "meibo-app",
+            "--edges",
+            "normal,build",
+            "--prefix",
+            "none",
+            "--format",
+            "{p}",
+        ])
+        .current_dir(&root)
+        .output()
+        .unwrap();
+    assert!(
+        graph.status.success(),
+        "default dependency graph unavailable: {}",
+        String::from_utf8_lossy(&graph.stderr)
+    );
+    let packages = String::from_utf8(graph.stdout).unwrap();
+    let names: Vec<_> = packages
+        .lines()
+        .filter_map(|line| line.split_whitespace().next())
         .collect();
     assert!(names.len() > 1);
     for forbidden in [

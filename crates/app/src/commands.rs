@@ -30,6 +30,8 @@ pub(crate) fn run(command: Command) -> Result<()> {
         }
         Command::Mcp(db, allow_write) => crate::mcp::serve(&db, allow_write)?,
         Command::Hosted(args) => crate::hosted::run(args)?,
+        #[cfg(feature = "cloud")]
+        Command::HostedRemote(args) => crate::hosted::run_remote(args)?,
         Command::SyncNta(db, source, limit) => {
             let mut engine = Engine::open(&db, &options)?;
             let report = meibo_import::sync_nta(&mut engine, &source, limit)?;

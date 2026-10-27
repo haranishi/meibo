@@ -1,11 +1,11 @@
+use super::sql::{OptionalExtension, params};
 use argon2::{
     Algorithm, Argon2, Params, Version,
     password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
 };
-use rusqlite::{OptionalExtension, params};
 use sha2::{Digest, Sha256};
 
-use super::{HostedResult, Store, store};
+use super::{HostedResult, control::ControlStore, store};
 
 const ABSOLUTE: i64 = 8 * 3600;
 const IDLE: i64 = 30 * 60;
@@ -85,7 +85,7 @@ pub(super) fn hash_password(password: &str) -> HostedResult<String> {
         .map_err(|_| "passwordを保護できません。".into())
 }
 
-impl Store {
+impl ControlStore {
     fn identity(
         &self,
         user_id: i64,

@@ -26,7 +26,7 @@ fn randomized_search_matches_normalized_substrings() {
         .unwrap()
         .query_map([], |r| company_row(r, db.origin(), &vec![]))
         .unwrap()
-        .collect::<rusqlite::Result<_>>()
+        .collect::<crate::sql::Result<_>>()
         .unwrap();
     let source: Vec<(i64, String, i64)> = db
         .conn()
@@ -34,7 +34,7 @@ fn randomized_search_matches_normalized_substrings() {
         .unwrap()
         .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
         .unwrap()
-        .collect::<rusqlite::Result<_>>()
+        .collect::<crate::sql::Result<_>>()
         .unwrap();
     let mut terms: Vec<String> = [
         "建設",
@@ -460,7 +460,7 @@ fn assert_search_reference(db: &Db, term: &str, limit: u32) {
         .unwrap()
         .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
         .unwrap()
-        .collect::<rusqlite::Result<_>>()
+        .collect::<crate::sql::Result<_>>()
         .unwrap();
     let key = normalize::name_key(term);
     for include_excluded in [false, true] {
@@ -521,7 +521,7 @@ fn excluded_heavy_fts_uses_primary_key_join_and_matches_reference() {
         .unwrap()
         .query_map(params!["\"検索対象\"", 0, false, 51], |r| r.get(3))
         .unwrap()
-        .collect::<rusqlite::Result<_>>()
+        .collect::<crate::sql::Result<_>>()
         .unwrap();
     assert!(
         plan[0].contains("SCAN name_fts VIRTUAL TABLE INDEX"),
@@ -560,7 +560,7 @@ fn excluded_heavy_fts_uses_primary_key_join_and_matches_reference() {
 
 // 変更前の候補バッチと個別取得を、時間の比較に残す。
 fn legacy_fts_page(db: &Db, o: &SearchOptions) -> SearchPage {
-    use rusqlite::OptionalExtension;
+    use crate::sql::OptionalExtension;
     let _snapshot = db.conn().unchecked_transaction().unwrap();
     let phrase = "\"検索対象\"";
     let mut candidates = db
@@ -579,7 +579,7 @@ fn legacy_fts_page(db: &Db, o: &SearchOptions) -> SearchPage {
         let ids: Vec<i64> = candidates
             .query_map(params![phrase, position, o.limit + 1], |r| r.get(0))
             .unwrap()
-            .collect::<rusqlite::Result<_>>()
+            .collect::<crate::sql::Result<_>>()
             .unwrap();
         if ids.is_empty() {
             break;

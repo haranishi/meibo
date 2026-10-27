@@ -26,7 +26,7 @@ fn backups_corruption_and_future_versions() {
     Engine::migrate(&backup, &OpenOptions::default()).unwrap();
     let future = dir.path().join("future.db");
     db.backup_to(&future).unwrap();
-    let conn = rusqlite::Connection::open(&future).unwrap();
+    let conn = crate::sql::Connection::open(&future).unwrap();
     conn.execute("UPDATE meta SET value='999' WHERE key='schema_version'", [])
         .unwrap();
     conn.pragma_update(None, "user_version", 999).unwrap();
@@ -99,10 +99,10 @@ fn injected_space_protects_bulk_and_double_size_compact() {
     verify(&db);
 }
 
-fn contents(db: &Engine) -> Vec<Vec<Vec<rusqlite::types::Value>>> {
-    let conn = rusqlite::Connection::open_with_flags(
+fn contents(db: &Engine) -> Vec<Vec<Vec<crate::sql::types::Value>>> {
+    let conn = crate::sql::Connection::open_with_flags(
         db.path().unwrap(),
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+        crate::sql::OpenFlags::SQLITE_OPEN_READ_ONLY,
     )
     .unwrap();
     [
@@ -123,10 +123,10 @@ fn contents(db: &Engine) -> Vec<Vec<Vec<rusqlite::types::Value>>> {
         stmt.query_map([], |r| {
             (0..columns)
                 .map(|i| r.get(i))
-                .collect::<rusqlite::Result<Vec<_>>>()
+                .collect::<crate::sql::Result<Vec<_>>>()
         })
         .unwrap()
-        .collect::<rusqlite::Result<Vec<_>>>()
+        .collect::<crate::sql::Result<Vec<_>>>()
         .unwrap()
     })
     .collect()
@@ -396,9 +396,11 @@ fn background_checkpoint_allows_reads_compact_and_backup_during_writes() {
     let reader_stop = stop.clone();
     let (ready, started) = std::sync::mpsc::channel();
     let reader = std::thread::spawn(move || {
-        let conn =
-            rusqlite::Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
-                .unwrap();
+        let conn = crate::sql::Connection::open_with_flags(
+            path,
+            crate::sql::OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )
+        .unwrap();
         conn.busy_timeout(std::time::Duration::from_secs(5))
             .unwrap();
         let mut iterations = 0;
@@ -451,7 +453,7 @@ fn settle_finishes_background_checkpoint_without_truncating_wal() {
         db.record_activity(&a).unwrap();
     }
     assert!(db.settle().unwrap());
-    let conn = rusqlite::Connection::open(db.path().unwrap()).unwrap();
+    let conn = crate::sql::Connection::open(db.path().unwrap()).unwrap();
     let (log, done): (i64, i64) = conn
         .query_row("PRAGMA wal_checkpoint(NOOP)", [], |r| {
             Ok((r.get(1)?, r.get(2)?))

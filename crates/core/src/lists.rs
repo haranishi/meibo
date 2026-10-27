@@ -1,6 +1,6 @@
 //! 絞り込み結果の固定リストと、活動を伴う一括変更。
 
-use rusqlite::{OptionalExtension, Transaction, params_from_iter, types::Value};
+use crate::sql::{OptionalExtension, Transaction, params_from_iter, types::Value};
 
 use crate::{
     schema::{Db, WRITE_BASE},
@@ -8,7 +8,7 @@ use crate::{
     write::{now_secs, reject_nul},
 };
 
-fn storage(error: rusqlite::Error) -> EngineError {
+fn storage(error: crate::sql::Error) -> EngineError {
     EngineError::Storage(Box::new(error))
 }
 
@@ -103,16 +103,19 @@ pub(crate) fn create_list_from_select(
 }
 
 pub(crate) fn delete_list(db: &mut Db, id: ListId) -> Result<(), EngineError> {
-    let members: i64 = db
-        .conn()
-        .query_row(
-            "SELECT count(*) FROM list_members WHERE list_id=?1",
-            [id.0],
-            |r| r.get(0),
-        )
-        .map_err(storage)?;
-    let members = u64::try_from(members).map_err(|_| EngineError::Corrupt)?;
-    db.write(delete_list_estimate(members), |tx| {
+    let estimate = db.local_growth_estimate(|| {
+        let members: i64 = db
+            .conn()
+            .query_row(
+                "SELECT count(*) FROM list_members WHERE list_id=?1",
+                [id.0],
+                |r| r.get(0),
+            )
+            .map_err(storage)?;
+        let members = u64::try_from(members).map_err(|_| EngineError::Corrupt)?;
+        Ok(delete_list_estimate(members))
+    })?;
+    db.write(estimate, |tx| {
         if tx.execute(DELETE_LIST, [id.0]).map_err(storage)? == 0 {
             return Err(EngineError::NotFound);
         }
@@ -152,7 +155,7 @@ fn change_status(
             ))
         })
         .map_err(storage)?
-        .collect::<rusqlite::Result<Vec<_>>>()
+        .collect::<crate::sql::Result<Vec<_>>>()
         .map_err(storage)?;
     // 最大12組の差分だけを反映し、企業単位の往復を避ける。
     for (old, phone, count) in groups {
@@ -204,16 +207,21 @@ pub(crate) fn bulk_update(
     list: ListId,
     change: &BulkChange,
 ) -> Result<u64, EngineError> {
-    let members: i64 = db
-        .conn()
-        .query_row(
-            "SELECT count(*) FROM list_members WHERE list_id=?1",
-            [list.0],
-            |r| r.get(0),
-        )
-        .map_err(storage)?;
-    let members = u64::try_from(members).map_err(|_| EngineError::Corrupt)?;
-    let estimate = bulk_update_estimate(members, average_company_row_bytes(db)?);
+    let estimate = db.local_growth_estimate(|| {
+        let members: i64 = db
+            .conn()
+            .query_row(
+                "SELECT count(*) FROM list_members WHERE list_id=?1",
+                [list.0],
+                |r| r.get(0),
+            )
+            .map_err(storage)?;
+        let members = u64::try_from(members).map_err(|_| EngineError::Corrupt)?;
+        Ok(bulk_update_estimate(
+            members,
+            average_company_row_bytes(db)?,
+        ))
+    })?;
     db.write(estimate, |tx| {
         tx.query_row(FIND_LIST, [list.0], |r| r.get::<_, i64>(0))
             .optional()
@@ -261,6 +269,7 @@ pub(crate) fn bulk_update(
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+    use crate::sql::Connection;
     use crate::{
         query::select_ids_sql,
         schema::{OpenOptions, counts, fts},
@@ -269,7 +278,6 @@ pub(crate) mod tests {
         },
         write,
     };
-    use rusqlite::Connection;
     use tempfile::TempDir;
 
     pub(crate) fn database() -> (TempDir, Db) {
@@ -348,10 +356,10 @@ pub(crate) mod tests {
             stmt.query_map([], |r| {
                 (0..columns)
                     .map(|i| r.get(i))
-                    .collect::<rusqlite::Result<Vec<Value>>>()
+                    .collect::<crate::sql::Result<Vec<Value>>>()
             })
             .unwrap()
-            .collect::<rusqlite::Result<Vec<_>>>()
+            .collect::<crate::sql::Result<Vec<_>>>()
             .unwrap()
         })
         .collect()

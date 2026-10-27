@@ -1301,7 +1301,7 @@ fn estimate_count_queries_use_indexes() {
             .unwrap()
             .query_map([], |r| r.get::<_, String>(3))
             .unwrap()
-            .collect::<rusqlite::Result<Vec<_>>>()
+            .collect::<crate::sql::Result<Vec<_>>>()
             .unwrap();
         assert!(
             details.iter().any(|s| s.contains("SEARCH")),
