@@ -3,7 +3,8 @@ import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { sha256, verifyOci } from "../scripts/artifacts.mjs";
+import http from "node:http";
+import { containerProbe, sha256, verifyOci } from "../scripts/artifacts.mjs";
 
 async function fixture(t, layerBytes = Buffer.from("synthetic layer data")) {
   const root = await mkdtemp(join(tmpdir(), "meibo-oci-"));
@@ -36,6 +37,25 @@ test("a differently configured runtime cannot reuse a valid OCI proof", async (t
   const f = await fixture(t); f.info.Id = `sha256:${"0".repeat(64)}`;
   await assert.rejects(verifyOci(f.root, f.info, f.manifest.digest, ["private-credential-not-present"]));
 });
+test("a containerd manifest image ID uses its bound config digest", async (t) => {
+  const f = await fixture(t), imageId = `sha256:${"1".repeat(64)}`;
+  f.info.Id = imageId;
+  f.info.Descriptor = { digest: imageId, mediaType: "application/vnd.docker.distribution.manifest.v2+json",
+    annotations: { "config.digest": f.config.digest } };
+  assert.deepEqual(await verifyOci(f.root, f.info, f.manifest.digest, ["private-credential-not-present"]),
+    { digest: f.manifest.digest, configDigest: f.config.digest });
+});
+test("a config annotation belonging to a different manifest is refused", async (t) => {
+  const f = await fixture(t);
+  f.info.Descriptor = { digest: `sha256:${"1".repeat(64)}`, mediaType: "application/vnd.docker.distribution.manifest.v2+json",
+    annotations: { "config.digest": f.config.digest } };
+  await assert.rejects(verifyOci(f.root, f.info, f.manifest.digest, ["private-credential-not-present"]));
+});
+test("a manifest without an explicit config identity is refused", async (t) => {
+  const f = await fixture(t);
+  f.info.Descriptor = { digest: f.info.Id, mediaType: "application/vnd.oci.image.manifest.v1+json" };
+  await assert.rejects(verifyOci(f.root, f.info, f.manifest.digest, ["private-credential-not-present"]));
+});
 test("a credential embedded in any layer refuses publication", async (t) => {
   const f = await fixture(t, Buffer.from("header private-credential-do-not-publish tail"));
   await assert.rejects(verifyOci(f.root, f.info, f.manifest.digest, ["private-credential-do-not-publish"]));
@@ -45,4 +65,15 @@ test("an OCI blob symlink is rejected before its target is read", async (t) => {
   const copy = join(f.root, "private-copy"); await writeFile(copy, await readFile(path));
   await rm(path); await symlink(copy, path);
   await assert.rejects(verifyOci(f.root, f.info, f.manifest.digest, ["private-credential-not-present"]));
+});
+test("the actual container probe preserves the public Host and refuses redirects", async (t) => {
+  let host, requests = 0;
+  const server = http.createServer((req, res) => { host = req.headers.host; requests++; res.writeHead(302, { Location: "https://untrusted.invalid" }); res.end("synthetic"); });
+  await new Promise((done) => server.listen(0, "127.0.0.1", done));
+  t.after(() => { server.closeAllConnections(); return new Promise((done) => server.close(done)); });
+  const result = await containerProbe(`http://127.0.0.1:${server.address().port}`, "meibo-beta.fixture.workers.dev", "/health");
+  assert.equal(host, "meibo-beta.fixture.workers.dev"); assert.equal(result.status, 302); assert.equal(requests, 1);
+});
+test("the private container probe rejects an external destination", () => {
+  assert.throws(() => containerProbe("http://untrusted.invalid:4317", "meibo-beta.fixture.workers.dev", "/health"));
 });

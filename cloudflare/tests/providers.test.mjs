@@ -69,6 +69,29 @@ test("current top-level database usage is verified against its database UUID", a
   f.routes.set("/databases/fixture-control/usage", { database: { uuid: previous.uuid }, total: previous.total });
   assert.equal(validate(f, await collect(f)).ok, true);
 });
+test("an API without per-DB size configuration requires a measured engine bound", async () => {
+  const f = fixture();
+  f.routes.get("/databases/fixture-control/configuration").size_limit = "";
+  f.adapters.databaseCapacity = async () => ({ pageSize: 4096, maxPageCount: 26214400 });
+  const providers = await collect(f);
+  assert.equal(providers.turso.databases[0].bytesLimit, 5000000);
+  assert.equal(validate(f, providers).ok, true);
+});
+test("the measured engine limit remains binding below the shared quota", async () => {
+  const f = fixture();
+  f.routes.get("/databases/fixture-control/configuration").size_limit = "";
+  f.adapters.databaseCapacity = async () => ({ pageSize: 4096, maxPageCount: 128 });
+  assert.equal((await collect(f)).turso.databases[0].bytesLimit, 524288);
+});
+for (const [label, measured] of [
+  ["missing measurement", undefined], ["zero pages", { pageSize: 4096, maxPageCount: 0 }],
+  ["invalid page size", { pageSize: 5000, maxPageCount: 1000 }],
+  ["fractional count", { pageSize: 4096, maxPageCount: 10.5 }],
+]) test(`an empty API limit refuses ${label}`, async () => {
+  const f = fixture(); f.routes.get("/databases/fixture-control/configuration").size_limit = "";
+  if (measured) f.adapters.databaseCapacity = async () => measured;
+  await assert.rejects(collect(f), ProviderError);
+});
 
 test("unverified existing Worker is refused instead of being overwritten", async () => {
   const f = fixture();

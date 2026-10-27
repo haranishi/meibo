@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { lstat, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { request as httpRequest } from "node:http";
 import { runtimeEnvironment } from "../src/container.ts";
 import { validatePublicOrigin } from "../src/boundary.ts";
 import { readPrivateJson } from "./preflight-input.mjs";
@@ -11,6 +12,36 @@ import { capture, cloudRoot, projectRoot, wrangler } from "./runtime-io.mjs";
 const docker = process.env.MEIBO_DOCKER || "docker";
 export function sha256(value) { return createHash("sha256").update(value).digest("hex"); }
 function requireArtifact(condition) { if (!condition) throw new ProviderError("artifact"); }
+/** Legacy Docker image IDs identify configs; containerd-backed stores can expose
+ * a manifest ID with an explicit BuildKit config.digest binding instead. */
+export function imageConfigDigest(info) {
+  requireArtifact(/^sha256:[a-f0-9]{64}$/.test(info?.Id));
+  const descriptor = info.Descriptor;
+  if (!descriptor) return info.Id;
+  requireArtifact(descriptor.digest === info.Id);
+  const bound = descriptor.annotations?.["config.digest"];
+  if (["application/vnd.docker.distribution.manifest.v2+json", "application/vnd.oci.image.manifest.v1+json"].includes(descriptor.mediaType)) {
+    requireArtifact(typeof bound === "string" && /^sha256:[a-f0-9]{64}$/.test(bound));
+    return bound;
+  }
+  requireArtifact(["application/vnd.docker.container.image.v1+json", "application/vnd.oci.image.config.v1+json"].includes(descriptor.mediaType));
+  return info.Id;
+}
+/** Node's Fetch drops Host overrides. Probe the private port with native HTTP
+ * so the same configured public authority reaches Rust's boundary. */
+export function containerProbe(address, host, route, timeoutMs = 30000) {
+  requireArtifact(/^http:\/\/127\.0\.0\.1:[1-9][0-9]{0,4}$/.test(address) && ["/health", "/login"].includes(route));
+  return new Promise((resolve, reject) => {
+    const req = httpRequest(`${address}${route}`, { method: "GET", headers: { Host: host }, timeout: timeoutMs }, (res) => {
+      const chunks = []; let size = 0;
+      res.on("data", (chunk) => { size += chunk.length; if (size > 1024 * 1024) req.destroy(new ProviderError("artifact")); else chunks.push(chunk); });
+      res.on("error", () => reject(new ProviderError("artifact")));
+      res.on("end", () => resolve({ status: res.statusCode, headers: res.headers, body: Buffer.concat(chunks).toString("utf8") }));
+    });
+    req.on("timeout", () => req.destroy(new ProviderError("artifact")));
+    req.on("error", () => reject(new ProviderError("artifact"))); req.end();
+  });
+}
 export async function privateDirectory(path) {
   const stat = await lstat(path);
   requireArtifact(stat.isDirectory() && !stat.isSymbolicLink() && (stat.mode & 0o077) === 0);
@@ -65,13 +96,14 @@ export async function verifyOci(path, info, expectedDigest, secretValues) {
     return bytes;
   }
   const manifest = JSON.parse(await blob(descriptor));
-  requireArtifact(manifest.config?.digest === info.Id && manifest.layers?.length === info.RootFS?.Layers?.length);
+  const configDigest = imageConfigDigest(info);
+  requireArtifact(manifest.config?.digest === configDigest && manifest.layers?.length === info.RootFS?.Layers?.length);
   await blob(manifest.config);
   for (const [index, layer] of manifest.layers.entries()) {
     requireArtifact(layer.digest === info.RootFS.Layers[index] && layer.mediaType === "application/vnd.oci.image.layer.v1.tar");
     await blob(layer);
   }
-  return { digest: descriptor.digest, configDigest: info.Id };
+  return { digest: descriptor.digest, configDigest };
 }
 
 /** Read-only boot proof with the exact immutable image config. The container is
@@ -91,16 +123,16 @@ export async function bootImage(image, plan, secrets) {
     const deadline = Date.now() + 30000; let ready = false;
     while (Date.now() < deadline) {
       try {
-        const response = await fetch(`${address}/health`, { headers: { Host: new URL(plan.origin).host }, redirect: "manual", signal: AbortSignal.timeout(1000) });
-        await response.body?.cancel(); if (response.status === 200) { ready = true; break; }
+        const response = await containerProbe(address, new URL(plan.origin).host, "/health", Math.max(1, deadline - Date.now()));
+        if (response.status === 200) { ready = true; break; }
       } catch { /* Read-only startup polling only. */ }
       await new Promise((done) => setTimeout(done, 100));
     }
     requireArtifact(ready);
-    const login = await fetch(`${address}/login`, { headers: { Host: new URL(plan.origin).host }, redirect: "manual", signal: AbortSignal.timeout(30000) });
-    const text = await login.text();
+    const login = await containerProbe(address, new URL(plan.origin).host, "/login");
+    const text = login.body;
     requireArtifact(login.status === 200 && text.includes('id="login-submit"') && text.includes(plan.origin)
-      && login.headers.get("Content-Security-Policy") && login.headers.get("Cache-Control")?.includes("no-store"));
+      && login.headers["content-security-policy"] && String(login.headers["cache-control"]).includes("no-store"));
     const configMode = await capture(docker, ["exec", id, "stat", "-c", "%a:%u", "/tmp/meibo-remote.json"]);
     requireArtifact(configMode === "600:10001");
     return { bootVerified: true, nonRootUid: 10001 };
@@ -119,7 +151,7 @@ export async function prepareArtifacts(plan, secrets, image, out) {
     "--build-arg", `MEIBO_SOURCE_REVISION=${snapshot.sourceRevision}`, "--tag", image, "--file", "cloudflare/Dockerfile", "."], { timeout: 1800000, limit: 16 * 1024 * 1024 });
   const info = await inspectImage(image, snapshot.sourceRevision);
   const ociPath = join(out, "oci");
-  const oci = JSON.parse(await capture(process.env.MEIBO_PYTHON || "python3", [join(cloudRoot, "scripts/image-oci.py"), image, ociPath],
+  const oci = JSON.parse(await capture(process.env.MEIBO_PYTHON || "python3", [join(cloudRoot, "scripts/image-oci.py"), info.Id, ociPath],
     { input: JSON.stringify(Object.values(secrets)), timeout: 120000, env: { ...process.env, MEIBO_DOCKER: docker } }));
   await verifyOci(ociPath, info, oci.digest, Object.values(secrets));
   const bundle = await workerBundle(join(out, "bundle"));
@@ -127,7 +159,7 @@ export async function prepareArtifacts(plan, secrets, image, out) {
   const prepared = { ...plan, sourceRevision: snapshot.sourceRevision, imageDigest: oci.digest, bundleSha256: bundle.sha256 };
   await writePrivate(join(out, "source.json"), snapshot);
   await writePrivate(join(out, "plan.json"), prepared);
-  await writePrivate(join(out, "local-artifacts.json"), { imageConfigDigest: info.Id, ociManifestDigest: oci.digest,
+  await writePrivate(join(out, "local-artifacts.json"), { dockerImageId: info.Id, imageConfigDigest: imageConfigDigest(info), ociManifestDigest: oci.digest,
     imageBytes: info.Size, workerBytes: bundle.bytes, bootVerified: false, credentialsInImage: false });
   return prepared;
 }
@@ -144,13 +176,13 @@ export async function verifyArtifacts(plan, secrets, image, out) {
     const bundle = await workerBundle(join(scratch, "bundle"));
     requireArtifact(bundle.sha256 === plan.bundleSha256
       && sha256(await readFile(join(out, "bundle/index.js"))) === plan.bundleSha256);
-    const boot = await bootImage(image, plan, secrets);
+    const boot = await bootImage(info.Id, plan, secrets);
     requireArtifact((await sourceSnapshot()).sourceRevision === plan.sourceRevision);
     return {
       image: { os: "linux", architecture: "amd64", digest: plan.imageDigest, sourceRevision: plan.sourceRevision,
         ...boot, credentialsInImage: false },
       bundle: { sha256: bundle.sha256, sourceRevision: plan.sourceRevision, buildVerified: true },
-      imageConfigDigest: info.Id,
+      imageConfigDigest: imageConfigDigest(info),
     };
   } finally { await rm(scratch, { recursive: true, force: true }); }
 }

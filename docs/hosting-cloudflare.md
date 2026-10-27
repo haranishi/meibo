@@ -13,7 +13,10 @@ Cloudflare ContainersにはWorkers Paidが必要で、新規契約は自動実�
 `MEIBO_TURSO_ORGANIZATION`で明示する。既定のアカウントへfallbackしない。
 
 全control・tenant・復旧候補のprimaryを提供者APIとCLIで照合する。
-容量上限が不明な応答、空の`size_limit`、replica、照会失敗は拒否する。
+容量上限が不明な応答、replica、照会失敗は拒否する。
+`size_limit`が空の場合は、検証済みprimaryから`PRAGMA page_size`と
+`PRAGMA max_page_count`を読み、DB実上限と組織枠の小さい方を使う。
+この実測が欠ける場合も拒否する。DBの設定や業務データは変更しない。
 作成時の引数だけで上限設定済みと判断せず、実APIの値を確認する。
 初期化と利用者の招待は遠隔保存の管理CLIで行う。
 

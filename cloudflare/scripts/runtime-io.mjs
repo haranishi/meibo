@@ -57,6 +57,25 @@ export async function liveProviderAdapters(expectedAccountId, organization) {
     cf: (route) => requestJson(`https://api.cloudflare.com/client/v4${route}`, auth.token),
     turso: (route) => requestJson(`https://api.turso.tech${route}`, tursoToken),
     instanceUrl: (name, instance) => capture(tursoCli, ["db", "show", name, "--instance-url", instance]),
+    databaseCapacity: async (primary, token) => {
+      const response = await requestJson(new URL("/v2/pipeline", primary), token, { method: "POST", body: {
+        requests: [
+          { type: "execute", stmt: { sql: "PRAGMA page_size", want_rows: true } },
+          { type: "execute", stmt: { sql: "PRAGMA max_page_count", want_rows: true } },
+          { type: "close" },
+        ],
+      } });
+      if (response.status !== 200 || response.body.results?.length !== 3) throw new ProviderError();
+      const values = response.body.results.slice(0, 2).map((result) => {
+        const rows = result.response?.result?.rows, value = rows?.[0]?.[0];
+        if (result.type !== "ok" || result.response?.type !== "execute" || !Array.isArray(rows) || rows.length !== 1 || rows[0].length !== 1
+          || value?.type !== "integer" || typeof value.value !== "string" || !/^[1-9][0-9]*$/.test(value.value)) throw new ProviderError();
+        return Number(value.value);
+      });
+      const close = response.body.results[2];
+      if (close.type !== "ok" || close.response?.type !== "close") throw new ProviderError();
+      return { pageSize: values[0], maxPageCount: values[1] };
+    },
     databaseRead: async (primary, token) => {
       const response = await requestJson(new URL("/v2/pipeline", primary), token, { method: "POST", body: {
         requests: [{ type: "execute", stmt: { sql: "SELECT 1 AS meibo_preflight", want_rows: true } }, { type: "close" }],

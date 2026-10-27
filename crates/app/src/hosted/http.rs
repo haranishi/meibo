@@ -392,6 +392,11 @@ impl<S: HostedStorage> Hosted<S> {
         if path.starts_with("/auth/") {
             return Ok(error(404, "対象が見つかりません。"));
         }
+        if input.method == "GET"
+            && let Some(reply) = super::assets::asset(path)
+        {
+            return Ok(reply.into());
+        }
         self.dispatch_crm(input, &identity)
     }
 
@@ -430,16 +435,12 @@ impl<S: HostedStorage> Hosted<S> {
         }
         if path == "/" && reply.status == 200 {
             let html = String::from_utf8(reply.body)?;
-            reply.body = html
+            reply.body = super::assets::compact(html)
                 .replace(
                     "<script src=",
                     "<script type=\"application/x-meibo-gated\" data-meibo-src=",
                 )
                 .replace("<main ", "<main hidden data-meibo-gated ")
-                .replace(
-                    "</head>",
-                    "<link rel=\"stylesheet\" href=\"/login.css\"></head>",
-                )
                 .replace(
                     "</body>",
                     "<script src=\"/login.js\" defer></script></body>",

@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { parse } from "jsonc-parser";
 import { runtimeEnvironment } from "../src/container.ts";
 import { validatePublicOrigin } from "../src/boundary.ts";
-import { sha256, sourceSnapshot, writePrivate } from "./artifacts.mjs";
+import { imageConfigDigest, sha256, sourceSnapshot, writePrivate } from "./artifacts.mjs";
 import { ProviderError } from "./providers.mjs";
 import { capture, cloudRoot, wrangler } from "./runtime-io.mjs";
 
@@ -74,7 +74,7 @@ export function publishingIo({ provider, image, artifacts }) {
       const reference = references[0], digest = reference.split("@")[1];
       const manifest = JSON.parse(await capture(docker, ["manifest", "inspect", "--verbose", reference], { timeout: 120000 }));
       const configDigest = (manifest.SchemaV2Manifest ?? manifest.OCIManifest)?.config?.digest;
-      requirePublication(manifest.Descriptor?.digest === digest && configDigest === info.Id);
+      requirePublication(manifest.Descriptor?.digest === digest && configDigest === imageConfigDigest(info));
       return { digest, configDigest, image: reference };
     },
     async install(plan, secrets, registry, checkedAtMs) {

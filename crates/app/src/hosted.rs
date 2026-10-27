@@ -1,4 +1,5 @@
 //! 招待制サービスの認証と組織別データ境界。
+mod assets;
 mod auth;
 mod backup;
 mod cli;

@@ -5,7 +5,8 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
-RUN CARGO_BUILD_JOBS=2 cargo build --locked --release -p meibo-app --features cloud
+# Use the system linker; bundled LLD can crash when AMD64 is built under QEMU.
+RUN RUSTFLAGS="-C linker-features=-lld" CARGO_BUILD_JOBS=2 cargo build --locked --release -p meibo-app --features cloud
 
 FROM debian:bookworm-slim
 RUN apt-get update \

@@ -34,7 +34,7 @@ DOの直列化は混雑を減らすためで、保存の正しさはremote-stora
 
 ## Components and Interfaces
 ### 1. Runtime foundationとCloud image
-Wrangler 4.151.1とTypeScript/Workers型をlockfileで固定する。compatibility_dateは`2026-10-26`。`containers`は`class_name: MeiboContainer`、`scheduling_policy: default`、cloud Dockerfile、`image_build_context: ..`（repo root）、`instance_type: lite`、`max_instances: 1`。bindingは`MEIBO_CONTAINER`、`exports.MeiboContainer={type: durable-object,storage: sqlite}`とし、legacy migrationsを混ぜない。`.dev.vars*`や生成したprivate設定をGitとbuild contextから除外する。
+Wrangler 4.153.0とTypeScript/Workers型をlockfileで固定する。compatibility_dateは`2026-10-23`。`containers`は`class_name: MeiboContainer`、`scheduling_policy: default`、cloud Dockerfile、`image_build_context: ..`（repo root）、`instance_type: lite`、`max_instances: 1`。bindingは`MEIBO_CONTAINER`、`exports.MeiboContainer={type: durable-object,storage: sqlite}`とし、legacy migrationsを混ぜない。`.dev.vars*`や生成したprivate設定をGitとbuild contextから除外する。
 新規の`durable_object` scheduling policyは`max_instances`非対応なので採らない。built-in `DurableObject`/`ctx.container`を使い、追加のContainer SDKは導入しない。SDK/APIが合わなければ型/ローカル起動で検知し、非互換な設定を黙って採らない。
 cloud DockerfileはDebian build段へ`pkg-config`と`libssl-dev`を用意し、`cargo build --locked --release -p meibo-app --features cloud`を行う。Linux/amd64を明示してbuild/inspect/起動検証し、arm64だけの成功をCloudflare向け成功と扱わない。Debian runtimeは`libssl3`と`ca-certificates`を持つnon-root UID/GID 10001、DB Volume不要、書込先は一時領域のみ。remote-storageが選ぶsystem OpenSSLのtransportに合わせた依存であり、旧SDKのTLS実装を追加しない。
 静的準備の完了は設定schema・共有型・shell構文の成功で判断し、保存実装に先行できる。Env/検査済み要求/runtime操作の共有型はboundaryとcoordinatorが実際に使う契約であり、HTTPの仮実装は置かない。boundaryとcoordinatorは互いの実装をimportせず、共有型と注入したruntimeで単体検査できる。両者を結合する実際のWorker/DO exportとimageのbuild/inspect/実起動は、remote-storage完了後の公開統合で初めて検証する。
@@ -51,12 +51,14 @@ forwardの応答期限は180秒。応答本文は既存export上限32MiBを含�
 
 ### 3. Publication gateと運用
 2.1はprivate planと提供者/実行物reportを厳密に検査する実行可能なread-only CLIを完成させ、fixtureで拒否条件を検証する。提供者照会・秘密登録・配備は2.2が所有し、remote-storage/public-entry完了後に最新の実測を同じpreflight実装へ必ず渡す。fixtureや過去のreportを公開許可へ転用しない。
+DB容量は管理APIの明示値を使う。DB-API管理DBで値が空の場合は、照合済みprimaryのread-only `PRAGMA page_size`/`max_page_count`実測と組織枠の小さい方を使い、未実測を拒否する。
 preflightは明示された`CLOUDFLARE_ACCOUNT_ID`と別途渡す期待IDの一致、対象アカウントへのアクセス、workers.dev subdomain、Containers利用可否、Turso DB識別/容量/必要なsecret名、imageのLinux/amd64と起動を検査する。アカウントIDと期待名はprivateな運用設定から渡し、追跡ファイルへ書かない。既定アカウントへfallbackしない。
 初期対応はcontrol・全tenant・復旧先ごとにprimaryが1つ、replicaが0の配置とする。提供者APIの役割/hostnameとCLIのinstance URLを照合し、設定URLがそのprimary endpointに一致する場合だけ許す。primaryとの一致を確認できない一般URL・replica・未知の役割・照会失敗は拒否する。HTTP、管理CLI、backup/restoreは同じ検証済み設定を使い、配置変更前に旧設定の利用を止めて再検証する。提供者の将来の配置変化を一度のpreflightで保証しない。
 2026-10-26の対象アカウントへの実照会はContainers利用にWorkers Paidが必要という拒否を返した。`default_usage_model=standard`は契約の証拠ではない。プラン不足を検知したら公開を止め、実装/ローカル検証は続行する。新規契約・プラン変更を自動実行しない。
 秘密登録は実コードと同時に`wrangler deploy --secrets-file /dev/stdin`へ標準入力から行い、TursoのDB限定tokenを使う。各secret/設定の提供者上限をWrangler/schema/実APIで検査し、超過は事前拒否する。Workers Paidは既存分を含むsecret/text計128個、各5KBが上限で、appの1MiB/1000組織より小さい配備上限を適用する。bulk一要求100 secretsの上限も守る。通常ログは固定した操作名・status・所要時間だけとし、URL query、request/response本文、env、cookie、tokenを出さない。
 初回配備は未作成と確認できた対象だけに行う。秘密は一要求100件以内で実コードと非公開状態へ登録し、同じbundleと全参照名を照合した後にworkers.devを有効にする。配備時のversion/image digestを証拠へ記録する。secret変更時は既存containerのenvが自動更新されたと仮定せず、旧要求終了とgate状態を確認して再起動する。公開側の未認証管理endpointは作らない。
 verifyは同じテスト集合をlocalのHTTPS前段と公開URLへ向けられる。期待origin/Host/認証/CSRF/context、合成2組織3権限、DB更新、logout/旧tab、休止・再起動・container再作成、remote backup→新DB復旧→再ログイン→件数/内容照合を検査する。運用CLIはremote-storageの型付きsnapshotとgate-recover規則を再利用し、単なるprovider exportを最新backupとは扱わない。
+実Tursoで静的資産の要求がqueue期限に達したため、hosted画面のCSSと業務JSをそれぞれ既存順の同一origin bundleへまとめる。認証前の業務JS実行禁止、認証・永続gate・CSP・queue期限は維持する。通常のローカル画面の資産経路は変えない。
 提供者検証ではCOMMIT成功後にstreamを閉じ、別の新しい接続から更新が見えることも確認する。SELECT 1の疎通確認を更新可視性の証拠に置き換えない。任意replica対応へ広げる場合はreplication-index等の整合性制御を再設計する。
 初期lite/最大1/休止条件は費用抑制の設定で、請求の固定上限ではない。稼働時間・provisioned memory/disk・active CPU・Worker/DO等の従量分を含む費用を公開前に示す。公開後の検査が未実施ならdeployment verifiedとは記録しない。
 

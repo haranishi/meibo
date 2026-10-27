@@ -18,18 +18,14 @@
     "check": "npm run types:check && npm run typecheck && npm test && npm run check:shell",
     "preflight": "node scripts/preflight.mjs",
     "artifacts:prepare": "node scripts/artifacts.mjs",
-    "publication": "node scripts/deploy.mjs"
+    "publication": "node scripts/deploy.mjs",
+    "verify": "node scripts/verify.mjs"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "5.20261026.1",
     "ajv": "8.20.0",
     "jsonc-parser": "3.3.1",
     "typescript": "7.0.2",
-    "wrangler": "4.151.1"
-  },
-  "overrides": {
-    "miniflare@5.20261012.1-beta": {
-      "undici": "7.30.1"
-    }
+    "wrangler": "4.153.0"
   }
 }

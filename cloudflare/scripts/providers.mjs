@@ -31,7 +31,7 @@ function sourceGraph(plan, secrets) {
 
 /** All inputs are read-only. Only independently selected account/org are queried.
  * API adapters return {status, body}; CLI output stays in memory, never logs. */
-export async function collectProviders(plan, secrets, { expectedAccountId, organization, cf, turso, instanceUrl, databaseRead }) {
+export async function collectProviders(plan, secrets, { expectedAccountId, organization, cf, turso, instanceUrl, databaseRead, databaseCapacity }) {
   requireValue(/^[a-f0-9]{32}$/.test(expectedAccountId || "") && plan.accountId === expectedAccountId);
   requireValue(/^[a-z0-9][a-z0-9-]{0,62}$/.test(organization || ""));
   const graph = sourceGraph(plan, secrets), base = `/accounts/${expectedAccountId}`;
@@ -101,7 +101,18 @@ export async function collectProviders(plan, secrets, { expectedAccountId, organ
     // responses nested it under database. Identity is required in both forms.
     const total = usageResponse.total ?? dbUsage?.total;
     requireValue(dbUsage?.uuid === mappings[0].id && total);
-    const capacity = { bytesUsed: number(total.storage_bytes), bytesLimit: Math.min(bytes(configuration.size_limit), organizationCapacity.bytesLimit),
+    let databaseLimit;
+    if (configuration.size_limit === "") {
+      // DB-API managed databases can reject size_limit configuration. Obtain a
+      // finite bound from this verified primary, then intersect the shared quota.
+      requireValue(typeof databaseCapacity === "function");
+      const measured = await databaseCapacity(primary, secrets[node.reference.token_env]);
+      requireValue(measured && Number.isSafeInteger(measured.pageSize) && measured.pageSize >= 512
+        && measured.pageSize <= 65536 && (measured.pageSize & (measured.pageSize - 1)) === 0
+        && Number.isSafeInteger(measured.maxPageCount) && measured.maxPageCount > 0 && measured.maxPageCount <= 4294967294);
+      databaseLimit = number(measured.pageSize * measured.maxPageCount);
+    } else databaseLimit = bytes(configuration.size_limit);
+    const capacity = { bytesUsed: number(total.storage_bytes), bytesLimit: Math.min(databaseLimit, organizationCapacity.bytesLimit),
       writesUsed: number(total.rows_written), writesLimit: organizationCapacity.writesLimit };
     // Execute a constant read-only query with this DB-scoped token only after
     // independent API/CLI endpoint agreement; tokens never enter CLI arguments.
