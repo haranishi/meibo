@@ -13,6 +13,16 @@ use sha2::{Digest, Sha256};
 
 pub(crate) const VERSION: u32 = 1;
 
+struct StoredPublicCompany {
+    id: i64,
+    name_key: String,
+    erased: bool,
+    source_as_of: Option<String>,
+    name: Option<String>,
+    prefecture: u8,
+    source_id: Option<String>,
+}
+
 pub(crate) fn initialize(tx: &crate::sql::Transaction<'_>) -> Result<(), EngineError> {
     let version: Option<String> = tx
         .query_row(
@@ -91,7 +101,7 @@ pub struct PublicImportReport {
     pub inserted: u64,
     /// Existing public records refreshed.
     pub updated: u64,
-    /// Erased records left unchanged.
+    /// Identical, older or erased public records left unchanged.
     pub skipped: u64,
 }
 
@@ -128,15 +138,27 @@ impl Engine {
                     let erased:bool=tx.query_row("SELECT EXISTS(SELECT 1 FROM erased_corporate_numbers WHERE number_hash=?1)",[hash.as_slice()],|r|r.get(0)).map_err(storage)?;
                     if erased {report.skipped+=1;continue;}
                 }
-                let previous: Option<(i64,String,bool,Option<String>)> = tx.query_row(
-                    "SELECT id,name_key,erased_at IS NOT NULL,source_as_of FROM companies WHERE corporate_number=?1",
-                    [&c.corporate_number], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))
+                let previous = tx.query_row(
+                    "SELECT id,name_key,erased_at IS NOT NULL,source_as_of,name,prefecture_code,source_id FROM companies WHERE corporate_number=?1",
+                    [&c.corporate_number], |r| Ok(StoredPublicCompany {
+                        id:r.get(0)?,name_key:r.get(1)?,erased:r.get(2)?,source_as_of:r.get(3)?,
+                        name:r.get(4)?,prefecture:r.get(5)?,source_id:r.get(6)?,
+                    })
                 ).optional().map_err(storage)?;
-                if let Some((id,old_key,erased,date))=previous {
-                    if erased || date.as_deref().zip(c.source_as_of.as_deref()).is_some_and(|(old,new)| old > new) {
+                if let Some(previous)=previous {
+                    if previous.erased || previous.source_as_of.as_deref().zip(c.source_as_of.as_deref()).is_some_and(|(old,new)| old > new) {
                         report.skipped+=1;
                         continue;
                     }
+                    if previous.name.as_deref() == Some(c.name.as_str())
+                        && previous.prefecture == c.prefecture
+                        && previous.source_id.as_deref() == Some("nta")
+                        && previous.source_as_of == c.source_as_of {
+                        report.skipped+=1;
+                        continue;
+                    }
+                    let id=previous.id;
+                    let old_key=previous.name_key;
                     if old_key != row.name_key { fts::delete(tx,id,&old_key)?; }
                     tx.execute("UPDATE companies SET name=?2,name_key=?3,municipality_code=CASE WHEN prefecture_code=?4 THEN municipality_code ELSE NULL END,prefecture_code=?4,source_id='nta',source_as_of=?5,updated_at=?6 WHERE id=?1",
                         params![id,c.name,row.name_key,c.prefecture,c.source_as_of,write::now_secs()]).map_err(storage)?;
@@ -290,5 +312,164 @@ mod tests {
             0
         );
         assert!(engine.verify().unwrap().integrity_ok);
+    }
+
+    #[test]
+    fn identical_public_refresh_skips_without_writing_company_or_sales_rows() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut engine = Engine::create(
+            &dir.path().join("real.db"),
+            DataOrigin::Real,
+            &OpenOptions::default(),
+        )
+        .unwrap();
+        let r = row();
+        engine
+            .upsert_public_companies(std::slice::from_ref(&r))
+            .unwrap();
+        let id = crate::types::CompanyId(1);
+        let mut original = company(&r);
+        original.phone = Some("0312345678".into());
+        original.owner = Some(UserId(7));
+        engine.update_company(id, &original).unwrap();
+        engine
+            .record_activity(&ActivityInput {
+                company: id,
+                contact: None,
+                kind: ActivityKind::Call,
+                at: 100,
+                note: Some("保持する営業メモ".into()),
+                status_after: Some(Status::Negotiating),
+                next_action: NextAction::Set(200),
+                reverses: None,
+            })
+            .unwrap();
+        engine
+            .db
+            .conn()
+            .execute("UPDATE companies SET updated_at=7 WHERE id=1", [])
+            .unwrap();
+        let before = crate::lists::tests::snapshot(engine.db.conn());
+        let writes_before: i64 = engine
+            .db
+            .conn()
+            .query_row("SELECT total_changes()", [], |r| r.get(0))
+            .unwrap();
+        let report = engine.upsert_public_companies(&[r]).unwrap();
+        assert_eq!(
+            report,
+            PublicImportReport {
+                inserted: 0,
+                updated: 0,
+                skipped: 1,
+            }
+        );
+        assert_eq!(crate::lists::tests::snapshot(engine.db.conn()), before);
+        let writes_after: i64 = engine
+            .db
+            .conn()
+            .query_row("SELECT total_changes()", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(writes_after, writes_before);
+        assert!(engine.verify().unwrap().integrity_ok);
+        assert!(engine.verify().unwrap().counts_match);
+    }
+
+    #[test]
+    fn public_refresh_updates_each_changed_public_field_and_preserves_old_date_guard() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut engine = Engine::create(
+            &dir.path().join("real.db"),
+            DataOrigin::Real,
+            &OpenOptions::default(),
+        )
+        .unwrap();
+        let mut r = row();
+        r.name = "ABC企業".into();
+        engine
+            .upsert_public_companies(std::slice::from_ref(&r))
+            .unwrap();
+        let id = crate::types::CompanyId(1);
+
+        let old_key = crate::normalize::name_key(&r.name);
+        r.name = "ＡＢＣ企業".into();
+        assert_eq!(crate::normalize::name_key(&r.name), old_key);
+        assert_eq!(
+            engine
+                .upsert_public_companies(std::slice::from_ref(&r))
+                .unwrap()
+                .updated,
+            1
+        );
+        assert_eq!(
+            engine
+                .company_detail(id, &Fields::new())
+                .unwrap()
+                .company
+                .name,
+            Some(r.name.clone())
+        );
+
+        r.prefecture = 27;
+        assert_eq!(
+            engine
+                .upsert_public_companies(std::slice::from_ref(&r))
+                .unwrap()
+                .updated,
+            1
+        );
+        assert_eq!(
+            engine
+                .company_detail(id, &Fields::new())
+                .unwrap()
+                .company
+                .prefecture,
+            27
+        );
+
+        r.source_as_of = "2026-10-26".into();
+        assert_eq!(
+            engine
+                .upsert_public_companies(std::slice::from_ref(&r))
+                .unwrap()
+                .updated,
+            1
+        );
+        assert_eq!(
+            engine
+                .company_detail(id, &Fields::new())
+                .unwrap()
+                .company
+                .source_as_of,
+            Some(r.source_as_of.clone())
+        );
+
+        engine
+            .db
+            .conn()
+            .execute("UPDATE companies SET source_id='manual' WHERE id=1", [])
+            .unwrap();
+        assert_eq!(
+            engine
+                .upsert_public_companies(std::slice::from_ref(&r))
+                .unwrap()
+                .updated,
+            1
+        );
+        assert_eq!(
+            engine
+                .company_detail(id, &Fields::new())
+                .unwrap()
+                .company
+                .source_id
+                .as_deref(),
+            Some("nta")
+        );
+
+        let before = crate::lists::tests::snapshot(engine.db.conn());
+        r.source_as_of = "2026-10-23".into();
+        r.name = "古い版で上書きしない".into();
+        assert_eq!(engine.upsert_public_companies(&[r]).unwrap().skipped, 1);
+        assert_eq!(crate::lists::tests::snapshot(engine.db.conn()), before);
     }
 }

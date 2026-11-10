@@ -49,14 +49,13 @@ impl<'stmt> Rows<'stmt> {
                     let statement = row.as_ref();
                     // Read names after stepping: SQLite may have recompiled the query
                     // after a schema change since it was first prepared.
-                    let names = statement.column_names();
                     if !self
                         .columns
                         .iter()
                         .map(String::as_str)
-                        .eq(names.iter().copied())
+                        .eq(statement.column_names())
                     {
-                        self.columns = names.into_iter().map(str::to_owned).collect();
+                        self.columns = statement.column_names().map(str::to_owned).collect();
                     }
                     self.current = Some(Row::from_buffered_local(Arc::clone(&self.columns), row)?);
                 }

@@ -5,7 +5,7 @@ Use synthetic data for development, tests, screenshots, and performance measurem
 
 ## Develop and verify
 
-Use Rust 1.99.0 with rustfmt and clippy. The minimum supported Rust version is 1.88.0.
+Use Rust 1.99.0 with rustfmt and clippy. The minimum supported Rust version is 1.89.0.
 Cargo downloads dependencies on the first run; use `--offline` after fetching them if needed.
 
 ```sh
@@ -13,7 +13,7 @@ cargo fetch --locked
 cargo install cargo-deny --version 0.20.2 --locked
 cargo xtask check-all
 cargo deny --manifest-path crates/app/Cargo.toml --config deny.toml --locked check all
-cargo +1.88.0 check --workspace --all-targets --locked
+cargo +1.89.0 check --workspace --all-targets --locked
 ```
 
 `check-all` runs formatting, clippy, default workspace tests, Markdown links, specification trace,
@@ -30,7 +30,7 @@ helper downloads the pinned official archive and verifies its SHA-256 before ins
 sh scripts/install-ci-sqld.sh /tmp/meibo-ci-tools
 export MEIBO_SQLD_BINARY=/tmp/meibo-ci-tools/sqld
 cargo xtask check-cloud
-cargo +1.88.0 check --workspace --all-targets --locked \
+cargo +1.89.0 check --workspace --all-targets --locked \
   --features meibo-db/integration-tests,meibo-core/integration-tests,meibo-app/integration-tests
 ```
 

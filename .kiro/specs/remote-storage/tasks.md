@@ -97,3 +97,16 @@
 
 ## Implementation Notes
 [実装上の補足](implementation-notes.md)と[実提供者のstream寿命](stream-lifetime.md)を参照する。
+
+- [x] 5.1 通信障害の最初の段階と固定分類を確認できるようにする
+  - adapterに固定enumだけを保持し、元の例外・URL・token・SQLを保持/自動出力しない。接続失効・結果不明・再送禁止を変えない。
+  - 実socketで接続/TLS拒否、header/body待機、途中切断、認証、不正応答、サイズ上限と再送なしを確認する。
+  - 検証：82件成功、strict clippy/fmt成功、最終ソースと実行物を照合した独立82件も成功。公開/実Turso接続の完了は含めない。
+  - _Boundary: db remote transport and focused tests_
+  - _Requirements: 2.4, 2.5, 2.6, 2.7_
+
+- [ ] 5.2 公式SQLite修正版へ更新し既存保存契約を再検証する
+  - rusqlite0.41.1/libsqlite3-sys0.39.1、最低Rust1.89、Iterator APIへ対応する。監査例外を追加しない。
+  - 実行SQLite版のRED/GREEN、core/import/db、default/cloud/MSRVの全CI、既存DB・WALのopenと整合性を確認する。
+  - _Boundary: Shared SQLite runtime/manifests/lock, db rows API adaptation, CI/current compatibility documentation_
+  - _Requirements: 1.1, 2.1, 2.6, 5.4, 5.5_

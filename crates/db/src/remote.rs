@@ -1,10 +1,12 @@
 //! Bounded Hrana v2 transport and complete non-transactional SQL operations.
 mod budget;
+mod diagnostics;
 mod error_kind;
 mod options;
 mod sql;
 mod state;
 
+pub use diagnostics::{RemoteTransportDiagnostic, RemoteTransportKind, RemoteTransportPhase};
 pub use error_kind::{RemoteErrorKind, remote_error_kind};
 pub use options::RemoteOptions;
 
@@ -18,6 +20,7 @@ use std::{
     cell::{Cell, RefCell},
     fmt,
     io::Write,
+    sync::Mutex,
 };
 
 use crate::{Error, Params, Result, Row, Statement, Value};
@@ -40,6 +43,7 @@ struct Transport {
     authorization: HeaderValue,
     timeout: std::time::Duration,
     response_limit: usize,
+    first_failure: Mutex<Option<RemoteTransportDiagnostic>>,
 }
 
 impl RemoteConnection {
@@ -76,6 +80,7 @@ impl RemoteConnection {
                 authorization,
                 timeout,
                 response_limit,
+                first_failure: Mutex::new(None),
             },
             poisoned: Cell::new(false),
             last_insert_rowid: Cell::new(0),
@@ -87,6 +92,18 @@ impl RemoteConnection {
     #[must_use]
     pub fn is_poisoned(&self) -> bool {
         self.poisoned.get()
+    }
+
+    /// Read fixed first-failure metadata for explicit operator diagnosis.
+    ///
+    /// It survives poisoning and never authorizes retrying an operation.
+    #[must_use]
+    pub fn last_transport_diagnostic(&self) -> Option<RemoteTransportDiagnostic> {
+        *self
+            .transport
+            .first_failure
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     /// Return the most recent inserted id from its original write stream.
@@ -227,6 +244,10 @@ impl RemoteConnection {
     }
 
     fn invalid_response<T>(&self) -> Result<T> {
+        self.transport.record_failure(
+            RemoteTransportPhase::ResponseDecode,
+            RemoteTransportKind::Invalid,
+        );
         self.poisoned.set(true);
         Err(RemoteErrorKind::OutcomeUnknown.error())
     }
@@ -249,6 +270,58 @@ impl RemoteConnection {
 }
 
 impl Transport {
+    fn record_failure(&self, phase: RemoteTransportPhase, kind: RemoteTransportKind) {
+        self.first_failure
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get_or_insert(RemoteTransportDiagnostic { phase, kind });
+    }
+
+    fn failed(
+        &self,
+        phase: RemoteTransportPhase,
+        kind: RemoteTransportKind,
+        message: &'static str,
+    ) -> Error {
+        self.record_failure(phase, kind);
+        failure(message)
+    }
+
+    fn invalid_response(&self) -> Error {
+        self.failed(
+            RemoteTransportPhase::ResponseDecode,
+            RemoteTransportKind::Invalid,
+            "invalid remote database response",
+        )
+    }
+
+    fn response_limit(&self) -> Error {
+        self.failed(
+            RemoteTransportPhase::ResponseBody,
+            RemoteTransportKind::Limit,
+            "remote database response exceeds limit",
+        )
+    }
+
+    fn check_status(&self, status: reqwest::StatusCode) -> Result<()> {
+        if status.is_success() {
+            return Ok(());
+        }
+        let (kind, message) = if status == reqwest::StatusCode::UNAUTHORIZED
+            || status == reqwest::StatusCode::FORBIDDEN
+        {
+            (
+                RemoteTransportKind::Authentication,
+                "remote database authentication failed",
+            )
+        } else {
+            (
+                RemoteTransportKind::Status,
+                "remote database request rejected",
+            )
+        };
+        Err(self.failed(RemoteTransportPhase::ResponseBody, kind, message))
+    }
     fn pipeline(
         &self,
         url: &Url,
@@ -285,7 +358,7 @@ impl Transport {
                     .as_ref()
                     .is_some_and(|baton| !baton.is_empty() && baton.len() <= 8192))
         {
-            return Err(failure("invalid remote database response"));
+            return Err(self.invalid_response());
         }
         // Validate the server origin before any token-bearing follow-up.
         self.next_pipeline(response.base_url.as_deref())?;
@@ -293,7 +366,9 @@ impl Transport {
             match result {
                 StreamResult::Ok { response } if matches_response(request, response) => {}
                 StreamResult::Error { .. } => {}
-                _ => return Err(failure("invalid remote database response")),
+                _ => {
+                    return Err(self.invalid_response());
+                }
             }
         }
         Ok(response)
@@ -304,24 +379,25 @@ impl Transport {
             return Ok(self.pipeline.clone());
         };
         if !options::safe_raw_url(base) {
-            return Err(failure("invalid remote database response"));
+            return Err(self.invalid_response());
         }
-        let mut base = Url::parse(base).map_err(|_| failure("invalid remote database response"))?;
+        let mut base = Url::parse(base).map_err(|_| self.invalid_response())?;
         if !options::safe_url(&base)
             || !matches!(base.scheme(), "http" | "https")
             || base.origin() != self.pipeline.origin()
         {
-            return Err(failure("invalid remote database response"));
+            return Err(self.invalid_response());
         }
         if !base.path().ends_with('/') {
             base.set_path(&format!("{}/", base.path()));
         }
         base.join("v2/pipeline")
-            .map_err(|_| failure("invalid remote database response"))
+            .map_err(|_| self.invalid_response())
     }
 
     async fn receive(&self, url: &Url, body: Vec<u8>) -> Result<PipelineRespBody> {
         let started = std::time::Instant::now();
+        let phase = Cell::new(RemoteTransportPhase::Request);
         // The outer deadline also covers processing between received chunks.
         tokio::time::timeout(self.timeout, async {
             let mut response = self
@@ -332,50 +408,60 @@ impl Transport {
                 .body(body)
                 .send()
                 .await
-                .map_err(|_| failure("remote database request failed"))?;
+                .map_err(|error| {
+                    self.failed(
+                        phase.get(),
+                        diagnostics::classify(&error),
+                        "remote database request failed",
+                    )
+                })?;
+            phase.set(RemoteTransportPhase::ResponseBody);
             let status = response.status();
             if response
                 .content_length()
                 .is_some_and(|length| length > self.response_limit as u64)
             {
-                return Err(failure("remote database response exceeds limit"));
+                return Err(self.response_limit());
             }
             let mut bytes = Vec::new();
-            while let Some(chunk) = response
-                .chunk()
-                .await
-                .map_err(|_| failure("remote database response interrupted"))?
-            {
+            while let Some(chunk) = response.chunk().await.map_err(|error| {
+                self.failed(
+                    phase.get(),
+                    diagnostics::classify(&error),
+                    "remote database response interrupted",
+                )
+            })? {
                 if chunk.len() > self.response_limit.saturating_sub(bytes.len()) {
-                    return Err(failure("remote database response exceeds limit"));
+                    return Err(self.response_limit());
                 }
                 reserve_bounded(&mut bytes, chunk.len(), self.response_limit)
-                    .map_err(|_| failure("remote database response exceeds limit"))?;
+                    .map_err(|_| self.response_limit())?;
                 bytes.extend_from_slice(&chunk);
             }
-            if !status.is_success() {
-                return Err(failure(
-                    if status == reqwest::StatusCode::UNAUTHORIZED
-                        || status == reqwest::StatusCode::FORBIDDEN
-                    {
-                        "remote database authentication failed"
-                    } else {
-                        "remote database request rejected"
-                    },
-                ));
-            }
-            budget::preflight(&bytes)?;
-            let decoded = serde_json::from_slice(&bytes)
-                .map_err(|_| failure("invalid remote database response"))?;
+            self.check_status(status)?;
+            phase.set(RemoteTransportPhase::ResponseDecode);
+            budget::preflight(&bytes)
+                .inspect_err(|_| self.record_failure(phase.get(), RemoteTransportKind::Invalid))?;
+            let decoded = serde_json::from_slice(&bytes).map_err(|_| self.invalid_response())?;
             // A timeout cannot preempt synchronous JSON decoding. Its input and
             // workspace are bounded, and an over-deadline result is rejected.
             if started.elapsed() >= self.timeout {
-                return Err(failure("remote database request timed out"));
+                return Err(self.failed(
+                    phase.get(),
+                    RemoteTransportKind::Timeout,
+                    "remote database request timed out",
+                ));
             }
             Ok(decoded)
         })
         .await
-        .map_err(|_| failure("remote database request timed out"))?
+        .map_err(|_| {
+            self.failed(
+                phase.get(),
+                RemoteTransportKind::Timeout,
+                "remote database request timed out",
+            )
+        })?
     }
 }
 

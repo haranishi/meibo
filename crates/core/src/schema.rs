@@ -631,7 +631,11 @@ fn backup(conn: &Connection, dest: &Path) -> Result<(), EngineError> {
             .map_err(storage)?,
     );
     let result = conn
-        .backup(crate::sql::MAIN_DB, dest, None)
+        .backup(
+            crate::sql::MAIN_DB,
+            dest,
+            None::<fn(crate::sql::backup::Progress)>,
+        )
         .map_err(database_error);
     if result.is_err() {
         fs::remove_file(dest).map_err(storage)?;

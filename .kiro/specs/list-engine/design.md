@@ -24,7 +24,7 @@ HTTP・CLIの引数・画面、CSVの解釈、名寄せの細かい規則（csv-
 5. **耐久性**: WAL＋NORMAL が既定で、FULL を選べる。待ち5秒は10msの保証ではなく、読み取り中の確定時間は門が測る。
 6. **追記専用と消去**: 活動の更新は、恒久の1行表 `erase_gate` に行があるときの、`note` の NULL 化と `note_erased_at`（NULLから値への1回だけ）に限って許す。消去の処理が同じ確定の中で行を入れ、消し、行を消す（確定後は誰からも見えない）。消す列と残す列は `api.md`。
 7. **`compact`**: 全文索引の `'rebuild'` → `VACUUM`（SQLite公式の記述で最大2倍の空きが要るので、保存先の2倍を確かめる）→ `wal_checkpoint(TRUNCATE)`。チェックポイントが忙しければ `CompactIncomplete` を返す。移行前の複製には消去が及ばないので文書に書く。
-**Technology Stack**: Rust 2024（MSRV 1.88）／rusqlite 0.40.2＋同梱SQLite 3.53.2／unicode-normalization 0.1.26／fs4 0.13.1／thiserror 2。
+**Technology Stack**: Rust 2024（MSRV 1.89）／rusqlite 0.41.1＋同梱SQLite 3.54.1／unicode-normalization 0.1.26／fs4 0.13.1／thiserror 2。
 
 ## File Structure Plan
 - `Cargo.toml` `rust-toolchain.toml` `deny.toml` `REUSE.toml` `LICENSE-*` `.gitignore`: 作業場の土台

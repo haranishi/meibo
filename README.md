@@ -52,7 +52,7 @@ cargo xtask check-all                         # fmt・clippy・試験・リン�
 cargo xtask-release bench --profile dense     # 速さの門（445万社。最適化ビルドだけ）
 ```
 
-Rust 1.88以上が必要です。開発・CIは1.99.0、最低対応版は1.88.0で確認します。初回はCargoが依存を取得します。取得後は `--offline` で実行できます。検査と貢献の手順は [CONTRIBUTING.md](CONTRIBUTING.md) にあります。
+Rust 1.89以上が必要です。開発・CIは1.99.0、最低対応版は1.89.0で確認します。初回はCargoが依存を取得します。取得後は `--offline` で実行できます。検査と貢献の手順は [CONTRIBUTING.md](CONTRIBUTING.md) にあります。
 
 ## 文書の地図
 

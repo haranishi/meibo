@@ -156,5 +156,20 @@
     "status": "optional authentication implemented; owner-only provider app configured; backend and real SSO not deployed/verified",
     "artifact": "prior artifact 7 predates authentication changes and cannot be used for this source revision",
     "publication_tasks": "2.2 and 2.3 remain open; Workers Paid remains held"
+  },
+  "continuation_20261111": {
+    "status": "not_deployed",
+    "workers_paid_required_verified": true,
+    "new_paid_subscription_authorized": false,
+    "turso_cli_login_required": true,
+    "existing_database_tokens_expired": true,
+    "connection_root_cause_resolved": false,
+    "old_artifact_not_current_source": true,
+    "blocked_tasks": [
+      "2.2",
+      "2.3"
+    ],
+    "local_data_sync": "verified_separately_public-data-importers4.2",
+    "transport_classification": "verified_separately_remote-storage5.1"
   }
 }

@@ -4,7 +4,7 @@ RustとSQLiteを土台にする。技術方針を変えるときは、理由を�
 
 ## 採用するもの
 
-- 言語: Rust（edition 2024、MSRV 1.88、開発は stable 1.99）。`unsafe_code = forbid`、clippy pedantic。
+- 言語: Rust（edition 2024、MSRV 1.89、開発は stable 1.99）。`unsafe_code = forbid`、clippy pedantic。
 - 保存: SQLite 1ファイル（WAL）。活動は追記専用、企業の現在状態は別の表に持つ。外へ通信しない。
 - 画面: 自前のHTML/CSS/JS。画面とHTTP境界はweb-uiの仕様に従う。
 - 品質の門: 変異試験（生き残り0）、独立した参照実装との差分試験、cargo deny、REUSE、gitleaks、CI。
@@ -26,6 +26,6 @@ RustとSQLiteを土台にする。技術方針を変えるときは、理由を�
 
 ## 環境
 
-- 開発・CIはRust 1.99.0、最低対応版は1.88.0で確認する。ビルド前に空き容量を確かめ、必要なら `CARGO_TARGET_DIR` で保存先を指定する。
+- 開発・CIはRust 1.99.0、最低対応版は1.89.0で確認する。ビルド前に空き容量を確かめ、必要なら `CARGO_TARGET_DIR` で保存先を指定する。
 - 初回は `cargo fetch --locked` で依存を取得する。取得後は `--offline` を使える。キャッシュ・DB・実行ログをコミットしない。
 - 2026-10-26の依頼でソース公開と許可した国税庁データ接続へ進む。名称は仮称、商標照合は未完了として記録する。外部SaaS配備は公開先の指定と実環境検証を必要とする。

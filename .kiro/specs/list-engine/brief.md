@@ -36,4 +36,4 @@ Rustの `core` クレートに、型・SQLite保存・一覧クエリを置く�
 - **Adjacent**: 別プロジェクト company-data-platform は実データの名簿を持つが、接続しない。
 
 ## Constraints
-Rust（MSRV 1.88）、SQLite、MIT OR Apache-2.0。試験と測定は合成データだけ。外へ通信しない。ローカルのディスク空きが限られるため、測定DBの大きさと置き場所を門が確かめる。
+Rust（MSRV 1.89）、SQLite、MIT OR Apache-2.0。試験と測定は合成データだけ。外へ通信しない。ローカルのディスク空きが限られるため、測定DBの大きさと置き場所を門が確かめる。
