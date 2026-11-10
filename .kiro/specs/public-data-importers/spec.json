@@ -1,7 +1,7 @@
 {
   "feature_name": "public-data-importers",
   "language": "ja",
-  "phase": "completed",
+  "phase": "implementing",
   "approvals": {
     "requirements": {
       "generated": true,
@@ -33,5 +33,24 @@
     "secret_scan": "zero findings",
     "independent_boundary_review": "APPROVED",
     "external_cloud_deployed": false
+  },
+  "ready_for_implementation": true,
+  "continuation": {
+    "request_date": "2026-11-11",
+    "basis": "User asked to resume data acquisition and the related OSS CRM, create PR and merge; parent approved bounded idempotent synchronization extension",
+    "tasks": [
+      "4.1",
+      "4.2"
+    ],
+    "new_paid_subscription": false,
+    "sanity_review": "PASS parent inline: same existing core-owned public fields, exact name comparison, erase/older checks preserved",
+    "task4.1": {
+      "decision": "PASS",
+      "tests": 189,
+      "existing_ignored": 3,
+      "independent_review": "APPROVED",
+      "independent_focused_tests": 9,
+      "original_symptom_reproduced": true
+    }
   }
 }

@@ -5,7 +5,8 @@ mod response;
 mod sqld;
 
 use meibo_db::{
-    Error, ErrorCode, OptionalExtension, RemoteConnection, RemoteOptions, params, params_from_iter,
+    Error, ErrorCode, OptionalExtension, RemoteConnection, RemoteOptions,
+    RemoteTransportDiagnostic, RemoteTransportKind, RemoteTransportPhase, params, params_from_iter,
 };
 use response::{ResponseServer, response};
 use std::time::{Duration, Instant};
@@ -247,6 +248,7 @@ remote_test!(
             .unwrap_err();
         no_secrets(&error, &server.endpoint());
         assert!(!connection.is_poisoned());
+        assert_eq!(connection.last_transport_diagnostic(), None);
         let error = connection
             .execute("synthetic_sql_secret invalid sql", [])
             .unwrap_err();
@@ -348,6 +350,13 @@ remote_test!(
                 let error = connection.execute("synthetic_sql_secret", []).unwrap_err();
                 no_secrets(&error, &server.endpoint());
                 assert!(error.to_string().contains("response exceeds limit"));
+                assert_eq!(
+                    connection.last_transport_diagnostic(),
+                    Some(RemoteTransportDiagnostic {
+                        phase: RemoteTransportPhase::ResponseBody,
+                        kind: RemoteTransportKind::Limit,
+                    })
+                );
                 assert!(connection.is_poisoned());
                 assert_eq!(server.count(), 1);
             }
@@ -377,6 +386,155 @@ remote_test!(deadline_includes_body_and_connection_is_never_retried, {
         assert_eq!(server.count(), 1);
     }
 });
+
+remote_test!(
+    transport_diagnostics_distinguish_refused_connect_from_delayed_headers_and_body,
+    {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let endpoint = format!("http://{}", listener.local_addr().unwrap());
+        drop(listener);
+        let connection = connect(&endpoint);
+        assert_eq!(connection.last_transport_diagnostic(), None);
+        no_secrets(
+            &connection
+                .query_row("SELECT 1", [], |_| Ok(()))
+                .unwrap_err(),
+            &endpoint,
+        );
+        assert_eq!(
+            connection.last_transport_diagnostic(),
+            Some(RemoteTransportDiagnostic {
+                phase: RemoteTransportPhase::Request,
+                kind: RemoteTransportKind::Connect,
+            })
+        );
+        for body_only in [false, true] {
+            let server = ResponseServer::script(
+                vec![json_response(&setup_body())],
+                Duration::from_millis(180),
+                body_only,
+            );
+            let connection = RemoteConnection::connect(
+                options(&server.endpoint())
+                    .with_timeout(Duration::from_millis(35))
+                    .unwrap(),
+            )
+            .unwrap();
+            let error = connection
+                .query_row("SELECT 1", [], |_| Ok(()))
+                .unwrap_err();
+            no_secrets(&error, &server.endpoint());
+            let diagnostic = Some(RemoteTransportDiagnostic {
+                phase: if body_only {
+                    RemoteTransportPhase::ResponseBody
+                } else {
+                    RemoteTransportPhase::Request
+                },
+                kind: RemoteTransportKind::Timeout,
+            });
+            assert_eq!(connection.last_transport_diagnostic(), diagnostic);
+            assert!(connection.is_poisoned());
+            assert!(connection.query_row("SELECT 1", [], |_| Ok(())).is_err());
+            assert_eq!(connection.last_transport_diagnostic(), diagnostic);
+            assert_eq!(server.count(), 1);
+        }
+    }
+);
+
+remote_test!(
+    transport_diagnostics_distinguish_truncation_authentication_and_invalid_json,
+    {
+        let mut truncated = response(200, b"raw-body-secret", false, "");
+        truncated.truncate(truncated.len() - 3);
+        for (bytes, phase, kind) in [
+            (
+                truncated,
+                RemoteTransportPhase::ResponseBody,
+                RemoteTransportKind::Network,
+            ),
+            (
+                response(401, b"raw-body-secret", false, ""),
+                RemoteTransportPhase::ResponseBody,
+                RemoteTransportKind::Authentication,
+            ),
+            (
+                response(503, b"raw-body-secret", false, ""),
+                RemoteTransportPhase::ResponseBody,
+                RemoteTransportKind::Status,
+            ),
+            (
+                response(200, b"raw-body-secret", false, ""),
+                RemoteTransportPhase::ResponseDecode,
+                RemoteTransportKind::Invalid,
+            ),
+        ] {
+            let server = ResponseServer::start(bytes, Duration::ZERO);
+            let connection = connect(&server.endpoint());
+            let error = connection.execute("synthetic_sql_secret", []).unwrap_err();
+            no_secrets(&error, &server.endpoint());
+            let diagnostic = Some(RemoteTransportDiagnostic { phase, kind });
+            assert_eq!(connection.last_transport_diagnostic(), diagnostic);
+            assert!(connection.execute("SELECT 1", []).is_err());
+            assert_eq!(connection.last_transport_diagnostic(), diagnostic);
+            assert_eq!(server.count(), 1);
+            let report = format!("{diagnostic:?} {connection:?}");
+            for secret in [
+                server.endpoint(),
+                "synthetic-bearer-secret".into(),
+                "raw-body-secret".into(),
+                "synthetic_sql_secret".into(),
+            ] {
+                assert!(!report.contains(&secret));
+            }
+        }
+    }
+);
+
+remote_test!(
+    tls_handshake_failure_is_a_fixed_connect_class_without_retry,
+    {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let endpoint = format!("https://{}", listener.local_addr().unwrap());
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .unwrap();
+            let mut hello = [0; 4096];
+            let size = stream.read(&mut hello).unwrap();
+            assert!(
+                size >= 5 && hello[0] == 22,
+                "client must attempt a TLS handshake"
+            );
+            // A valid fatal handshake_failure alert: no certificate bypass or HTTP.
+            stream.write_all(&[21, 3, 3, 0, 2, 2, 40]).unwrap();
+            listener.set_nonblocking(true).unwrap();
+            std::thread::sleep(Duration::from_millis(100));
+            assert_eq!(
+                listener.accept().unwrap_err().kind(),
+                std::io::ErrorKind::WouldBlock
+            );
+        });
+        let connection =
+            RemoteConnection::connect(RemoteOptions::new(&endpoint, "synthetic-bearer-secret"))
+                .unwrap();
+        let error = connection
+            .query_row("SELECT 1", [], |_| Ok(()))
+            .unwrap_err();
+        no_secrets(&error, &endpoint);
+        assert_eq!(
+            connection.last_transport_diagnostic(),
+            Some(RemoteTransportDiagnostic {
+                phase: RemoteTransportPhase::Request,
+                kind: RemoteTransportKind::Connect,
+            })
+        );
+        assert!(connection.is_poisoned());
+        assert!(connection.query_row("SELECT 1", [], |_| Ok(())).is_err());
+        server.join().unwrap();
+    }
+);
 
 remote_test!(redirects_never_forward_authorization_or_retry, {
     let target = ResponseServer::start(response(200, b"{}", false, ""), Duration::ZERO);

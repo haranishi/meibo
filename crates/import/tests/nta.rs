@@ -29,7 +29,8 @@ fn imports_only_allowed_fields_and_never_changes_the_source() {
     )
     .unwrap();
     assert_eq!(sync_nta(&mut crm, &src, None).unwrap().inserted, 2);
-    assert_eq!(sync_nta(&mut crm, &src, None).unwrap().updated, 2);
+    let replay = sync_nta(&mut crm, &src, None).unwrap();
+    assert_eq!((replay.inserted, replay.updated, replay.skipped), (0, 0, 2));
     let page = crm
         .list(&ListQuery {
             filters: Filters::default(),

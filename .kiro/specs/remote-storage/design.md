@@ -86,13 +86,14 @@ stateDiagram-v2
 | Requirements | Components and validation |
 |---|---|
 | 1.1, 1.2, 1.3, 1.4 | SQL alias、Core policy、Hosted mapping、再起動 |
-| 2.1, 2.2, 2.3, 2.4, 2.5, 2.6 | SQL adapter、同stream transaction、Core policy、poisonとgate、fault proxy |
+| 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7 | SQL adapter、同stream transaction、Core policy、poisonとgate、fault proxy |
 | 3.1, 3.2, 3.3, 3.4, 3.5 | Hosted store、Operation gate、owner一致/失効/2組織の実sqld試験 |
 | 4.1, 4.2, 4.3, 4.4, 4.5 | Backup/restore、typed rows、manifest、空target/改変/中断の実試験 |
 | 5.1, 5.2, 5.3, 5.4 | Core maintenance、全件verify/CSV、Integration、既存品質門 |
 
 ## Error Handling and Testing Strategy
 公開appはlogger/tracing subscriberを初期化せず、reqwest/hyperの接続先を含む上流debug traceを有効化しない。将来loggingを導入する場合は対象filterと実診断の秘密検査を再検証する。adapterは元のtransport errorやSQL本文を診断へ渡さない。
+切り分け用のadapter accessorは最初の失敗の固定enumだけを返す。要求/応答本文/復号の段階とtimeout/connect/network/limit/authentication/status/invalidの分類を保持し、Webへ出力しない。接続拒否・遅延header/body・途中切断・不正応答を実socketで試す。2026-11-11の本人による再開依頼に基づき、親がこの診断拡張を承認した。
 通常buildの既存check-all/MSRV/性能経路を保つ。実sqld/fault試験はintegration-tests featureを明示した別入口/CIで実行し、runtime単体試験にsqldを要求しない。default-localの通信禁止bansを保つgraphとcloud用policyを分け、双方でadvisory/license/source検査を続ける。旧SDK/Hyper0.14をtest helperからも除く。
 4.4は1.5/3.1を含む受入済みsnapshotから並行実行できる。cloud入口はworkspaceの各integration-tests featureを明示し、試験名の固定列挙・filter・no-runで省略しない。default監査はapp manifestをrootにdefault featuresと全bansを保ち、cloud監査はworkspace/dev依存を含める。後続機能を含む統合後と最終の再検証は別途必須であり、早期受入を4.3や提供者確認の代用にしない。
 defaultの依存検査はapp/coreのnormal/build cargo treeを使い、default featuresを有効なまま調べる。optional依存が載るlockfile全体を通常版のlink graphと混同せず、禁止package一覧とdeny.tomlの検査は維持する。この試験修正と全workspace回帰はfoundation完了条件に含め、policy分離を待たない。

@@ -22,3 +22,15 @@
 2026-10-26: 旧DB容量/実origin CRM/公的基本情報upsert/営業記録保持/NULL出典拒否/日次overlay追加更新除外/消去hash再作成拒否を検証。実効4,450,944社を別CRMへ全件取込、件数一致・禁止3項目0・元DB hash不変・整合性PASS。tenant限定CLI取込と他組織0件/不正組織拒否も成功。画面/CSV/API/MCPの出典は各入口で確認。実データはGitに含めない。
 
 全体289試験成功・大型測定3ignored、check-all/fmt/strict clippy/依存方針/オンラインadvisories/MSRV1.88成功。REUSE3.3準拠、秘密検査0。独立境界レビューAPPROVED。
+
+- [x] 4.1 日次同期で無変更の公的情報を書き換えない
+  - coreの既存upsertで厳密な無変更を検出し、skippedに含める。名称/地域/出典/基準日が変わるときは更新する。
+  - 同値再実行の更新日時・営業記録保持と、同じ検索キーでも名称表記が違う場合の更新を合成試験で確認する。
+  - 検証：core/import189件成功、既存測定3件ignored、strict clippyとdefault build成功。独立9件/旧実行物との差分/NULL値の照合APPROVED。
+  - _Boundary: core public_data upsert, focused tests, public import documentation_
+  - _Depends: 2.1_ _Requirements: 2.2, 2.3, 2.4, 2.5_
+- [ ] 4.2 更新済み公的名簿を保全した別CRMで同期・実画面確認する
+  - 既存CRMを残したSSDコピーへ最新の署名済み名簿を同期し、再実行の追加/更新0、供給元hash不変、整合性と出典表示を確認する。
+  - 供給元から消えた企業は営業履歴保持のため自動削除しない。current社数とCRM保存社数の差を説明する。
+  - _Boundary: Local real-data operations and evidence_
+  - _Depends: 4.1_ _Requirements: 1.1, 1.2, 1.3, 2.1, 2.2, 2.3, 2.5, 3.1, 3.2_
