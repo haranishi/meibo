@@ -11,6 +11,15 @@ fn memory() -> Connection {
     Connection::open(":memory:").unwrap()
 }
 
+#[test]
+fn bundled_sqlite_includes_wal_page_size_memory_fix() {
+    // RUSTSEC-2026-0459: mismatched database/WAL page sizes exposed cache memory.
+    assert!(
+        rusqlite::version_number() >= 3_054_000,
+        "bundled SQLite must include the WAL page-size memory fix"
+    );
+}
+
 fn count(connection: &Connection) -> i64 {
     connection
         .query_row("SELECT count(*) FROM synthetic", [], |row| row.get(0))

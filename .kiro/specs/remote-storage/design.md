@@ -91,6 +91,7 @@ stateDiagram-v2
 | 4.1, 4.2, 4.3, 4.4, 4.5 | Backup/restore、typed rows、manifest、空target/改変/中断の実試験 |
 | 5.1, 5.2, 5.3, 5.4 | Core maintenance、全件verify/CSV、Integration、既存品質門 |
 
+公式SQLite修正版と最低Rustの更新方針は[SQLite依存の更新](sqlite-security-update.md)に従う（要件5.5）。
 ## Error Handling and Testing Strategy
 公開appはlogger/tracing subscriberを初期化せず、reqwest/hyperの接続先を含む上流debug traceを有効化しない。将来loggingを導入する場合は対象filterと実診断の秘密検査を再検証する。adapterは元のtransport errorやSQL本文を診断へ渡さない。
 切り分け用のadapter accessorは最初の失敗の固定enumだけを返す。要求/応答本文/復号の段階とtimeout/connect/network/limit/authentication/status/invalidの分類を保持し、Webへ出力しない。接続拒否・遅延header/body・途中切断・不正応答を実socketで試す。2026-11-11の本人による再開依頼に基づき、親がこの診断拡張を承認した。

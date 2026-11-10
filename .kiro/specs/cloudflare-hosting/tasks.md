@@ -37,6 +37,7 @@
   - _Requirements: 1.1, 2.4, 2.5, 4.1, 4.2, 5.4_
 
 - [ ] 2.2 実Workerと実行物を結合し、検査した対象へ公開する
+  - _Blocked: 2026-11-11の実照会でもWorkers Paid契約が必要。Turso CLI再認証後の実接続・最新sourceの実行物検証が未完了。ローカル同期とPRマージを公開成功と扱わない。_
   - boundary/coordinatorを実Worker/DO exportへ結合し、Linux/amd64 imageのbuild・inspect・実起動、Worker bundle、起動/復旧入口を検証する。
   - 最新の提供者照会と実artifactから得た結果を2.1の同じ検査実装へ渡し、対象・設定・digestを対応付ける。fixture、未検証、変更後の古い結果では公開しない。
   - 条件成立後に指定accountだけへ秘密を標準入力で登録し、配備対象のimage digest/Worker version/公開先を記録する。既定先へのfallbackや新規契約は行わない。

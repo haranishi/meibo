@@ -73,7 +73,9 @@ pub(super) fn create(store: &Store, destination: &Path) -> HostedResult<()> {
     fs::create_dir(destination.join("tenants"))?;
     private_mode(&destination.join("tenants"), true)?;
     let control = destination.join("control.sqlite3");
-    store.conn.backup(MAIN_DB, &control, None)?;
+    store
+        .conn
+        .backup(MAIN_DB, &control, None::<fn(super::sql::backup::Progress)>)?;
     private_mode(&control, false)?;
     {
         let conn = Connection::open_with_flags(&control, OpenFlags::SQLITE_OPEN_READ_WRITE)?;

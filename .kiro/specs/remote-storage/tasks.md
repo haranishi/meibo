@@ -104,3 +104,9 @@
   - 検証：82件成功、strict clippy/fmt成功、最終ソースと実行物を照合した独立82件も成功。公開/実Turso接続の完了は含めない。
   - _Boundary: db remote transport and focused tests_
   - _Requirements: 2.4, 2.5, 2.6, 2.7_
+
+- [ ] 5.2 公式SQLite修正版へ更新し既存保存契約を再検証する
+  - rusqlite0.41.1/libsqlite3-sys0.39.1、最低Rust1.89、Iterator APIへ対応する。監査例外を追加しない。
+  - 実行SQLite版のRED/GREEN、core/import/db、default/cloud/MSRVの全CI、既存DB・WALのopenと整合性を確認する。
+  - _Boundary: Shared SQLite runtime/manifests/lock, db rows API adaptation, CI/current compatibility documentation_
+  - _Requirements: 1.1, 2.1, 2.6, 5.4, 5.5_

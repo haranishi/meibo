@@ -51,6 +51,36 @@
       "independent_review": "APPROVED",
       "independent_focused_tests": 9,
       "original_symptom_reproduced": true
+    },
+    "task4.2": {
+      "decision": "PASS",
+      "source_companies": 4453446,
+      "crm_companies": 4456413,
+      "retained_older_companies": 2967,
+      "first_sync": {
+        "inserted": 5469,
+        "updated": 12417,
+        "skipped": 4435560
+      },
+      "replay": {
+        "inserted": 0,
+        "updated": 0,
+        "skipped": 4453446
+      },
+      "full_source_mapping_mismatches": 0,
+      "old_company_missing": 0,
+      "sales_fields_changed": 0,
+      "unchanged_row_timestamp_changes": 0,
+      "source_and_original_crm_preserved": true,
+      "browser_checks": 6,
+      "browser_widths": [
+        390,
+        768,
+        1440
+      ],
+      "browser_errors": 0,
+      "independent_review": "APPROVED",
+      "sqlite_dependency_revalidation": "remote-storage5.2_pending"
     }
   }
 }

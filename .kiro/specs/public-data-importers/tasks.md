@@ -29,8 +29,9 @@
   - 検証：core/import189件成功、既存測定3件ignored、strict clippyとdefault build成功。独立9件/旧実行物との差分/NULL値の照合APPROVED。
   - _Boundary: core public_data upsert, focused tests, public import documentation_
   - _Depends: 2.1_ _Requirements: 2.2, 2.3, 2.4, 2.5_
-- [ ] 4.2 更新済み公的名簿を保全した別CRMで同期・実画面確認する
+- [x] 4.2 更新済み公的名簿を保全した別CRMで同期・実画面確認する
   - 既存CRMを残したSSDコピーへ最新の署名済み名簿を同期し、再実行の追加/更新0、供給元hash不変、整合性と出典表示を確認する。
   - 供給元から消えた企業は営業履歴保持のため自動削除しない。current社数とCRM保存社数の差を説明する。
+  - 検証：最新4,453,446社とCRMの全項目照合で不一致0、再同期0追加/0更新、元DB不変、営業項目変更0。独立APPROVED、3幅の実ブラウザ6確認も成功。SQLite更新後の再確認はremote-storage5.2で行う。
   - _Boundary: Local real-data operations and evidence_
   - _Depends: 4.1_ _Requirements: 1.1, 1.2, 1.3, 2.1, 2.2, 2.3, 2.5, 3.1, 3.2_
