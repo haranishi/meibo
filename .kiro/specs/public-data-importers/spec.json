@@ -1,7 +1,7 @@
 {
   "feature_name": "public-data-importers",
   "language": "ja",
-  "phase": "implementing",
+  "phase": "completed",
   "approvals": {
     "requirements": {
       "generated": true,
@@ -34,7 +34,7 @@
     "independent_boundary_review": "APPROVED",
     "external_cloud_deployed": false
   },
-  "ready_for_implementation": true,
+  "ready_for_implementation": false,
   "continuation": {
     "request_date": "2026-11-11",
     "basis": "User asked to resume data acquisition and the related OSS CRM, create PR and merge; parent approved bounded idempotent synchronization extension",
@@ -80,7 +80,26 @@
       ],
       "browser_errors": 0,
       "independent_review": "APPROVED",
-      "sqlite_dependency_revalidation": "remote-storage5.2_pending"
+      "sqlite_dependency_revalidation": "remote-storage5.2_PASS"
+    },
+    "validation": {
+      "decision": "GO",
+      "claim_status": "VERIFIED",
+      "task4.1": "PASS",
+      "task4.2": "PASS",
+      "sqlite_update": "PASS",
+      "ci_and_main": {
+        "run": "https://github.com/haranishi/meibo/actions/runs/42852401505",
+        "source_head": "bfd227e915a296dbd254829b1fb982721413dddb",
+        "quality": "PASS",
+        "cloud": "PASS",
+        "worker": "PASS",
+        "msrv_1_89": "PASS",
+        "online_advisories": "PASS",
+        "main": "2a30db2b90ad93759472352569b54ad370308caf",
+        "reviewed_tree_matches_main": true
+      },
+      "external_cloud_deployed": false
     }
   }
 }

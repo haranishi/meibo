@@ -3,7 +3,7 @@
   "created_at": "2026-10-26T12:00:00Z",
   "updated_at": "2026-10-26T22:30:58.423262+00:00",
   "language": "ja",
-  "phase": "implementing",
+  "phase": "validated",
   "approvals": {
     "requirements": {
       "generated": true,
@@ -18,7 +18,7 @@
       "approved": true
     }
   },
-  "ready_for_implementation": true,
+  "ready_for_implementation": false,
   "authorization": {
     "basis": "2026-10-26 user accepted Cloudflare business account, Turso Cloud, existing invitation authentication, and continuation",
     "default_local_sqlite_unchanged": true,
@@ -85,7 +85,9 @@
     "4.1",
     "4.2",
     "4.3",
-    "4.4"
+    "4.4",
+    "5.1",
+    "5.2"
   ],
   "verification": {
     "1.1": {
@@ -365,8 +367,37 @@
         "strict_clippy": "PASS",
         "runtime_sqlite_guard": "PASS",
         "binary_sha256": "1819daec26b3b2c99e5732b78ffc026368c3edc0be83f9d443b345f1dd4411af",
-        "msrv_online_ci": "pending",
-        "real_copy_revalidation": "in_progress"
+        "msrv_online_ci": "PASS",
+        "real_copy_revalidation": "PASS"
+      },
+      "validation": {
+        "decision": "GO",
+        "claim_status": "VERIFIED",
+        "tests": 272,
+        "failed": 0,
+        "existing_ignored": 3,
+        "independent_focused_tests": 31,
+        "runtime_sqlite": "3.54.1",
+        "real_crm_verify": "PASS",
+        "replay1000_no_op": true,
+        "real_browser_checks": 6,
+        "browser_widths": [
+          390,
+          768,
+          1440
+        ],
+        "browser_errors": 0,
+        "ci_and_main": {
+          "run": "https://github.com/haranishi/meibo/actions/runs/42852401505",
+          "source_head": "bfd227e915a296dbd254829b1fb982721413dddb",
+          "quality": "PASS",
+          "cloud": "PASS",
+          "worker": "PASS",
+          "msrv_1_89": "PASS",
+          "online_advisories": "PASS",
+          "main": "2a30db2b90ad93759472352569b54ad370308caf",
+          "reviewed_tree_matches_main": true
+        }
       }
     }
   }

@@ -10,6 +10,6 @@
 ## コードと画面
 - core/import189件成功、既存の大型測定3件は従来どおり除外。strict clippy、default build、cloud core check、独立重点9件と旧実行物との差分再現を確認した。
 - 実ブラウザで一覧・詳細・検索0件/解除・実データ表示・出典を確認。390/768/1440幅、ページ/console/external要求のエラー0。実企業データのスクリーンショットは作成していない。
-- 公式SQLite修正版への更新と新実行物での再確認は、remote-storage5.2の[更新記録](../remote-storage/sqlite-security-update.md)で追跡する。
+- SQLite3.54.1の新実行物でも既存DB・no-op・再起動・3幅ブラウザを再確認し成功した。[更新記録](../remote-storage/sqlite-security-update.md)にCI全4項目とRust1.89・オンライン監査の結果を残した。
 
 コードはGitで管理するが、企業行・DB・認証資料・私有の検証記録は同梱しない。ローカル確認とCloudflare公開は別の完了条件。新しい課金契約とTursoの再認証が必要な本番配備は未完了。
