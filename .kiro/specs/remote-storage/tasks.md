@@ -105,8 +105,9 @@
   - _Boundary: db remote transport and focused tests_
   - _Requirements: 2.4, 2.5, 2.6, 2.7_
 
-- [ ] 5.2 公式SQLite修正版へ更新し既存保存契約を再検証する
+- [x] 5.2 公式SQLite修正版へ更新し既存保存契約を再検証する
   - rusqlite0.41.1/libsqlite3-sys0.39.1、最低Rust1.89、Iterator APIへ対応する。監査例外を追加しない。
   - 実行SQLite版のRED/GREEN、core/import/db、default/cloud/MSRVの全CI、既存DB・WALのopenと整合性を確認する。
+  - 検証：272件成功/独立31件、Rust1.89/quality/cloud/workerの最新CI全成功、オンライン監査成功。実CRMの新実行物verify・no-op・再起動・3幅ブラウザ成功。PR10マージ後mainのtree一致。
   - _Boundary: Shared SQLite runtime/manifests/lock, db rows API adaptation, CI/current compatibility documentation_
   - _Requirements: 1.1, 2.1, 2.6, 5.4, 5.5_

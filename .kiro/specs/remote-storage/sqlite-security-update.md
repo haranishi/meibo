@@ -12,3 +12,8 @@
 実行中SQLiteの修正済み版を検査する回帰を旧版でREDにし、更新後の版・core/import・db・default/cloud・最低RustのCIとオンライン監査を確認する。既存の私有コピーを新しい実行物で開き、整合性・件数・営業情報保持と再起動・画面を再確認する。
 
 公式資料：[rusqlite0.41.1](https://github.com/rusqlite/rusqlite/releases/tag/v0.41.1)、[SQLite3.54.1](https://sqlite.org/releaselog/3_54_1.html)。公開配備や新規課金はこの更新に含めない。
+
+## 検証結果
+272件成功・既存測定3件は従来どおり除外、独立重点31件成功。旧版の実SQLiteでは版ガードが失敗し、3.54.1で成功した。default/cloud全target・strict clippy・[CI全4項目](https://github.com/haranishi/meibo/actions/runs/42852401505)とオンライン監査、Rust1.89が成功。
+
+新実行物で既存CRMの整合性・件数/活動・無変更1,000社・再起動を確認し、3幅の実ブラウザ6確認もエラー0。[PR10](https://github.com/haranishi/meibo/pull/10)をマージし、main `2a30db2` と検証済みheadの全tree一致を確認した。公開配備の未完了とは区別する。
