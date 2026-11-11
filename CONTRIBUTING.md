@@ -41,6 +41,13 @@ complete cloud and test dependency graph with `deny-cloud.toml`, including onlin
 Use `RUST_TEST_THREADS=2` to limit contention without filtering tests. The fixtures use loopback
 and synthetic data; these checks do not verify a Cloudflare deployment or Turso Cloud account.
 
+## Verify the browser before merging
+
+The `browser` CI job builds the app and runs isolated synthetic fixtures at 390, 768, and
+1440px. It needs no cloud account, credentials, or real company database. See
+[the browser test environment](docs/browser-testing.md) for the same checks and a disposable
+local UI. Keep this gate in addition to the Rust, MSRV, cloud, and Worker jobs.
+
 ## Propose a change
 
 Read the relevant requirements, design, and tasks in `.kiro/specs/` before editing.

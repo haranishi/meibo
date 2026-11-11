@@ -13,6 +13,59 @@ env:
   RUST_TEST_THREADS: "2"
 
 jobs:
+  browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      RUSTUP_TOOLCHAIN: 1.99.0
+      CARGO_BUILD_JOBS: "2"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_DEV_INCREMENTAL: "false"
+      MEIBO_TEST_BINARY: ${{ github.workspace }}/target/debug/meibo
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install development toolchain and native build dependencies
+        run: |
+          rustup toolchain install 1.99.0 --profile minimal
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends pkg-config libssl-dev cmake
+      - name: Build the locked local app
+        run: cargo build --locked -p meibo-app
+      - name: Install checksummed Node and pinned npm
+        run: |
+          curl --fail --silent --show-error --location --max-time 120 \
+            https://nodejs.org/dist/v24.22.1/node-v24.22.1-linux-x64.tar.xz \
+            --output "$RUNNER_TEMP/meibo-node.tar.xz"
+          printf '%s  %s\n' \
+            6c172a9ab6718f7b801fb5a7bd486af2ee5e32758086a04b84fcce2aa77095e6 \
+            "$RUNNER_TEMP/meibo-node.tar.xz" | sha256sum --check
+          tar -xJf "$RUNNER_TEMP/meibo-node.tar.xz" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/node-v24.22.1-linux-x64/bin" >> "$GITHUB_PATH"
+      - name: Install locked browser tooling and Chromium headless shell
+        working-directory: cloudflare
+        run: |
+          npm install --global npm@12.2.1
+          npm ci --ignore-scripts
+          npx --no-install playwright install --with-deps chromium --only-shell
+      - name: Check fixture lifecycle and the three viewport browser flows
+        working-directory: cloudflare
+        env:
+          TMPDIR: ${{ runner.temp }}
+          MEIBO_TEST_OUTPUT: ${{ runner.temp }}/meibo-browser-results
+        run: |
+          npm run test:browser:server
+          npm run test:browser
+      - name: Retain synthetic browser evidence
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: synthetic-browser-results
+          path: ${{ runner.temp }}/meibo-browser-results/
+          retention-days: 7
+          if-no-files-found: ignore
+
   worker:
     runs-on: ubuntu-24.04
     timeout-minutes: 10

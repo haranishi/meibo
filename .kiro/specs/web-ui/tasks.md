@@ -1,5 +1,8 @@
 # ローカル起動までの実装
 
+- [x] 5.1. 合成DB限定の専用環境とPRのブラウザ試験を整備し、手元とCIで検証する。_Requirements: 17.2, 18.5, 18.7_ _Depends: 3_ _Boundary: cloudflare/browser・Node依存・CI・開発手順。製品コードと実データは対象外_ 設計は [premerge-testing.md](premerge-testing.md)。
+  - ローカル検証：Node178件、起動管理4件、3幅の実ブラウザ3件成功。遅延HTTP500を空結果と誤認しないことを独立再確認しAPPROVED。最新PR headのCI全5ジョブ成功をマージ条件にする。
+
 - [x] 1. 合成DB限定のloopbackサーバーとAPI、HTTP境界の回帰試験を追加する。_Requirements: 15.1, 15.2, 16.1, 16.2, 16.3, 16.4_
 - [x] 2. 一覧・検索・ページ・詳細・活動フォーム・CSVの画面を追加する。_Requirements: 16.1, 16.2, 16.3, 16.4, 17.1_
 - [x] 3. CLIを接続し、既存デモで起動する。ブラウザで操作し、3幅の画像・独立レビュー・必要な機械検証を残す。_Requirements: 15.1, 17.2_
