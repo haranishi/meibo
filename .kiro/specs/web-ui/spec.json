@@ -17,6 +17,26 @@
     }
   },
   "ready_for_implementation": true,
+  "premerge_test_environment": {
+    "task": "5.1",
+    "requirements": ["17.2", "18.5", "18.7"],
+    "design": "premerge-testing.md",
+    "approval_basis": "2026-11-11 explicit user request to prepare the test environment with skills; autonomous continuation of existing UI validation requirements",
+    "product_behavior_changed": false,
+    "real_data": false,
+    "paid_services": false,
+    "validation": {
+      "node_tests": 178,
+      "fixture_lifecycle_tests": 4,
+      "browser_projects": 3,
+      "viewports": [390, 768, 1440],
+      "native_build": "PASS",
+      "delayed_http_500_mutation": "rejected at completed-empty-state assertion",
+      "independent_review": "APPROVED",
+      "merge_gate": "latest PR head must pass worker, quality, msrv, cloud and browser CI jobs",
+      "scope": "synthetic local app validation; no live cloud authentication or deployment"
+    }
+  },
   "execution_authorization": {
     "basis": "2026-10-23 explicit user instruction to commit, push, create PRs, and merge in a private repository",
     "loopback_server": true,

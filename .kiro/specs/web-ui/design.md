@@ -1,5 +1,7 @@
 # 手元のデモを操作する画面とHTTPサーバー
 
+PRの画面試験と専用テスト環境は [premerge-testing.md](premerge-testing.md) に従う。
+
 最新の画面構成は本人の追加指示を反映した [workspace-redesign.md](workspace-redesign.md)。初回の一覧/サイド詳細から、共通ナビ・全幅一覧・独立したレコード画面へ改める。以下のAPI契約と通信境界は、その追加契約と併せて引き継ぐ。
 
 ## ユーザーストーリーとUX5階層
