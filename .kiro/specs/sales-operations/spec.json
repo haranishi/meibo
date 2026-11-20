@@ -1,0 +1,32 @@
+{
+  "feature_name": "sales-operations",
+  "language": "ja",
+  "created_at": "2026-11-20",
+  "phase": "implementing",
+  "approvals": {
+    "requirements": {
+      "generated": true,
+      "approved": true
+    },
+    "design": {
+      "generated": true,
+      "approved": true
+    },
+    "tasks": {
+      "generated": true,
+      "approved": true
+    }
+  },
+  "ready_for_implementation": true,
+  "basis": "User requested all four previously identified additions and autonomous execution under the existing harness.",
+  "requirement_test_trace": [
+    "20.1",
+    "20.2",
+    "20.3",
+    "20.4",
+    "20.5",
+    "20.6",
+    "20.7",
+    "20.8"
+  ]
+}
