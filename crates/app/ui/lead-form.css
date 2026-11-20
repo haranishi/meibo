@@ -1,0 +1,19 @@
+:root { color-scheme: light; font-family: system-ui, "Hiragino Kaku Gothic ProN", sans-serif; color: #162b40; background: #f2f6fa; }
+* { box-sizing: border-box; }
+body { margin: 0; }
+main { width: min(38rem, 100%); margin: 2.5rem auto; padding: 2rem clamp(1.1rem, 5vw, 3rem); background: white; border: 1px solid #d4dee9; border-radius: .8rem; }
+header { border-bottom: 1px solid #d4dee9; margin-bottom: 1.5rem; }
+h1 { font-size: clamp(1.45rem, 5vw, 2rem); margin: 0; }
+header p { color: #44596c; }
+label { display: block; margin: 1rem 0 .35rem; font-weight: 650; }
+label > span:not(:only-child) { font-weight: 400; }
+input:not([type="checkbox"]), textarea { display: block; width: 100%; font: inherit; padding: .65rem; border: 1px solid #8396aa; border-radius: .35rem; }
+textarea { resize: vertical; }
+.consent { display: flex; gap: .6rem; align-items: flex-start; line-height: 1.6; margin: 1.35rem 0; }
+.consent input { width: 1.15rem; height: 1.15rem; margin: .25rem 0 0; flex: none; }
+button { font: 650 1rem system-ui, sans-serif; background: #125b9d; color: white; border: 0; padding: .75rem 1.25rem; border-radius: .4rem; cursor: pointer; }
+button:disabled { opacity: .65; }
+#new-inquiry { background: white; color: #125b9d; border: 1px solid #125b9d; margin-top: .5rem; }
+:focus-visible { outline: 3px solid #2268b0; outline-offset: 2px; }
+#result:empty { margin: 0; }
+@media (max-width: 40rem) { main { margin: 0; min-height: 100dvh; border: 0; border-radius: 0; } }

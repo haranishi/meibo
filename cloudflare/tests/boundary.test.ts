@@ -177,7 +177,7 @@ test("forward-time request preparation is itself lazy until its body is consumed
 });
 
 test("oversized declared bodies are rejected before acquiring a body reader", () => {
-  for (const [path, limit] of [["/api/update", MIB], ["/api/import", 32 * MIB]]) {
+  for (const [path, limit] of [["/api/update", MIB], ["/api/import", 32 * MIB], ["/forms/alpha/0123456789abcdef0123456789abcdef", 8192]]) {
     const input = source(limit + 1);
     const request = incoming(path, { method: "POST", body: input.stream, headers: { "Content-Length": String(limit + 1) } });
     assert.throws(() => validateRequest(request, ORIGIN), isBoundary(413, "payload_too_large"));

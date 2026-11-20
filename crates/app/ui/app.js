@@ -102,7 +102,7 @@ function navigate(name) {
   ++state.detailVersion; state.detailController?.abort();
   if (window.crmWorkspace?.recognizes(name)) { window.crmWorkspace.open(name); return; }
   if (name === "home") {
-    showWorkspace("home"); renderRecent(); loadSummary(); loadHomeDue(); return;
+    showWorkspace("home"); renderRecent(); loadSummary(); loadHomeDue(); window.MeiboFollowups?.refresh(); return;
   }
   if (state.listContext !== name) {
     state.listContext = name; state.sort = name === "tasks" ? "next_action" : "default"; state.view = name === "tasks" ? "scheduled" : "all";
@@ -256,7 +256,7 @@ function applyFilters(clear = false) {
 }
 
 function getDraft(company) {
-  if (!state.drafts.has(company.id)) state.drafts.set(company.id, { note: "", status: String(company.status), baselineStatus: String(company.status), nextMode: "keep", nextDate: "", kind: "1", contact: "", at: "" });
+  if (!state.drafts.has(company.id)) state.drafts.set(company.id, { note: "", status: String(company.status), baselineStatus: String(company.status), nextMode: "keep", nextDate: "", kind: "1", contact: "", at: "", absence: false, submission: null });
   const draft = state.drafts.get(company.id);
   if (draft.status === draft.baselineStatus) draft.status = String(company.status);
   draft.baselineStatus = String(company.status);
@@ -291,6 +291,14 @@ function renderActivityForm(company) {
   for (const code of [1, 2, 3, 4]) { const option = el("option", "", activityKinds[code]); option.value = String(code); kind.append(option); }
   kind.value = draft.kind || "1"; kind.addEventListener("change", () => { draft.kind = kind.value; emailHelp.hidden = kind.value !== "3"; const label = form.querySelector(".save-button span"); if (label) label.textContent = `${activityKinds[kind.value]}の記録を保存`; });
   fields.append(fieldLabel("活動の種類", kind.id), kind);
+  const disposition = el("div", "form-field"); disposition.hidden = kind.value !== "1";
+  const absent = el("input"); absent.type = "checkbox"; absent.id = "activity-absence"; absent.checked = !!draft.absence;
+  const absentLabel = fieldLabel("不在のため再架電を予約", absent.id);
+  const timing = el("p","form-help","土日を除く翌日9時（日本時間）。「次回対応」で日時を指定できます。");
+  timing.id="activity-callback-timing"; absent.setAttribute("aria-describedby",timing.id);
+  absent.addEventListener("change", () => { draft.absence = absent.checked; if (absent.checked && next.value === "clear") { next.value = "keep"; next.dispatchEvent(new Event("change")); } });
+  kind.addEventListener("change", () => {disposition.hidden = kind.value !== "1";});
+  absentLabel.prepend(absent); disposition.append(absentLabel,timing); fields.append(disposition);
   const contact = el("select"); contact.id = "activity-contact";
   const unassigned = el("option", "", "担当者を指定しない"); unassigned.value = ""; contact.append(unassigned);
   for (const person of state.detail?.contacts || []) { const option = el("option", "", person.name || `担当者 ID ${person.id}（非表示）`); option.value = String(person.id); contact.append(option); }
@@ -318,7 +326,7 @@ function renderActivityForm(company) {
   dateField.append(fieldLabel("次回対応の日時", nextDate.id), nextDate); fields.append(dateField);
   const help = el("p", "form-help", "「除外」にすると企業リストの表示対象から外れます。"); help.hidden = draft.status !== "5";
   status.addEventListener("change", () => { draft.status = status.value; help.hidden = status.value !== "5"; });
-  next.addEventListener("change", () => { draft.nextMode = next.value; dateField.hidden = next.value !== "set"; nextDate.required = next.value === "set"; if (next.value === "set") nextDate.focus(); });
+  next.addEventListener("change", () => { draft.nextMode = next.value; if (next.value === "clear") { absent.checked=false; draft.absence=false; } dateField.hidden = next.value !== "set"; nextDate.required = next.value === "set"; if (next.value === "set") nextDate.focus(); });
   fields.append(help);
   const error = el("div", "field-error"); error.id = "activity-error"; error.hidden = true; error.setAttribute("role", "alert");
   const save = el("button", "button button-primary save-button"); save.type = "submit"; save.append(icon("check"), el("span", "", state.saving ? "保存しています…" : `${activityKinds[draft.kind || "1"]}の記録を保存`));
@@ -498,6 +506,11 @@ async function saveActivity(id, form, draft) {
     if (draft.nextMode === "set") body.next_action_at = parseLocalDate(draft.nextDate);
     else if (draft.nextMode === "clear") body.next_action_at = null;
     else if (draft.nextMode !== "keep") throw new Error("次回対応の設定を選び直してください。");
+    if (body.kind===1 && draft.absence) {
+      const signature=JSON.stringify(body);
+      if (draft.submission?.signature !== signature) draft.submission = {signature,key:crypto.randomUUID()};
+      body.follow_up="absence"; body.request_key=draft.submission.key;
+    }
   } catch (error) { errorBox.textContent = error.message; errorBox.hidden = false; return; }
   state.saving = true;
   form.querySelector("fieldset").disabled = true;
@@ -505,9 +518,11 @@ async function saveActivity(id, form, draft) {
   form.setAttribute("aria-busy", "true");
   notify("架電の記録を保存しています…");
   try {
-    await request(`/api/companies/${encodeURIComponent(id)}/activities`, { method: "POST", headers: { "Content-Type": "application/json", "X-Meibo-Local": "1" }, body: JSON.stringify(body) });
+    const result = await request(`/api/companies/${encodeURIComponent(id)}/activities`, { method: "POST", headers: { "Content-Type": "application/json", "X-Meibo-Local": "1" }, body: JSON.stringify(body) });
     state.drafts.delete(id);
-    notify("架電の記録を保存しました。");
+    const saved=await result.json();
+    notify(saved.due_at ? "架電を記録し、再架電を予約しました。" : "架電の記録を保存しました。");
+    if (saved.due_at) window.MeiboFollowups?.refreshAfterSave();
     await Promise.all([loadSummary(), loadHomeDue(), loadList()]);
     state.saving = false;
     if (window.MeiboCallMode?.active()) await window.MeiboCallMode.saved(id);
@@ -645,12 +660,18 @@ function cancelActivity(companyId, activityId) {
 let appStarted = false;
 window.MeiboAppStart = function () {
 if (appStarted) return; appStarted = true;
+if (window.MeiboContext?.role === "viewer") $("sales-connections").hidden=true;
+else {
+  window.MeiboLeads?.mount($("sales-tools"));
+  window.MeiboActivitySync?.mount($("activity-sync-root"));
+}
+window.MeiboFollowups?.start();
 window.MeiboCallMode?.configure({
   rows:()=>state.rows, next:()=>state.next, page:()=>state.page, company:()=>state.detail?.company,
   conditions:()=>new URLSearchParams(listConditions()).toString(), params:()=>listParameters().toString(),
   request, open:(id, conditions)=>openCompany(id, true, conditions), close:closeCompany, notice:notify,
   busy:()=>state.loading || state.saving || state.creating || state.contactSaving || Boolean(window.MeiboFields?.busy()),
-  unsaved:()=>{const d=state.drafts.get(state.selected);return Boolean(d&&(d.note.trim()||d.nextMode!=="keep"||d.status!==d.baselineStatus||d.at||d.contact));}
+  unsaved:()=>{const d=state.drafts.get(state.selected);return Boolean(d&&(d.note.trim()||d.absence||d.nextMode!=="keep"||d.status!==d.baselineStatus||d.at||d.contact));}
 });
 $("start-call-mode").addEventListener("click",()=>window.MeiboCallMode?.start());
 populatePrefectures(); syncControls(); showWorkspace("accounts"); renderRecent();

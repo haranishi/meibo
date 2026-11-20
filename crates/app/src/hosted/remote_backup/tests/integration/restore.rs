@@ -566,6 +566,106 @@ fn restore_lost_tenant_write_stops_all_later_sql_and_keeps_candidate_offline() {
     );
 }
 
+fn downgrade_sales_schema(conn: &Connection) {
+    conn.execute_batch("DROP TRIGGER crm_opportunity_forecast_erase;
+        DROP TRIGGER crm_cancel_followup;
+        DROP TRIGGER crm_sync_erase_contact_mail; DROP TRIGGER crm_sync_erase_company_mail;
+        DROP INDEX crm_sync_contact_email;
+        DROP TABLE crm_call_followups; DROP TABLE crm_sync_links; DROP TABLE crm_leads;
+        DROP TABLE crm_lead_form; DROP TABLE crm_opportunity_ownership; DROP TABLE crm_sales_targets;
+        UPDATE meta SET value='2' WHERE key='crm_schema_version'").unwrap();
+}
+
+// REQ 20.8
+#[test]
+fn historical_v2_manifest_restores_into_v3_and_keeps_old_sources_read_only() {
+    let _serial = FIXTURES
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let fixture = source();
+    for server in [&fixture.alpha, &fixture.beta] {
+        downgrade_sales_schema(&connection(&server.endpoint()));
+    }
+    let store = fixture.store();
+    let directory = backup(&store);
+    let root = directory.path().join("snapshot");
+    let path = root.join("manifest.json");
+    let mut manifest: Manifest = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    assert!(
+        manifest
+            .tenants
+            .iter()
+            .all(|t| t.database.crm_extension_version == Some(2) && t.database.tables.len() == 12)
+    );
+    manifest.version = 2;
+    fs::write(path, serde_json::to_vec(&manifest).unwrap()).unwrap();
+    let targets = Targets::new();
+    run_restore(&store, &root, targets.endpoints()).unwrap();
+    let restored = targets.store().open_tenant("alpha").unwrap();
+    assert_eq!(
+        restored
+            .crm_due_followups(None, 1_800_000_000)
+            .unwrap()
+            .total,
+        0
+    );
+    assert_eq!(
+        restored.crm_sales_report("2026-10").unwrap(),
+        store
+            .open_tenant("alpha")
+            .unwrap()
+            .crm_sales_report("2026-10")
+            .unwrap()
+    );
+    let markers = [&fixture.alpha, &targets.alpha].map(|db| {
+        connection(&db.endpoint())
+            .query_row(
+                "SELECT value FROM meta WHERE key='crm_schema_version'",
+                [],
+                |r| r.get::<_, String>(0),
+            )
+            .unwrap()
+    });
+    assert_eq!(markers, ["2", "3"]);
+}
+
+// REQ 20.8
+#[test]
+fn all_sales_operations_tables_survive_a_remote_restore() {
+    let _serial = FIXTURES
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let fixture = source();
+    let original = connection(&fixture.alpha.endpoint());
+    seed_sales_ops(&original);
+    let store = fixture.store();
+    let directory = backup(&store);
+    let root = directory.path().join("snapshot");
+    let targets = Targets::new();
+    run_restore(&store, &root, targets.endpoints()).unwrap();
+    let restored = connection(&targets.alpha.endpoint());
+    let snapshot = validate(&root).unwrap();
+    for profile in profile::crm().filter(|p| {
+        meibo_core::remote_snapshot::crm_table(p.name)
+            .unwrap()
+            .for_version(2)
+            .is_none()
+    }) {
+        assert_rows(
+            &snapshot,
+            Some("alpha"),
+            &restored,
+            std::iter::once(profile),
+        );
+        let rows = restored
+            .query_row(&format!("SELECT count(*) FROM {}", profile.name), [], |r| {
+                r.get::<_, i64>(0)
+            })
+            .unwrap();
+        assert_eq!(rows, 1);
+    }
+}
+
 #[test]
 fn sales_report_reads_legacy_remote_and_restores_v1_snapshot_without_guessing_dates() {
     let _serial = FIXTURES
@@ -573,6 +673,7 @@ fn sales_report_reads_legacy_remote_and_restores_v1_snapshot_without_guessing_da
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     let fixture = source();
     for server in [&fixture.alpha, &fixture.beta] {
+        downgrade_sales_schema(&connection(&server.endpoint()));
         connection(&server.endpoint())
             .execute_batch(
                 "ALTER TABLE crm_opportunities DROP COLUMN outcome_date;
@@ -590,7 +691,7 @@ fn sales_report_reads_legacy_remote_and_restores_v1_snapshot_without_guessing_da
     let manifest_path = root.join("manifest.json");
     let mut manifest: Manifest =
         serde_json::from_slice(&fs::read(&manifest_path).unwrap()).unwrap();
-    assert_eq!(manifest.version, 2);
+    assert_eq!(manifest.version, 3);
     // Both source databases still have the older physical schema. Their
     // original files are also exactly the rows accepted by the old v1 manifest.
     for tenant in &mut manifest.tenants {

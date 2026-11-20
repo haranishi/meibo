@@ -72,7 +72,7 @@ fn version_one_objects_and_connection_settings() -> TestResult {
     assert_eq!(
         scalar(
             &db.conn,
-            "SELECT count(*) FROM sqlite_schema WHERE type='trigger'"
+            "SELECT count(*) FROM sqlite_schema WHERE type='trigger' AND name IN ('activities_guard','activities_no_delete','crm_company_erase','crm_contact_erase')"
         ),
         4
     );

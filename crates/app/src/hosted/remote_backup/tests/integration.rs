@@ -136,6 +136,15 @@ fn seed(conn: &Connection) {
     .unwrap();
 }
 
+fn seed_sales_ops(conn: &Connection) {
+    conn.execute_batch("INSERT INTO crm_opportunity_ownership VALUES(1,1,1,75);
+        INSERT INTO crm_sales_targets VALUES('2026-10',1,180);
+        INSERT INTO crm_lead_form VALUES(1,'11111111111111111111111111111111');
+        INSERT INTO crm_leads(id,submission_key,created_at,company_name,contact_name,email,owner_id) VALUES(1,'22222222222222222222222222222222',100,'Synthetic','Example','test@example.invalid',1);
+        INSERT INTO crm_call_followups(activity_id,work_id,owner_id,request_key,fingerprint) VALUES(1,1,1,'synthetic-followup-key',lower(hex(zeroblob(32))));
+        INSERT INTO crm_sync_links VALUES(lower(hex(zeroblob(32))),1,NULL);").unwrap();
+}
+
 fn assert_rows(
     snapshot: &ValidatedSnapshot,
     slug: Option<&str>,
@@ -175,6 +184,9 @@ fn real_service_streams_all_control_and_crm_rows_and_sequence_under_one_gate() {
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     let fixture = Fixture::new();
+    for server in [&fixture.alpha, &fixture.beta] {
+        seed_sales_ops(&connection(&server.endpoint()));
+    }
     let store = fixture.store();
     let temporary = tempfile::tempdir().unwrap();
     let destination = temporary.path().join("snapshot");

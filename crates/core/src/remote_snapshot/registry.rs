@@ -29,6 +29,30 @@ impl CrmTable {
             *self
         }
     }
+    /// Resolve the exact table and columns present in a supported CRM extension.
+    #[must_use]
+    pub fn for_version(&self, version: u32) -> Option<Self> {
+        if !matches!(version, 1..=3)
+            || (version < 3
+                && matches!(
+                    self.name,
+                    "crm_call_followups"
+                        | "crm_opportunity_ownership"
+                        | "crm_sales_targets"
+                        | "crm_lead_form"
+                        | "crm_leads"
+                        | "crm_sync_links"
+                ))
+        {
+            return None;
+        }
+        Some(if version == 1 {
+            self.legacy_v1()
+        } else {
+            *self
+        })
+    }
+
     /// Ordered primary-key columns used by later keyset readers.
     #[must_use]
     pub const fn key_columns(&self) -> &'static [&'static str] {
@@ -170,6 +194,62 @@ const TABLES: &[CrmTable] = &[
         name: "erased_corporate_numbers",
         columns: &["number_hash"],
         key_columns: &["number_hash"],
+    },
+    CrmTable {
+        name: "crm_call_followups",
+        columns: &[
+            "activity_id",
+            "work_id",
+            "owner_id",
+            "request_key",
+            "fingerprint",
+            "scheduled_by",
+        ],
+        key_columns: &["activity_id"],
+    },
+    CrmTable {
+        name: "crm_opportunity_ownership",
+        columns: &[
+            "opportunity_id",
+            "owner_override",
+            "owner_id",
+            "probability",
+        ],
+        key_columns: &["opportunity_id"],
+    },
+    CrmTable {
+        name: "crm_sales_targets",
+        columns: &["month", "owner_id", "amount_jpy"],
+        key_columns: &["month", "owner_id"],
+    },
+    CrmTable {
+        name: "crm_lead_form",
+        columns: &["id", "public_key"],
+        key_columns: &["id"],
+    },
+    CrmTable {
+        name: "crm_leads",
+        columns: &[
+            "id",
+            "submission_key",
+            "created_at",
+            "company_name",
+            "contact_name",
+            "email",
+            "message",
+            "owner_id",
+            "revision",
+            "state",
+            "company_id",
+            "contact_id",
+            "opportunity_id",
+        ],
+        key_columns: &["id"],
+    },
+    CrmTable {
+        name: "crm_sync_links",
+        columns: &["source_key", "activity_id", "work_item_id"],
+        key_columns: &["source_key"],
     },
 ];
 

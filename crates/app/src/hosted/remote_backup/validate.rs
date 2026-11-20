@@ -83,17 +83,22 @@ impl ValidatedSnapshot {
             .iter()
             .find(|tenant| tenant.slug == slug)
             .ok_or(INVALID)?;
-        let legacy = tenant.database.crm_extension_version.unwrap_or(1) == 1;
+        let version = tenant.database.crm_extension_version.unwrap_or(1);
+        let profile = meibo_core::remote_snapshot::crm_table(table).ok_or(INVALID)?;
+        if profile.for_version(version).is_none() {
+            return Ok(());
+        }
+        let legacy = version == 1;
         self.visit_rows(Some(slug), table, |values| {
             if legacy && table == "crm_opportunities" {
                 let mut row = values.to_vec();
                 row.push(Value::Null);
                 visitor(&row)
-            } else if legacy
+            } else if version < 3
                 && table == "meta"
                 && matches!(values.first(), Some(Value::Text(key)) if key == "crm_schema_version")
             {
-                visitor(&[values[0].clone(), Value::Text("2".into())])
+                visitor(&[values[0].clone(), Value::Text("3".into())])
             } else {
                 visitor(values)
             }
@@ -116,7 +121,7 @@ pub(in crate::hosted) fn validate(root: &Path) -> HostedResult<ValidatedSnapshot
 }
 
 fn header(manifest: &Manifest) -> HostedResult<()> {
-    if !matches!(manifest.version, 1 | 2)
+    if !matches!(manifest.version, 1..=3)
         || manifest.tenants.len() > MAX_TENANTS
         || !opaque_id(&manifest.service.instance)
         || !opaque_id(&manifest.service.database_id)
@@ -144,7 +149,7 @@ fn header(manifest: &Manifest) -> HostedResult<()> {
             || database.schema_version != 1
             || !matches!(
                 (manifest.version, database.crm_extension_version),
-                (1, None) | (2, Some(1 | 2))
+                (1, None) | (2, Some(1 | 2)) | (3, Some(1..=3))
             )
             || !matches!(database.data_origin.as_deref(), Some("real" | "synthetic"))
             || database.sequences.is_none()
@@ -156,7 +161,7 @@ fn header(manifest: &Manifest) -> HostedResult<()> {
         tables(
             database,
             &format!("tenants/{}", tenant.slug),
-            profile::crm(),
+            profile::crm_version(database.crm_extension_version.unwrap_or(1)),
         )?;
         previous = Some(&tenant.slug);
     }
@@ -212,7 +217,8 @@ fn contents(snapshot: &ValidatedSnapshot) -> HostedResult<()> {
     for tenant in &snapshot.manifest.tenants {
         entries(
             &root.join("tenants").join(&tenant.slug),
-            profile::crm().map(|profile| format!("{}.jsonl", profile.name)),
+            profile::crm_version(tenant.database.crm_extension_version.unwrap_or(1))
+                .map(|profile| format!("{}.jsonl", profile.name)),
         )?;
         check_database(snapshot, Some(&tenant.slug), &tenant.database)?;
     }
@@ -251,7 +257,9 @@ fn check_database(
             if table.name == "meta" {
                 metadata_row(&mut metadata, values)?;
             }
-            if table.name == "crm_opportunities" && database.crm_extension_version == Some(2) {
+            if table.name == "crm_opportunities"
+                && matches!(database.crm_extension_version, Some(2 | 3))
+            {
                 let Value::Integer(stage) = values[5] else {
                     return Err(INVALID.into());
                 };

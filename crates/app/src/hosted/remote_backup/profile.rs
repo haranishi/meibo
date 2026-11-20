@@ -48,22 +48,18 @@ pub(super) const CONTROL: &[Profile] = &[
 ];
 
 pub(super) fn crm() -> impl Iterator<Item = Profile> {
-    crm_version(2)
+    crm_version(3)
 }
 
 pub(super) fn crm_version(version: u32) -> impl Iterator<Item = Profile> {
-    crm_tables().iter().map(move |current| {
-        let table = if version == 1 {
-            current.legacy_v1()
-        } else {
-            *current
-        };
-        Profile {
+    crm_tables()
+        .iter()
+        .filter_map(move |table| table.for_version(version))
+        .map(|table| Profile {
             name: table.name(),
             columns: table.columns(),
             keys: table.key_columns(),
-        }
-    })
+        })
 }
 
 impl Profile {
@@ -85,7 +81,9 @@ impl Profile {
             .map(|(name, index)| {
                 let value = &values[index];
                 let valid = match *name {
-                    "key" | "slug" | "tenant" | "bucket" => matches!(value, Value::Text(_)),
+                    "key" | "slug" | "tenant" | "bucket" | "source_key" | "month" => {
+                        matches!(value, Value::Text(_))
+                    }
                     "number_hash" => matches!(value, Value::Blob(_)),
                     _ => matches!(value, Value::Integer(_)),
                 };

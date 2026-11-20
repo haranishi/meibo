@@ -90,7 +90,7 @@ pub(super) fn companies(engine: &Engine, query: &str) -> Reply {
     }))
 }
 
-fn current_time() -> Option<i64> {
+pub(super) fn current_time() -> Option<i64> {
     i64::try_from(SystemTime::now().duration_since(UNIX_EPOCH).ok()?.as_secs()).ok()
 }
 
@@ -409,8 +409,25 @@ pub(super) fn cancel_activity(
     }
 }
 
-pub(super) fn activity(engine: &mut Engine, id: CompanyId, body: &[u8]) -> Reply {
-    let Some(input) = parse_activity(id, body) else {
+pub(super) fn activity(
+    engine: &mut Engine,
+    id: CompanyId,
+    body: &[u8],
+    actor: Option<i64>,
+) -> Reply {
+    use sha2::{Digest, Sha256};
+    let Ok(mut data) = serde_json::from_slice::<Value>(body) else {
+        return Reply::error(400, "活動の入力内容を確認してください。");
+    };
+    let Some(object) = data.as_object_mut() else {
+        return Reply::error(400, "活動の入力内容を確認してください。");
+    };
+    let callback = match (object.remove("follow_up"), object.remove("request_key")) {
+        (None, None) => None,
+        (Some(Value::String(action)), Some(Value::String(key))) if action == "absence" => Some(key),
+        _ => return Reply::error(400, "再架電の設定を確認してください。"),
+    };
+    let Some(input) = parse_activity(id, &data) else {
         return Reply::error(400, "保存するメモ・状態・次回対応日を確認してください。");
     };
     // coreの詳細取得は消去行を返すため、書込み前も公開HTTP境界で拒否する。
@@ -430,14 +447,26 @@ pub(super) fn activity(engine: &mut Engine, id: CompanyId, body: &[u8]) -> Reply
             Err(error) => return engine_error(&error),
         }
     }
+    if let Some(key) = callback {
+        let fingerprint = format!(
+            "{:x}",
+            Sha256::digest(json!([id.0, actor, data]).to_string().as_bytes())
+        );
+        return match engine.crm_record_absence(&input, actor, &key, &fingerprint) {
+            Ok((activity, work, due)) => Reply::json(
+                200,
+                &json!({"ok":true,"activity_id":activity.0,"work_id":work,"due_at":due}),
+            ),
+            Err(error) => engine_error(&error),
+        };
+    }
     match engine.record_activity(&input) {
         Ok(_) => Reply::json(200, &json!({"ok":true})),
         Err(error) => engine_error(&error),
     }
 }
 
-fn parse_activity(id: CompanyId, body: &[u8]) -> Option<ActivityInput> {
-    let value: Value = serde_json::from_slice(body).ok()?;
+fn parse_activity(id: CompanyId, value: &Value) -> Option<ActivityInput> {
     let object = value.as_object()?;
     if object.keys().any(|key| {
         !matches!(
@@ -580,6 +609,10 @@ fn missing() -> Reply {
 pub(super) fn engine_error(error: &EngineError) -> Reply {
     match error {
         EngineError::NotFound => missing(),
+        EngineError::RevisionConflict => Reply::error(
+            409,
+            "先に保存された内容と異なります。現在の記録を確認してください。",
+        ),
         EngineError::ExcludedCompany => {
             Reply::error(409, "除外中の企業はこの画面から解除できません。")
         }

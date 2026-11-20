@@ -12,6 +12,26 @@ pub(super) struct ControlStore {
 }
 
 impl ControlStore {
+    pub(super) fn sales_members(&self, tenant: &str) -> HostedResult<Vec<Value>> {
+        let mut statement = self.conn.prepare("SELECT u.id,u.username FROM memberships m JOIN users u ON u.id=m.user_id
+            WHERE m.tenant=?1 AND m.role IN ('admin','editor') AND u.disabled=0 ORDER BY u.username,u.id")?;
+        let members = statement
+            .query_map([tenant], |r| {
+                Ok(json!({"id":r.get::<_,i64>(0)?,"name":r.get::<_,String>(1)?}))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(members)
+    }
+
+    pub(super) fn sales_member(&self, tenant: &str, user: i64) -> HostedResult<bool> {
+        Ok(self.conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM memberships m JOIN users u ON u.id=m.user_id
+            WHERE m.tenant=?1 AND m.user_id=?2 AND m.role IN ('admin','editor') AND u.disabled=0)",
+            (tenant, user),
+            |r| r.get(0),
+        )?)
+    }
+
     pub(super) fn tenant_exists(&self, slug: &str) -> HostedResult<bool> {
         Ok(self.conn.query_row(
             "SELECT EXISTS(SELECT 1 FROM tenants WHERE slug=?1)",

@@ -1,0 +1,67 @@
+{
+  "feature_name": "sales-operations",
+  "language": "ja",
+  "created_at": "2026-11-20",
+  "phase": "verified",
+  "approvals": {
+    "requirements": {
+      "generated": true,
+      "approved": true
+    },
+    "design": {
+      "generated": true,
+      "approved": true
+    },
+    "tasks": {
+      "generated": true,
+      "approved": true
+    }
+  },
+  "ready_for_implementation": true,
+  "basis": "User requested all four previously identified additions and autonomous execution under the existing harness.",
+  "requirement_test_trace": [
+    "20.1",
+    "20.2",
+    "20.3",
+    "20.4",
+    "20.5",
+    "20.6",
+    "20.7",
+    "20.8"
+  ],
+  "verification": {
+    "product_commit": "08327a144420c7f9af4151c1d6808959b5e5c04d",
+    "browser_cases": 24,
+    "viewport_widths": [
+      390,
+      768,
+      1440
+    ],
+    "provider_fixtures": [
+      "google",
+      "microsoft"
+    ],
+    "oauth_browser": "consent, sync, tab-close catch-up and disconnect with synthetic providers",
+    "self_hosted_container": "Linux arm64, isolated network, both consent flows and durable private volume after recreation",
+    "snapshot_compatibility": [
+      1,
+      2,
+      3
+    ],
+    "independent_experience_score_out_of_20": 18,
+    "independent_ui_score_out_of_20": 18,
+    "live_oauth_consent": "not exercised with a real provider account",
+    "standard_cloudflare_provider_sync": "disabled without durable credential storage",
+    "ci": "https://github.com/haranishi/meibo/pull/14/checks",
+    "rust_default": {
+      "passed": 369,
+      "ignored": 3
+    },
+    "rust_cloud": {
+      "passed": 543,
+      "ignored": 4
+    },
+    "worker_tests_passed": 180,
+    "msrv": "1.89.0, local and integration configurations, all targets"
+  }
+}

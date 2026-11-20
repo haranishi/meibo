@@ -215,25 +215,28 @@ fn cold_workspace_requests_one_stylesheet_and_one_ordered_script() {
             "/workspace.css",
             "text/css",
             "\n",
-            [
+            &[
                 "/style.css",
                 "/crm.css",
                 "/list-tools.css",
                 "/custom-fields.css",
                 "/call-mode.css",
-            ],
+            ][..],
         ),
         (
             "/workspace.js",
             "text/javascript",
             "\n;\n",
-            [
+            &[
                 "/custom-fields.js",
                 "/call-mode.js",
+                "/followups.js",
+                "/leads.js",
+                "/activity-sync.js",
                 "/app.js",
                 "/crm.js",
                 "/list-tools.js",
-            ],
+            ][..],
         ),
     ] {
         let (status, headers, result) = server.get(bundle);
@@ -243,11 +246,14 @@ fn cold_workspace_requests_one_stylesheet_and_one_ordered_script() {
                 .to_ascii_lowercase()
                 .contains(&format!("content-type: {mime}"))
         );
-        let original = parts.map(|path| {
-            let (status, _, content) = server.get(path);
-            assert_eq!(status, 200, "{path}");
-            content
-        });
+        let original = parts
+            .iter()
+            .map(|path| {
+                let (status, _, content) = server.get(path);
+                assert_eq!(status, 200, "{path}");
+                content
+            })
+            .collect::<Vec<_>>();
         assert_eq!(result, original.join(separator));
     }
 }

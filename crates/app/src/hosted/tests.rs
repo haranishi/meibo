@@ -1,3 +1,4 @@
+mod followups;
 use super::*;
 use meibo_core::{
     Engine, OpenOptions,
@@ -422,6 +423,85 @@ fn monthly_sales_report_allows_viewer_reads_and_isolates_tenants_and_corrections
             400
         );
     }
+}
+
+// Requirements 20.5 / 20.8: membership is checked on write; targets require an admin.
+#[test]
+fn forecast_owners_and_targets_obey_organization_membership_and_roles() {
+    let (_dir, mut store) = fixture();
+    for (user, tenant) in [("alpha-sales", "alpha"), ("beta-sales", "beta")] {
+        store.add_user(user, PASSWORD).unwrap();
+        store.set_member(user, tenant, Some(Role::Editor)).unwrap();
+    }
+    let mut app = Hosted::new(store, config());
+    let admin = login(&mut app.store, "alpha");
+    let viewer = login(&mut app.store, "beta");
+    let LoginOutcome::Success(sales) = app
+        .store
+        .login("alpha", "alpha-sales", PASSWORD, AT)
+        .unwrap()
+    else {
+        panic!("sales login")
+    };
+    let LoginOutcome::Success(other) = app.store.login("beta", "beta-sales", PASSWORD, AT).unwrap()
+    else {
+        panic!("other login")
+    };
+    let call = |app: &mut Hosted, who: &Login, method, path, body: serde_json::Value| {
+        app.dispatch(&request(path, method, Some(who), &body), AT)
+            .reply
+    };
+    let read = |app: &mut Hosted, who: &Login, path| {
+        let reply = call(app, who, "GET", path, serde_json::Value::Null);
+        assert_eq!(reply.status, 200);
+        serde_json::from_slice::<serde_json::Value>(&reply.body).unwrap()
+    };
+    let members = read(&mut app, &sales, "/api/sales-members");
+    assert_eq!(members["members"].as_array().unwrap().len(), 2);
+    let owner = members["current_user_id"].as_i64().unwrap();
+    let foreign_owner = read(&mut app, &other, "/api/sales-members")["current_user_id"]
+        .as_i64()
+        .unwrap();
+    let mut deal = json!({"company_id":1,"name":"合成営業案件","amount_jpy":200,"stage":2,"close_date":"2026-12-01","owner_id":foreign_owner,"probability":65});
+    assert_eq!(
+        call(&mut app, &sales, "POST", "/api/opportunities", deal.clone()).status,
+        400
+    );
+    deal["owner_id"] = json!(owner);
+    assert_eq!(
+        call(&mut app, &sales, "POST", "/api/opportunities", deal).status,
+        201
+    );
+    let target = json!({"month":"2026-12","owner_id":owner,"amount_jpy":500});
+    let targets = "/api/sales-targets";
+    assert_eq!(
+        call(&mut app, &sales, "POST", targets, target.clone()).status,
+        403
+    );
+    assert_eq!(
+        call(&mut app, &viewer, "POST", targets, target.clone()).status,
+        403
+    );
+    assert_eq!(
+        call(&mut app, &admin, "POST", targets, target.clone()).status,
+        200
+    );
+    let mut other_target = target;
+    other_target["owner_id"] = json!(foreign_owner);
+    assert_eq!(
+        call(&mut app, &admin, "POST", targets, other_target).status,
+        400
+    );
+    let report = "/api/sales-report?month=2026-12";
+    let group = &read(&mut app, &sales, report)["projections"][0];
+    assert_eq!(
+        (
+            group["projected_amount_jpy"].as_str(),
+            group["target_difference_jpy"].as_str()
+        ),
+        (Some("130"), Some("-370"))
+    );
+    assert_eq!(read(&mut app, &viewer, report)["projections"], json!([]));
 }
 
 #[test]

@@ -142,7 +142,14 @@ fn remote_backup_command_creates_a_verified_service_manifest() {
     assert_eq!(output.trim(), "backed-up");
     let manifest: Value =
         serde_json::from_slice(&std::fs::read(destination.join("manifest.json")).unwrap()).unwrap();
-    assert_eq!(manifest["version"], 2);
+    assert_eq!(manifest["version"], 3);
+    assert!(
+        manifest["tenants"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|t| t["database"]["crm_extension_version"] == 3)
+    );
     assert_eq!(manifest["tenants"].as_array().unwrap().len(), 2);
     assert_eq!(
         fixture

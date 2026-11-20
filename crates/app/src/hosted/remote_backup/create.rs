@@ -41,7 +41,7 @@ pub(super) fn run(
         });
     }
     let manifest = Manifest {
-        version: 2,
+        version: 3,
         service: Service {
             instance: store.instance().into(),
             database_id: store.database_id().into(),
@@ -175,21 +175,26 @@ fn tenant(
     identity: &RemoteIdentity,
 ) -> HostedResult<Database> {
     let prefix = format!("tenants/{slug}");
-    let mut writers = profile::crm()
-        .map(|table| RowWriter::new(root, &prefix, table.name))
-        .collect::<HostedResult<Vec<_>>>()?;
+    let mut writers = std::collections::BTreeMap::new();
     let (version, sequences) = engine.visit_versioned_crm_snapshot(|table, bytes| {
-        let index = profile::crm()
-            .position(|profile| profile.name == table.name())
-            .expect("compiled CRM table");
-        writers[index]
-            .write(bytes)
-            .map_err(|_| EngineError::Storage(Box::new(std::io::Error::other(INVALID))))
+        let io_error = |_| EngineError::Storage(Box::new(std::io::Error::other(INVALID)));
+        let writer = match writers.entry(table.name()) {
+            std::collections::btree_map::Entry::Occupied(entry) => entry.into_mut(),
+            std::collections::btree_map::Entry::Vacant(entry) => {
+                entry.insert(RowWriter::new(root, &prefix, table.name()).map_err(io_error)?)
+            }
+        };
+        writer.write(bytes).map_err(io_error)
     })?;
     let sequences: Sequences = serde_json::from_slice(&encode_crm_sequences(sequences)?)?;
-    let tables = writers
-        .into_iter()
-        .map(RowWriter::finish)
+    let tables = profile::crm_version(version)
+        .map(|profile| {
+            let writer = match writers.remove(profile.name) {
+                Some(writer) => writer,
+                None => RowWriter::new(root, &prefix, profile.name)?,
+            };
+            writer.finish()
+        })
         .collect::<HostedResult<Vec<Table>>>()?;
     Ok(Database {
         database_id: identity.database_id().into(),

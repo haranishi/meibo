@@ -1,0 +1,31 @@
+import { expect, test } from '@playwright/test';
+
+test('record a missed call and complete its callback after reloading the home page', async ({page}, testInfo) => {
+  const width = testInfo.project.use.viewport.width;
+  await page.goto('/');
+  const rows = page.locator('#company-rows tr');
+  await expect(rows.first()).toBeVisible();
+  const company = rows.nth({390:2,768:3,1440:4}[width]).getByRole('button').first();
+  const name = (await company.innerText()).trim();
+  await company.click();
+  const form = page.locator('#activity-form');
+  await form.getByLabel('不在のため再架電を予約').check();
+  await form.getByLabel('活動メモ').fill(`合成の再架電 ${width}`);
+  await form.getByLabel('活動日時（空欄は現在）').fill('2025-03-07T10:00');
+  await form.getByRole('button',{name:'架電の記録を保存'}).click();
+  await expect(page.locator('#record-workspace')).toContainText(`合成の再架電 ${width}`);
+  await page.reload();
+  await page.locator('nav [data-workspace="home"]').click();
+  const item = page.locator('#followup-items .home-list-item').filter({hasText:name});
+  await expect(item).toContainText('3/10');
+  const screenshot = testInfo.outputPath('synthetic-callbacks.png');
+  await page.screenshot({path:screenshot,fullPage:true});
+  await testInfo.attach('synthetic-callbacks',{path:screenshot,contentType:'image/png'});
+  await item.getByRole('button',{name:`${name}の再架電を完了`}).click();
+  await expect(item).toHaveCount(0);
+  await page.getByRole('button',{name:'メール・予定の連携',exact:true}).click();
+  const dialog=page.getByRole('dialog');
+  await expect(dialog).toContainText('Gmail');
+  await expect(dialog).toContainText('Outlook');
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+});

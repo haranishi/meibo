@@ -2,9 +2,10 @@
 use std::collections::BTreeMap;
 
 use super::{
-    Engine, EngineError, invalid, opportunity_filter, outcome_column, storage, valid_date,
+    Engine, EngineError, forecast::ForecastProjection, invalid, opportunity_filter, outcome_column,
+    storage, valid_date, version,
 };
-use crate::sql::params;
+use crate::sql::{Connection, params};
 use crate::types::UserId;
 
 /// 指定月に完了予定の未決着商談を、取引先の現在の担当でまとめた額面。
@@ -14,6 +15,43 @@ pub struct OwnerForecast {
     pub count: u64,
     /// 円単位。各商談はJavaScript安全整数、合計はそれを超え得る。
     pub amount_jpy: u128,
+}
+
+/// One salesperson's pipeline, actual wins and optional monthly target.
+#[derive(Default, Debug, Clone, PartialEq, Eq)]
+pub struct SalesProjection {
+    /// Actual sales decided this month.
+    pub won_amount_jpy: u128,
+    /// Face value of all open deals due this month.
+    pub open_amount_jpy: u128,
+    /// Open deals due this month, including those with unknown probability.
+    pub open_count: u64,
+    /// Sum of individually rounded, probability-weighted open deals.
+    pub weighted_amount_jpy: u128,
+    /// Open deals omitted from the weighted amount for lack of a probability.
+    pub unknown_probability_count: u64,
+    /// Optional monthly target. A zero target is distinct from no target.
+    pub target_jpy: Option<u64>,
+}
+
+impl SalesProjection {
+    /// Actual wins plus probability-weighted open opportunities.
+    #[must_use]
+    pub fn projected_amount_jpy(&self) -> u128 {
+        self.won_amount_jpy + self.weighted_amount_jpy
+    }
+
+    /// Projected amount minus target, with exact decimal serialization.
+    #[must_use]
+    pub fn target_difference_jpy(&self) -> Option<String> {
+        let target = u128::from(self.target_jpy?);
+        let projected = self.projected_amount_jpy();
+        Some(if projected < target {
+            format!("-{}", target - projected)
+        } else {
+            (projected - target).to_string()
+        })
+    }
 }
 
 /// 実際の決着日と完了予定日を区別した組織内の月次集計。
@@ -29,6 +67,8 @@ pub struct SalesReport {
     pub undated_count: u64,
     /// 未割当を含む担当別見込み。
     pub forecasts: BTreeMap<Option<UserId>, OwnerForecast>,
+    /// Actuals, weighted pipeline and targets by the opportunity's effective owner.
+    pub projections: BTreeMap<Option<UserId>, SalesProjection>,
 }
 
 impl SalesReport {
@@ -53,8 +93,10 @@ impl Engine {
         }
         let last = format!("{month}-31");
         let tx = self.db.conn().unchecked_transaction().map_err(storage)?;
-        let outcome = outcome_column(&tx)?;
-        let (visible, _) = opportunity_filter(None);
+        let crm_version = version(&tx)?;
+        let outcome = outcome_column(crm_version);
+        let projection = ForecastProjection::for_version(crm_version);
+        let (visible, _) = opportunity_filter(None, projection.join);
         let unknown_sql = format!("SELECT count(*) {visible} AND o.stage>=4 AND {outcome} IS NULL");
         let unknown: i64 = tx
             .query_row(&unknown_sql, [], |row| row.get(0))
@@ -66,9 +108,10 @@ impl Engine {
         // Each remote response stays bounded. u128 covers i64::MAX valid rows
         // at the maximum opportunity amount without SQLite SUM or float rounding.
         let sql = format!(
-            "SELECT o.id,o.stage,o.amount_jpy,c.owner_id {visible} AND o.id>?3
+            "SELECT o.id,o.stage,o.amount_jpy,c.owner_id,{},{} {visible} AND o.id>?3
             AND ((o.stage<4 AND o.close_date BETWEEN ?1 AND ?2)
-              OR (o.stage>=4 AND {outcome} BETWEEN ?1 AND ?2)) ORDER BY o.id LIMIT 500"
+              OR (o.stage>=4 AND {outcome} BETWEEN ?1 AND ?2)) ORDER BY o.id LIMIT 500",
+            projection.owner, projection.probability
         );
         let mut statement = tx.prepare(&sql).map_err(storage)?;
         let mut after = 0_i64;
@@ -82,16 +125,32 @@ impl Engine {
                 let stage: u8 = row.get(1).map_err(storage)?;
                 let amount = u128::try_from(row.get::<_, i64>(2).map_err(storage)?)
                     .map_err(|_| EngineError::Corrupt)?;
+                let owner = row.get::<_, Option<i64>>(4).map_err(storage)?.map(UserId);
                 match stage {
                     0..=3 => {
-                        let owner: Option<i64> = row.get(3).map_err(storage)?;
-                        let group = report.forecasts.entry(owner.map(UserId)).or_default();
+                        let company_owner: Option<i64> = row.get(3).map_err(storage)?;
+                        let group = report
+                            .forecasts
+                            .entry(company_owner.map(UserId))
+                            .or_default();
                         group.count += 1;
                         group.amount_jpy += amount;
+                        let sales = report.projections.entry(owner).or_default();
+                        sales.open_count += 1;
+                        sales.open_amount_jpy += amount;
+                        match row.get::<_, Option<u8>>(5).map_err(storage)? {
+                            Some(probability @ 0..=100) => {
+                                sales.weighted_amount_jpy +=
+                                    (amount * u128::from(probability) + 50) / 100;
+                            }
+                            None => sales.unknown_probability_count += 1,
+                            Some(_) => return Err(EngineError::Corrupt),
+                        }
                     }
                     4 => {
                         report.won_count += 1;
                         report.won_amount_jpy += amount;
+                        report.projections.entry(owner).or_default().won_amount_jpy += amount;
                     }
                     5 => report.lost_count += 1,
                     _ => return Err(EngineError::Corrupt),
@@ -103,7 +162,39 @@ impl Engine {
             }
         }
         drop(statement);
+        if crm_version >= 3 {
+            load_targets(&tx, month, &mut report)?;
+        }
         tx.rollback().map_err(storage)?;
         Ok(report)
+    }
+}
+
+fn load_targets(
+    conn: &Connection,
+    month: &str,
+    report: &mut SalesReport,
+) -> Result<(), EngineError> {
+    let mut after = 0;
+    let mut statement = conn.prepare(
+        "SELECT owner_id,amount_jpy FROM crm_sales_targets WHERE month=?1 AND owner_id>?2 ORDER BY owner_id LIMIT 500"
+    ).map_err(storage)?;
+    loop {
+        let mut rows = statement.query(params![month, after]).map_err(storage)?;
+        let mut count = 0;
+        while let Some(row) = rows.next().map_err(storage)? {
+            after = row.get::<_, i64>(0).map_err(storage)?;
+            let amount = u64::try_from(row.get::<_, i64>(1).map_err(storage)?)
+                .map_err(|_| EngineError::Corrupt)?;
+            report
+                .projections
+                .entry(Some(UserId(after)))
+                .or_default()
+                .target_jpy = Some(amount);
+            count += 1;
+        }
+        if count < 500 {
+            return Ok(());
+        }
     }
 }

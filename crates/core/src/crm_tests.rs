@@ -13,6 +13,9 @@ use std::{
 };
 use tempfile::TempDir;
 
+#[path = "crm/forecast_tests.rs"]
+mod forecast;
+
 struct MutableSpace(AtomicU64);
 
 impl crate::SpaceProbe for MutableSpace {
@@ -372,7 +375,7 @@ fn legacy_base_database_is_extended_atomically_and_future_extension_rejected() {
         .db
         .conn()
         .execute(
-            "UPDATE meta SET value='3' WHERE key='crm_schema_version'",
+            "UPDATE meta SET value='4' WHERE key='crm_schema_version'",
             [],
         )
         .unwrap();
@@ -380,8 +383,8 @@ fn legacy_base_database_is_extended_atomically_and_future_extension_rejected() {
     assert!(matches!(
         Engine::open(&path, &OpenOptions::default()),
         Err(EngineError::UnsupportedVersion {
-            found: 3,
-            supported: 2
+            found: 4,
+            supported: 3
         })
     ));
     let conn = Connection::open(&path).unwrap();
@@ -396,7 +399,7 @@ fn legacy_base_database_is_extended_atomically_and_future_extension_rejected() {
             |r| r.get(0),
         )
         .unwrap();
-    assert_eq!(marker, "3");
+    assert_eq!(marker, "4");
 }
 
 #[test]

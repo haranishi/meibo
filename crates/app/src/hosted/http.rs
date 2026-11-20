@@ -14,6 +14,7 @@ use super::{
     now,
     store::{MaintenanceGuard, engine_options},
 };
+use crate::server::leads;
 use crate::server::{Input, Reply};
 
 const MAX_JSON: usize = 1024 * 1024;
@@ -134,6 +135,7 @@ fn path(input: &Input) -> &str {
 fn limit(input: &Input) -> usize {
     match path(input) {
         "/auth/login" => 8192,
+        route if route.starts_with("/forms/") => leads::FORM_LIMIT,
         "/api/import" => MAX_IMPORT,
         _ => MAX_JSON,
     }
@@ -336,7 +338,15 @@ impl<S: HostedStorage> Hosted<S> {
     #[cfg(feature = "cloud")]
     fn access_user(&mut self, input: &Input, at: i64) -> Result<Option<String>, HostedReply> {
         if let Some(access) = &mut self.config.access {
-            if input.method == "GET" && path(input) == "/health" {
+            let public_asset = input.method == "GET"
+                && (matches!(
+                    path(input),
+                    "/health" | "/oauth/activity-return" | "/oauth/activity-return.js"
+                ) || matches!(
+                    input.target.as_str(),
+                    "/forms/intake.js" | "/forms/intake.css"
+                ));
+            if public_asset || leads::form_path(&input.target).is_some() {
                 return Ok(None);
             }
             let Some(token) = input.single_header("Cf-Access-Jwt-Assertion") else {
@@ -362,6 +372,14 @@ impl<S: HostedStorage> Hosted<S> {
     ) -> HostedResult<HostedReply> {
         let path = path(input);
         if input.method == "GET"
+            && let Some(reply) = crate::server::activity_sync::callback(path)
+        {
+            return Ok(reply.into());
+        }
+        if path.starts_with("/forms/") {
+            return self.public_intake(input, at);
+        }
+        if input.method == "GET"
             && let Some(reply) = super::public_entry::asset(path)
         {
             return Ok(reply.into());
@@ -370,20 +388,6 @@ impl<S: HostedStorage> Hosted<S> {
             ("GET", "/health") => return Ok(Reply::json(200, &json!({"ok":true})).into()),
             ("GET", "/login") => {
                 return Ok(super::public_entry::login(&self.config).into());
-            }
-            ("GET", "/login.js") => {
-                return Ok(Reply::text(
-                    "text/javascript; charset=utf-8",
-                    include_str!("../../ui/login.js"),
-                )
-                .into());
-            }
-            ("GET", "/login.css") => {
-                return Ok(Reply::text(
-                    "text/css; charset=utf-8",
-                    include_str!("../../ui/login.css"),
-                )
-                .into());
             }
             ("POST", "/auth/login") => return self.login(input, at, access_user),
             _ => {}
@@ -445,6 +449,9 @@ impl<S: HostedStorage> Hosted<S> {
         {
             return self.denied(&identity);
         }
+        if let Some(reply) = self.sales_access(input, &identity)? {
+            return Ok(reply);
+        }
         if path.starts_with("/auth/") {
             return Ok(error(404, "対象が見つかりません。"));
         }
@@ -454,6 +461,57 @@ impl<S: HostedStorage> Hosted<S> {
             return Ok(reply.into());
         }
         self.dispatch_crm(input, &identity)
+    }
+
+    fn public_intake(&mut self, input: &Input, at: i64) -> HostedResult<HostedReply> {
+        if input.method == "GET"
+            && let Some(asset) = leads::public_asset(&input.target)
+        {
+            return Ok(asset.into());
+        }
+        if let Some((tenant, key)) = leads::form_path(&input.target)
+            && self.store.tenant_exists(tenant)?
+        {
+            return Ok(leads::public_form(self.engine(tenant)?, key, input, at).into());
+        }
+        Ok(error(404, "この受付フォームは利用できません。"))
+    }
+
+    fn sales_access(
+        &self,
+        input: &Input,
+        identity: &Identity,
+    ) -> HostedResult<Option<HostedReply>> {
+        let path = path(input);
+        if path == "/api/lead-form" && identity.role != Role::Admin
+            || path == "/api/sales-targets"
+                && input.method == "POST"
+                && identity.role != Role::Admin
+            || identity.role == Role::Viewer
+                && (path == "/api/leads"
+                    || path.starts_with("/api/leads/")
+                    || path.starts_with("/api/activity-sync"))
+        {
+            return self.denied(identity).map(Some);
+        }
+        if path == "/api/sales-members" && input.method == "GET" && input.target == path {
+            return Ok(Some(Reply::json(200,&json!({"members":self.store.sales_members(&identity.tenant)?,"current_user_id":identity.user_id,"hosted":true})).into()));
+        }
+        if input.method == "POST"
+            && (path == "/api/sales-targets"
+                || path == "/api/opportunities"
+                || path.starts_with("/api/opportunities/")
+                || path.starts_with("/api/leads/"))
+            && let Ok(payload) = serde_json::from_slice::<Value>(&input.body)
+            && let Some(owner_id) = payload.get("owner_id").and_then(Value::as_i64)
+            && !self.store.sales_member(&identity.tenant, owner_id)?
+        {
+            return Ok(Some(error(
+                400,
+                "この組織で営業を担当できる利用者を選択してください。",
+            )));
+        }
+        Ok(None)
     }
 
     fn dispatch_crm(&mut self, input: &Input, identity: &Identity) -> HostedResult<HostedReply> {
@@ -473,7 +531,13 @@ impl<S: HostedStorage> Hosted<S> {
                 .headers
                 .push(("Content-Type".into(), content.into()));
         }
-        let mut reply = crate::server::dispatch(self.engine(&identity.tenant)?, &trusted, 0);
+        let mut reply = crate::server::dispatch_for_actor(
+            self.engine(&identity.tenant)?,
+            &trusted,
+            0,
+            Some(identity.user_id),
+            Some(&identity.scope),
+        );
         if self.store.remote() && self.poisoned() {
             return Ok(unknown());
         }

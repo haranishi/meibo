@@ -1,10 +1,12 @@
 //! 同梱画面から合成デモを操作する、loopback専用のHTTP入口。
+pub(crate) mod activity_sync;
 mod api;
 pub(crate) mod assets;
 mod calling;
 mod crm;
 mod custom_fields;
 mod import_ui;
+pub(crate) mod leads;
 pub(crate) mod public_api;
 
 use std::{
@@ -19,7 +21,9 @@ use tiny_http::{Header, Request, Response, Server, StatusCode};
 
 const MAX_BODY: usize = 1024 * 1024;
 fn body_limit(input: &Input) -> usize {
-    if input.target.split('?').next() == Some("/api/import") {
+    if input.target.starts_with("/forms/") {
+        leads::FORM_LIMIT
+    } else if input.target.split('?').next() == Some("/api/import") {
         import_ui::MAX_IMPORT_BODY
     } else {
         MAX_BODY
@@ -225,6 +229,17 @@ fn validate_boundary(input: &Input, port: u16) -> Result<(), Reply> {
 }
 
 pub(crate) fn dispatch(engine: &mut Engine, input: &Input, port: u16) -> Reply {
+    dispatch_for_actor(engine, input, port, None, None)
+}
+
+/// Identity is supplied by the authenticated runtime, never by an HTTP caller.
+pub(crate) fn dispatch_for_actor(
+    engine: &mut Engine,
+    input: &Input,
+    port: u16,
+    user_id: Option<i64>,
+    scope: Option<&str>,
+) -> Reply {
     if let Err(reply) = validate_boundary(input, port) {
         return reply;
     }
@@ -235,7 +250,37 @@ pub(crate) fn dispatch(engine: &mut Engine, input: &Input, port: u16) -> Reply {
         return Reply::error(405, "この操作には対応していません。");
     }
     let (path, query) = input.target.split_once('?').unwrap_or((&input.target, ""));
-    if let Some(reply) = public_api::dispatch(engine, input, path, query) {
+    if input.method == "GET"
+        && let Some(reply) = activity_sync::callback(path)
+    {
+        return reply;
+    }
+    if let Some(reply) = leads::dispatch(engine, input, path, query) {
+        return reply;
+    }
+    if let Some(reply) = activity_sync::dispatch(engine, input, path, query, scope) {
+        return reply;
+    }
+    if input.method == "GET" && path == "/api/followups" && query.is_empty() {
+        return match engine.crm_due_followups(user_id, api::current_time().unwrap_or_default()) {
+            Ok(page) => Reply::json(200, &json!(page)),
+            Err(e) => api::engine_error(&e),
+        };
+    }
+    if input.method == "GET"
+        && path == "/api/sales-members"
+        && user_id.is_none()
+        && query.is_empty()
+    {
+        return match engine.crm_local_owner_ids() {
+            Ok(ids) => Reply::json(
+                200,
+                &json!({"members":ids.into_iter().map(|id|json!({"id":id,"name":format!("担当 {id}")})).collect::<Vec<_>>(),"current_user_id":null,"hosted":false}),
+            ),
+            Err(e) => api::engine_error(&e),
+        };
+    }
+    if let Some(reply) = public_api::dispatch(engine, input, path, query, user_id) {
         return reply;
     }
     if let Some(reply) = calling::dispatch(engine, input, path, query) {
@@ -265,10 +310,16 @@ pub(crate) fn dispatch(engine: &mut Engine, input: &Input, port: u16) -> Reply {
             _ => {}
         }
     }
-    company_route(engine, input, path, query)
+    company_route(engine, input, path, query, user_id)
 }
 
-fn company_route(engine: &mut Engine, input: &Input, path: &str, query: &str) -> Reply {
+fn company_route(
+    engine: &mut Engine,
+    input: &Input,
+    path: &str,
+    query: &str,
+    user_id: Option<i64>,
+) -> Reply {
     if let Some(rest) = path.strip_prefix("/api/companies/") {
         if input.method == "POST" {
             let parts = rest.split('/').collect::<Vec<_>>();
@@ -310,7 +361,7 @@ fn company_route(engine: &mut Engine, input: &Input, path: &str, query: &str) ->
                 }
             }
             if let Some(id) = rest.strip_suffix("/activities").and_then(company_id) {
-                return api::activity(engine, id, &input.body);
+                return api::activity(engine, id, &input.body, user_id);
             }
         } else if let Some(id) = company_id(rest) {
             return api::detail(engine, id, query);

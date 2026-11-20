@@ -150,12 +150,7 @@ impl Db {
         drop(statement);
         let origin = validate_metadata(&metadata, identity)?;
         tx.prepare(SCHEMA_PROBE).map_err(storage)?;
-        let has_outcome: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM pragma_table_info('crm_opportunities') WHERE name='outcome_date')", [], |row| row.get(0)).map_err(storage)?;
-        if has_outcome
-            != (metadata["crm_schema_version"] == crate::crm::EXTENSION_VERSION.to_string())
-        {
-            return Err(EngineError::Corrupt);
-        }
+        verify_crm_extension(&tx, &metadata["crm_schema_version"])?;
         if opt.integrity == Integrity::Always {
             check_integrity(&tx, true)?;
         }
@@ -167,6 +162,51 @@ impl Db {
             opt: opt.clone(),
         })
     }
+}
+
+fn verify_crm_extension(conn: &Connection, version: &str) -> Result<(), EngineError> {
+    let additions = crate::remote_snapshot::crm_tables()
+        .iter()
+        .filter(|table| table.for_version(2).is_none())
+        .collect::<Vec<_>>();
+    let names = additions
+        .iter()
+        .map(|table| format!("'{}'", table.name()))
+        .collect::<Vec<_>>()
+        .join(",");
+    let probes=format!("SELECT EXISTS(SELECT 1 FROM pragma_table_info('crm_opportunities') WHERE name='outcome_date'),
+        (SELECT count(*) FROM sqlite_schema WHERE type='table' AND name IN ({names}))");
+    let (outcome, tables): (bool, i64) = conn
+        .query_row(&probes, [], |r| Ok((r.get(0)?, r.get(1)?)))
+        .map_err(storage)?;
+    let expected = if version == "3" {
+        i64::try_from(additions.len()).map_err(|_| EngineError::Corrupt)?
+    } else {
+        0
+    };
+    if outcome != (version != "1") || tables != expected {
+        return Err(EngineError::Corrupt);
+    }
+    if version == "3" {
+        // Verify every new physical column with a single prepared read and no rows.
+        let columns = additions
+            .iter()
+            .flat_map(|t| {
+                t.columns()
+                    .iter()
+                    .map(move |col| format!("{}.{col}", t.name()))
+            })
+            .collect::<Vec<_>>()
+            .join(",");
+        let tables = additions
+            .iter()
+            .map(|t| t.name())
+            .collect::<Vec<_>>()
+            .join(",");
+        conn.prepare(&format!("SELECT {columns} FROM {tables} LIMIT 0"))
+            .map_err(storage)?;
+    }
+    Ok(())
 }
 
 fn validate_config(identity: &RemoteIdentity, opt: &OpenOptions) -> Result<(), EngineError> {
@@ -210,7 +250,7 @@ fn validate_metadata(
         if found.to_string() != raw {
             return Err(EngineError::Corrupt);
         }
-        if key != "crm_schema_version" || found != 1 {
+        if key != "crm_schema_version" || !matches!(found, 1 | 2) {
             check_version(found, expected)?;
         }
     }
