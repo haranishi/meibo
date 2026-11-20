@@ -2,7 +2,7 @@
   "feature_name": "sales-operations",
   "language": "ja",
   "created_at": "2026-11-20",
-  "phase": "implemented",
+  "phase": "verified",
   "approvals": {
     "requirements": {
       "generated": true,
@@ -52,6 +52,16 @@
     "independent_ui_score_out_of_20": 18,
     "live_oauth_consent": "not exercised with a real provider account",
     "standard_cloudflare_provider_sync": "disabled without durable credential storage",
-    "ci": "https://github.com/haranishi/meibo/pull/14/checks"
+    "ci": "https://github.com/haranishi/meibo/pull/14/checks",
+    "rust_default": {
+      "passed": 369,
+      "ignored": 3
+    },
+    "rust_cloud": {
+      "passed": 543,
+      "ignored": 4
+    },
+    "worker_tests_passed": 180,
+    "msrv": "1.89.0, local and integration configurations, all targets"
   }
 }

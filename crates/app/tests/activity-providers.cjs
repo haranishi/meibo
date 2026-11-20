@@ -77,6 +77,10 @@ test("Google primary calendar handles all-day dates, cancellation, hide-private,
   const last=await run(request("google","calendar",first.cursor),async()=>success({items:[{id:"event",status:"cancelled"}],nextSyncToken:"delta"}));
   assert.equal(last.reconcile,true);assert.equal(first.epoch,last.epoch);
   assert.deepEqual(last.items,[{id:"event",kind:"removed_event"}]);
+  const incremental=await run(request("google","calendar",last.cursor),async()=>success({items:[{...appointment,id:"later"}],nextSyncToken:"newer"}));
+  assert.equal(incremental.reconcile,false);assert.equal(incremental.items[0].id,"later");
+  const unchanged=await run(request("google","calendar",incremental.cursor),async()=>success({items:[],nextSyncToken:"newer"}));
+  assert.equal(unchanged.reconcile,false);assert.deepEqual(unchanged.items,[]);
   const reset=await run(request("google","calendar",last.cursor),async uri=>{
     const u=new URL(uri);assert.equal(u.searchParams.get("syncToken"),"delta");assert.ok(!u.searchParams.has("timeMin"));return failed(410);
   });
@@ -105,6 +109,8 @@ test("Outlook primary calendar follows delta, revokes removed records and suppor
   });
   assert.equal(page.items[0].at,Date.parse(date)/1000);assert.equal(page.items[0].kind,"event");
   assert.equal(page.items[1].kind,"removed_event");assert.equal(page.reconcile,true);
+  const unchanged=await run(request("microsoft","calendar",page.cursor),async()=>success({value:[],"@odata.deltaLink":page.cursor.link}));
+  assert.equal(unchanged.reconcile,false);assert.deepEqual(unchanged.items,[]);
   const reset=await run(request("microsoft","calendar",page.cursor),async()=>failed(410));assert.equal(reset.more,true);
   for(const status of [400,404]) {
     const missing=await run(request("microsoft","calendar",page.cursor),async()=>({
