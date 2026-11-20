@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::BTreeMap,
     io::Write,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -8,8 +8,8 @@ use meibo_core::{
     Engine,
     types::{
         ActivityId, ActivityInput, ActivityKind, Company, CompanyId, CompanyInput, ContactId,
-        ContactInput, Cursor, DataOrigin, EngineError, Field, Filters, ListQuery, NextAction,
-        Region, SearchOptions, Sort, Status,
+        ContactInput, Cursor, DataOrigin, EngineError, Field, Filters, Industry, NextAction,
+        Status,
     },
 };
 use meibo_import::{ExportOptions, export_csv};
@@ -68,10 +68,10 @@ pub(super) fn summary(engine: &Engine) -> Reply {
 }
 
 pub(super) fn companies(engine: &Engine, query: &str) -> Reply {
-    let Some(parameters) = query_parameters(query) else {
+    let Some(mut parameters) = query_parameters(query) else {
         return Reply::error(400, "検索条件が正しくありません。");
     };
-    let limit = match parameters.get("limit") {
+    let limit = match parameters.remove("limit") {
         None => 50,
         Some(value) => match value.parse::<u32>() {
             Ok(value) if (1..=200).contains(&value) => value,
@@ -79,89 +79,19 @@ pub(super) fn companies(engine: &Engine, query: &str) -> Reply {
         },
     };
     let after = parameters
-        .get("after")
+        .remove("after")
         .filter(|value| !value.is_empty())
-        .map(|token| Cursor {
-            token: token.clone(),
-        });
-    let term = parameters.get("q").map_or("", |value| value.trim());
-    let Some((filters, sort)) = list_filters(&parameters) else {
-        return Reply::error(400, "表示するビューまたは絞り込み条件を確認してください。");
+        .map(|token| Cursor { token });
+    let Some(now) = current_time() else {
+        return Reply::error(500, "現在時刻を取得できませんでした。");
     };
-    let filtered = parameters.get("view").is_some_and(|view| view != "all")
-        || ["status", "prefecture", "has_phone"]
-            .iter()
-            .any(|key| parameters.contains_key(*key));
-    if !term.is_empty()
-        && (filtered || parameters.get("sort").is_some_and(|sort| sort != "default"))
-    {
-        return Reply::error(
-            400,
-            "社名検索はすべての取引先が対象です。ビューと絞り込みを解除してください。",
-        );
-    }
-    let result = if term.is_empty() {
-        engine.list(&ListQuery {
-            filters: filters.clone(), sort, after, limit, fields: vec![],
-        }).and_then(|page| {
-            let count = if parameters.get("after").is_none_or(String::is_empty) {
-                Some(engine.count(&filters)?.n)
-            } else { None };
-            Ok(json!({"rows":page.rows.iter().map(company_json).collect::<Vec<_>>(),"next":page.next.map(|cursor|cursor.token),"count":count}))
-        })
-    } else {
-        engine.search_name(term, &SearchOptions {
-            after, limit, fields: vec![], include_excluded: false, with_count: true,
-        }).map(|page| json!({"rows":page.rows.iter().map(company_json).collect::<Vec<_>>(),"next":page.next.map(|cursor|cursor.token),"count":page.n}))
-    };
-    respond(result)
+    respond(engine.calling_page(&parameters, after, limit, now).map(|page| {
+        json!({"rows":page.rows.iter().map(company_json).collect::<Vec<_>>(),"next":page.next.map(|cursor|cursor.token),"count":page.n})
+    }))
 }
 
 fn current_time() -> Option<i64> {
     i64::try_from(SystemTime::now().duration_since(UNIX_EPOCH).ok()?.as_secs()).ok()
-}
-
-fn list_filters(parameters: &HashMap<String, String>) -> Option<(Filters, Sort)> {
-    let mut filters = Filters::default();
-    match parameters.get("view").map_or("all", String::as_str) {
-        "all" => {}
-        "untouched" => filters.status = vec![Status::Untouched],
-        "negotiating" => filters.status = vec![Status::Negotiating],
-        "has_phone" => filters.has_phone = Some(true),
-        "scheduled" => filters.next_action_before = Some(i64::MAX),
-        "due" => filters.next_action_before = Some(current_time()?),
-        _ => return None,
-    }
-    if let Some(code) = parameters.get("status") {
-        let code = code.parse::<u8>().ok().filter(|code| *code <= 4)?;
-        filters.status = vec![Status::from_code(code)?];
-    }
-    if let Some(prefecture) = parameters.get("prefecture") {
-        let code = prefecture
-            .parse::<u8>()
-            .ok()
-            .filter(|code| (1..=47).contains(code))?;
-        filters.region = vec![Region::Prefecture(code)];
-    }
-    if let Some(value) = parameters.get("has_phone") {
-        filters.has_phone = Some(match value.as_str() {
-            "true" => true,
-            "false" => false,
-            _ => return None,
-        });
-    }
-    let sort = if filters.next_action_before.is_some() {
-        Sort::NextAction
-    } else {
-        Sort::ShapeDefault
-    };
-    let sort = match parameters.get("sort").map(String::as_str) {
-        None | Some("default") => sort,
-        Some("next_action") => Sort::NextAction,
-        Some("last_activity") => Sort::LastActivityDesc,
-        _ => return None,
-    };
-    Some((filters, sort))
 }
 
 pub(super) fn create_company(engine: &mut Engine, body: &[u8]) -> Reply {
@@ -291,19 +221,52 @@ pub(super) fn detail(engine: &Engine, id: CompanyId, query: &str) -> Reply {
             _ => return Reply::error(400, "詳細の表示指定を確認してください。"),
         }
     }
-    let result = engine.company_detail(id, &fields).and_then(|detail| {
-        if detail.company.erased_at.is_some() { return Err(EngineError::NotFound); }
-        let contacts = detail.contacts.iter().filter(|contact| contact.erased_at.is_none()).map(|contact|json!({
-            "id":contact.id.0,"name":contact.name,"phone":contact.phone,"email":contact.email,
-        })).collect::<Vec<_>>();
-        let activities = detail.activities.iter().map(|activity|json!({
+    respond(
+        engine
+            .company_detail(id, &fields)
+            .and_then(|detail| detail_json(&detail, &fields)),
+    )
+}
+
+pub(super) fn call_candidate(engine: &Engine, id: CompanyId, query: &str) -> Reply {
+    let Some(conditions) = query_parameters(query) else {
+        return Reply::error(400, "検索条件が正しくありません。");
+    };
+    let Some(now) = current_time() else {
+        return Reply::error(500, "現在時刻を取得できませんでした。");
+    };
+    respond(
+        engine
+            .call_candidate(id, &conditions, now)
+            .and_then(|candidate| match candidate {
+                Some(detail) => detail_json(&detail, &[]),
+                None => Ok(json!({"company":null})),
+            }),
+    )
+}
+
+fn detail_json(detail: &meibo_core::types::Detail, fields: &[Field]) -> Result<Value, EngineError> {
+    if detail.company.erased_at.is_some() {
+        return Err(EngineError::NotFound);
+    }
+    let contacts = detail
+        .contacts
+        .iter()
+        .filter(|contact| contact.erased_at.is_none())
+        .map(|contact| {
+            json!({
+                "id":contact.id.0,"name":contact.name,"phone":contact.phone,"email":contact.email,
+            })
+        })
+        .collect::<Vec<_>>();
+    let activities = detail.activities.iter().map(|activity|json!({
             "id":activity.id.0,"kind":activity.kind.code(),"at":activity.at,"contact_id":activity.contact.map(|id|id.0),
             "note":if activity.note_erased_at.is_none() {activity.note.as_deref()} else {None},
             "status_after":activity.status_after.map(Status::code),"reverses_id":activity.reverses.map(|id|id.0),
         })).collect::<Vec<_>>();
-        Ok(json!({"company":company_json(&detail.company),"contacts":contacts,"activities":activities,"contacts_revealed":fields.contains(&Field::ContactName)}))
-    });
-    respond(result)
+    Ok(
+        json!({"company":company_json(&detail.company),"contacts":contacts,"activities":activities,"contacts_revealed":fields.contains(&Field::ContactName)}),
+    )
 }
 
 fn active_company(
@@ -542,7 +505,7 @@ fn company_json(company: &Company) -> Value {
     json!({
         "id":company.id.0,"name":company.name,"corporate_number":company.corporate_number,
         "prefecture":company.prefecture,"municipality":company.municipality,
-        "phone":company.phone,"website":company.website,"status":company.status.code(),
+        "phone":company.phone,"website":company.website,"industry":company.industry.map(Industry::code),"status":company.status.code(),
         "owner":company.owner.map(|owner|owner.0),"last_activity_at":company.last_activity_at,
         "next_action_at":company.next_action_at,"is_sole_proprietor":company.is_sole_proprietor,
         "source_id":company.source_id,"source_as_of":company.source_as_of,
@@ -614,7 +577,7 @@ fn missing() -> Reply {
     Reply::error(404, "対象が見つかりません。")
 }
 
-fn engine_error(error: &EngineError) -> Reply {
+pub(super) fn engine_error(error: &EngineError) -> Reply {
     match error {
         EngineError::NotFound => missing(),
         EngineError::ExcludedCompany => {
@@ -636,8 +599,8 @@ fn engine_error(error: &EngineError) -> Reply {
     }
 }
 
-fn query_parameters(query: &str) -> Option<HashMap<String, String>> {
-    let mut parameters = HashMap::new();
+fn query_parameters(query: &str) -> Option<BTreeMap<String, String>> {
+    let mut parameters = BTreeMap::new();
     for pair in query.split('&').filter(|pair| !pair.is_empty()) {
         let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
         let key = decode_component(key)?;

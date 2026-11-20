@@ -221,7 +221,7 @@ impl Db {
         {
             let needs_extension: bool = conn
                 .query_row(
-                    "SELECT (SELECT COUNT(*) FROM meta WHERE key IN ('crm_schema_version','custom_fields_schema_version','public_data_schema_version'))<>3",
+                    "SELECT (SELECT COUNT(*) FROM meta WHERE key IN ('crm_schema_version','custom_fields_schema_version','public_data_schema_version'))<>3 OR EXISTS(SELECT 1 FROM meta WHERE key='crm_schema_version' AND value='1')",
                     [],
                     |row| row.get(0),
                 )

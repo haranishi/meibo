@@ -1,6 +1,6 @@
-//! Bounded CSV import for the synthetic local workspace.
+//! Bounded company registration and contact supplementation for the current workspace.
 use meibo_core::{DuplicatePolicy, Engine};
-use meibo_import::{Encoding, ImportOptions, import_csv};
+use meibo_import::{Encoding, ImportOptions, import_csv, supplement_contacts};
 use serde_json::json;
 
 use super::Reply;
@@ -12,7 +12,28 @@ pub(super) fn import_csv_request(engine: &mut Engine, query: &str, body: &[u8]) 
         return Reply::error(413, "CSVファイルは32MiB以下にしてください。");
     }
     let Some(options) = parse_options(query) else {
-        return Reply::error(400, "文字コードと重複時の処理を確認してください。");
+        return Reply::error(
+            400,
+            "取込方法、文字コード、重複時の処理を確認してください。",
+        );
+    };
+    let options = match options {
+        CsvAction::Register(options) => options,
+        CsvAction::Supplement(encoding) => {
+            return match supplement_contacts(engine, body, encoding) {
+                Ok(report) => Reply::json(
+                    200,
+                    &json!({"ok":true,"updated":report.updated,
+                "skipped":report.skipped,"partial_committed":false,"row":null}),
+                ),
+                Err(error) => Reply::json(
+                    422,
+                    &json!({"ok":false,"error":error.to_string(),
+                "row":error.row,"updated":error.report.updated,"skipped":error.report.skipped,
+                "partial_committed":error.report.updated > 0}),
+                ),
+            };
+        }
     };
     match import_csv(engine, body, options) {
         Ok(report) => Reply::json(
@@ -29,13 +50,20 @@ pub(super) fn import_csv_request(engine: &mut Engine, query: &str, body: &[u8]) 
     }
 }
 
-fn parse_options(query: &str) -> Option<ImportOptions> {
+enum CsvAction {
+    Register(ImportOptions),
+    Supplement(Encoding),
+}
+
+fn parse_options(query: &str) -> Option<CsvAction> {
     let mut options = ImportOptions::default();
     let mut encoding = false;
     let mut duplicate = false;
+    let mut mode = None;
     for pair in query.split('&').filter(|pair| !pair.is_empty()) {
         let (key, value) = pair.split_once('=')?;
         match (key, value) {
+            ("mode", "supplement" | "register") if mode.is_none() => mode = Some(value),
             ("encoding", "utf8") if !encoding => {
                 options.encoding = Encoding::Utf8;
                 encoding = true;
@@ -55,7 +83,11 @@ fn parse_options(query: &str) -> Option<ImportOptions> {
             _ => return None,
         }
     }
-    Some(options)
+    match (mode, duplicate) {
+        (Some("supplement"), true) => None,
+        (Some("supplement"), false) => Some(CsvAction::Supplement(options.encoding)),
+        _ => Some(CsvAction::Register(options)),
+    }
 }
 
 #[cfg(test)]
@@ -133,6 +165,41 @@ mod tests {
         assert_eq!(engine.count(&Filters::default()).unwrap().n, 500);
     }
 
+    #[test]
+    fn contact_supplement_uses_the_existing_workspace_and_can_be_replayed() {
+        let (_dir, mut engine) = fixture();
+        let company =
+            b"origin,name,prefecture,corporate_number\nsynthetic,Example,05,6600000000000\n";
+        assert_eq!(import_csv_request(&mut engine, "", company).status, 200);
+        let csv = b"source,corporate_number,phone,website,industry\nsynthetic,6600000000000,03-0000-0000,,F\n";
+        let query = "mode=supplement&encoding=utf8";
+        let reply = import_csv_request(&mut engine, query, csv);
+        assert_eq!(
+            (reply.status, result(&reply)["updated"].as_u64()),
+            (200, Some(1))
+        );
+        assert_eq!(
+            result(&import_csv_request(&mut engine, query, csv))["skipped"],
+            1
+        );
+        let wrong = b"source,corporate_number,phone,website,industry\nfirst_party,6600000000000,03-0000-0000,,F\n";
+        let rejected = import_csv_request(&mut engine, query, wrong);
+        assert_eq!(
+            (rejected.status, result(&rejected)["row"].as_u64()),
+            (422, Some(2))
+        );
+        assert_eq!(
+            engine
+                .count(&Filters {
+                    has_phone: Some(true),
+                    ..Filters::default()
+                })
+                .unwrap()
+                .n,
+            1
+        );
+    }
+
     // CRM essentials 10: validate the whole-file limit and reject ambiguous options before writing.
     #[test]
     fn oversized_csv_and_unknown_or_repeated_options_are_rejected() {
@@ -142,6 +209,9 @@ mod tests {
             "duplicate=skip&duplicate=error",
             "encoding=auto",
             "other=value",
+            "mode=supplement&duplicate=skip",
+            "mode=other",
+            "mode=supplement&mode=register",
         ] {
             assert_eq!(import_csv_request(&mut engine, query, b"").status, 400);
         }

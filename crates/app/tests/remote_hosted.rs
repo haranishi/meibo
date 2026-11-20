@@ -142,7 +142,7 @@ fn remote_backup_command_creates_a_verified_service_manifest() {
     assert_eq!(output.trim(), "backed-up");
     let manifest: Value =
         serde_json::from_slice(&std::fs::read(destination.join("manifest.json")).unwrap()).unwrap();
-    assert_eq!(manifest["version"], 1);
+    assert_eq!(manifest["version"], 2);
     assert_eq!(manifest["tenants"].as_array().unwrap().len(), 2);
     assert_eq!(
         fixture
@@ -161,12 +161,14 @@ impl Drop for Web {
 }
 
 #[test]
+// REQ 19.6
 fn remote_restore_command_uses_explicit_empty_targets_and_new_service_identity() {
     let _guard = FIXTURES
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     let source = Fixture::new();
     source.setup();
+    let calling_list = save_fixture_calling_list(&source);
     let target = Fixture::new();
     let target_config = target.directory.path().join("target.json");
     let references = std::fs::read_to_string(&target.config)
@@ -205,6 +207,7 @@ fn remote_restore_command_uses_explicit_empty_targets_and_new_service_identity()
             .unwrap()
     };
     assert_ne!(identity(&source), identity(&target));
+    assert_restored_calling_list(&target, &calling_list);
     assert_eq!(
         target
             .connection()
@@ -213,6 +216,28 @@ fn remote_restore_command_uses_explicit_empty_targets_and_new_service_identity()
         3
     );
 }
+fn save_fixture_calling_list(fixture: &Fixture) -> Value {
+    let web = Web::start(fixture);
+    let admin = web.login("alpha", "admin", PASSWORD);
+    let body = json!({"name":"合成架電先","conditions":{"q":"会社","prefecture":"5","has_phone":"true","view":"untouched"}});
+    let saved = web.request("POST", "/api/calling-lists", Some(&admin), &body);
+    assert_eq!(saved.status, 201);
+    saved.body
+}
+
+fn assert_restored_calling_list(fixture: &Fixture, expected: &Value) {
+    let web = Web::start(fixture);
+    for (tenant, user, lists) in [
+        ("alpha", "viewer", json!([expected])),
+        ("beta", "editor", json!([])),
+    ] {
+        let auth = web.login(tenant, user, PASSWORD);
+        let response = web.request("GET", "/api/calling-lists", Some(&auth), &Value::Null);
+        assert_eq!(response.status, 200);
+        assert_eq!(response.body["lists"], lists);
+    }
+}
+
 impl Web {
     fn start(fixture: &Fixture) -> Self {
         let mut child = fixture

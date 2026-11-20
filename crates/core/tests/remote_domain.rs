@@ -657,3 +657,26 @@ fn lost_commit_response_preserves_unknown_outcome_and_poison_without_cleanup_or_
         assert_eq!(proxy.requests(), requests);
     });
 }
+
+#[test]
+// REQ 19.4, REQ 19.5
+fn sales_report_scans_beyond_one_remote_response_without_losing_a_yen() {
+    with_database(DataOrigin::Synthetic, |mut engine, conn, _server| {
+        let mut company = support::company();
+        company.owner = None;
+        let id = engine.register_company(&company).unwrap();
+        let amount = meibo_core::crm::MAX_AMOUNT_JPY;
+        conn.execute(
+            "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n WHERE i<10001)
+             INSERT INTO crm_opportunities(company_id,name,amount_jpy,stage,close_date,created_at,updated_at)
+             SELECT ?1,'synthetic',?2,0,'2026-12-31',0,0 FROM n", (id.0,amount)
+        ).unwrap();
+        let report = engine.crm_sales_report("2026-12").unwrap();
+        assert_eq!(report.forecasts[&None].count, 10001);
+        assert_eq!(
+            report.forecasts[&None].amount_jpy,
+            10001 * u128::try_from(amount).unwrap()
+        );
+        assert_eq!(report.win_rate_percent(), None);
+    });
+}

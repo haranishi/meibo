@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { lstat, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -6,6 +6,7 @@ import { request as httpRequest } from "node:http";
 import { runtimeEnvironment } from "../src/container.ts";
 import { validatePublicOrigin } from "../src/boundary.ts";
 import { readPrivateJson } from "./preflight-input.mjs";
+import { planFingerprint } from "./preflight.mjs";
 import { ProviderError } from "./providers.mjs";
 import { capture, cloudRoot, projectRoot, wrangler } from "./runtime-io.mjs";
 
@@ -106,6 +107,17 @@ export async function verifyOci(path, info, expectedDigest, secretValues) {
   return { digest: descriptor.digest, configDigest };
 }
 
+export function verifiedLoginMode(runtime, origin, login) {
+  requireArtifact(login.headers["content-security-policy"] && String(login.headers["cache-control"]).includes("no-store"));
+  if (Object.hasOwn(runtime, "MEIBO_ACCESS_CONFIG")) {
+    requireArtifact(login.status === 401 && !login.body.includes('id="login-password"'));
+    return "cloudflare-access";
+  }
+  requireArtifact(login.status === 200 && login.body.includes('id="login-password"')
+    && login.body.includes('id="login-submit"') && login.body.includes(origin));
+  return "password";
+}
+
 /** Read-only boot proof with the exact immutable image config. The container is
  * private, synthetic/approved DB selection is explicit, and no update is sent. */
 export async function bootImage(image, plan, secrets) {
@@ -130,18 +142,14 @@ export async function bootImage(image, plan, secrets) {
     }
     requireArtifact(ready);
     const login = await containerProbe(address, new URL(plan.origin).host, "/login");
-    const text = login.body;
-    const access = Object.hasOwn(runtime, "MEIBO_ACCESS_CONFIG");
-    requireArtifact((access ? login.status === 401 && !text.includes('id="login-password"')
-      : login.status === 200 && text.includes('id="login-submit"') && text.includes(plan.origin))
-      && login.headers["content-security-policy"] && String(login.headers["cache-control"]).includes("no-store"));
+    const authenticationMode = verifiedLoginMode(runtime, plan.origin, login);
     const configMode = await capture(docker, ["exec", id, "stat", "-c", "%a:%u", "/tmp/meibo-remote.json"]);
     requireArtifact(configMode === "600:10001");
-    if (access) {
+    if (authenticationMode === "cloudflare-access") {
       const accessMode = await capture(docker, ["exec", id, "stat", "-c", "%a:%u", "/tmp/meibo-access.json"]);
       requireArtifact(accessMode === "600:10001");
     }
-    return { bootVerified: true, nonRootUid: 10001 };
+    return { bootVerified: true, nonRootUid: 10001, authenticationMode };
   } finally {
     await capture(docker, ["stop", "--time", "30", id], { timeout: 45000 });
     await capture(docker, ["rm", id]);
@@ -182,24 +190,49 @@ export async function verifyArtifacts(plan, secrets, image, out) {
     const bundle = await workerBundle(join(scratch, "bundle"));
     requireArtifact(bundle.sha256 === plan.bundleSha256
       && sha256(await readFile(join(out, "bundle/index.js"))) === plan.bundleSha256);
-    const boot = await bootImage(info.Id, plan, secrets);
+    const { authenticationMode, ...boot } = await bootImage(info.Id, plan, secrets);
     requireArtifact((await sourceSnapshot()).sourceRevision === plan.sourceRevision);
     return {
       image: { os: "linux", architecture: "amd64", digest: plan.imageDigest, sourceRevision: plan.sourceRevision,
         ...boot, credentialsInImage: false },
       bundle: { sha256: bundle.sha256, sourceRevision: plan.sourceRevision, buildVerified: true },
       imageConfigDigest: imageConfigDigest(info),
+      authenticationMode,
     };
   } finally { await rm(scratch, { recursive: true, force: true }); }
 }
 
+/** Verify the prepared directory with the operator's selected fixture. A
+ * receipt records this boot only; publication always collects fresh evidence. */
+export async function verifyArtifactCommand(args, verify = verifyArtifacts) {
+  if (args.length !== 6 || args[0] !== "--artifacts" || args[2] !== "--secrets" || args[4] !== "--image") {
+    throw new ProviderError("invalid_input");
+  }
+  const out = resolve(args[1]);
+  await privateDirectory(out);
+  const plan = await readPrivateJson(join(out, "plan.json"));
+  const secrets = await readPrivateJson(args[3]);
+  const { image, bundle, imageConfigDigest, authenticationMode } = await verify(plan, secrets, args[5], out);
+  const report = `local-boot-${randomUUID()}.json`;
+  await writePrivate(join(out, report), {
+    version: 1, kind: "local-boot", checkedAtMs: Date.now(), planSha256: planFingerprint(plan, secrets),
+    image, bundle, imageConfigDigest, authenticationMode, deploymentAuthorized: false,
+  });
+  return { ok: true, report, deployed: false, deploymentAuthorized: false };
+}
+
+async function artifactCommand(args) {
+  if (args[0] === "verify") return verifyArtifactCommand(args.slice(1));
+  if (args.length !== 8 || args[0] !== "--plan" || args[2] !== "--secrets" || args[4] !== "--image" || args[6] !== "--out") throw new ProviderError("invalid_input");
+  const plan = await readPrivateJson(args[1]), secrets = await readPrivateJson(args[3]);
+  await prepareArtifacts(plan, secrets, args[5], resolve(args[7]));
+  return { ok: true, prepared: true, deployed: false };
+}
+
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
-    const args = process.argv.slice(2);
-    if (args.length !== 8 || args[0] !== "--plan" || args[2] !== "--secrets" || args[4] !== "--image" || args[6] !== "--out") throw new ProviderError("invalid_input");
-    const plan = await readPrivateJson(args[1]), secrets = await readPrivateJson(args[3]);
-    await prepareArtifacts(plan, secrets, args[5], resolve(args[7]));
-    process.stdout.write(`${JSON.stringify({ ok: true, prepared: true, deployed: false })}\n`);
+    const result = await artifactCommand(process.argv.slice(2));
+    process.stdout.write(`${JSON.stringify(result)}\n`);
   } catch (error) {
     process.stderr.write(`${JSON.stringify({ ok: false, code: error instanceof ProviderError ? error.code : "artifact", deployed: false })}\n`);
     process.exitCode = 1;

@@ -12,7 +12,7 @@ APIの引数からDBパスや組織を選ぶことはできません。独立し
 |---|---|
 | `limit` | 1〜200、既定50 |
 | `after` | 前の応答の `next` をURLエンコードして指定 |
-| `q` | 社名の部分一致。ビュー・絞込・明示ソートとの併用不可 |
+| `q` | 社名の部分一致。ビュー・絞込条件を同時に指定でき、指定した順序で返る |
 | `view` | `all/untouched/negotiating/has_phone/scheduled/due` |
 | `status` | 営業状態0〜4 |
 | `prefecture` | 都道府県コード1〜47 |

@@ -37,7 +37,9 @@
   - _Requirements: 1.1, 2.4, 2.5, 4.1, 4.2, 5.4_
 
 - [ ] 2.2 実Workerと実行物を結合し、検査した対象へ公開する
-  - _Blocked: 2026-11-11の実照会でもWorkers Paid契約が必要。Turso CLI再認証後の実接続・最新sourceの実行物検証が未完了。ローカル同期とPRマージを公開成功と扱わない。_
+  - 2026-11-20、指定先の管理APIでWorkers Paidが必要なことと、公開用Workerが未作成であることを確認した。Tursoの6個のDBは、管理API・CLI・保存済み設定でprimaryが一致した。保存済みのDB専用トークンは6個とも期限切れ。実配備と公開後の本人ログインは保留。
+  - 同日、6個のDBに限定した後継トークンで、それぞれのprimaryへの疎通と容量を確認した。指定先への実配備はWorkers Paidの契約と、Cloudflare Accessの招待設定を再確認したあとに行う。
+  - `artifacts:verify` で、配備前に合成DBを使ってソース・イメージ・Workerを照合し、起動時の認証方式を記録できる。[実行手順](../../../docs/hosting-cloudflare.md)。
   - boundary/coordinatorを実Worker/DO exportへ結合し、Linux/amd64 imageのbuild・inspect・実起動、Worker bundle、起動/復旧入口を検証する。
   - 最新の提供者照会と実artifactから得た結果を2.1の同じ検査実装へ渡し、対象・設定・digestを対応付ける。fixture、未検証、変更後の古い結果では公開しない。
   - 条件成立後に指定accountだけへ秘密を標準入力で登録し、配備対象のimage digest/Worker version/公開先を記録する。既定先へのfallbackや新規契約は行わない。
@@ -46,6 +48,8 @@
   - _Requirements: 1.1, 2.4, 2.5, 4.1, 4.2, 4.3, 4.4, 5.1, 5.4_
 
 - [ ] 2.3 同じ検査をローカルと公開先で実行する
+  - チーム営業版の最終イメージでも、旧バックアップと新しい営業記録を復元した。合成の2組織で各3権限の再ログイン、共有リスト・連絡先・受注実績・担当別見込みを確認した。[営業機能の検証](../team-sales-workspace/tasks.md)
+  - 2026-11-20、WranglerのHTTPS入口から合成2組織・3権限で操作できた。休止・再起動・再作成後のセッションと履歴、別DBへの復元後の6通りのログインと保存内容を確認した。バックアップ中断時はロックが再起動後も維持され、管理CLIによる明示解除後に復旧した。[結合検証の記録](../../../docs/hosting-cloudflare-verification.md)
   - remote-storage/team-accessの合成2組織3権限を使い、HTTPS入口・認証・CSRF/context・拒否・旧tabの試験を統合する。
   - 同一のcontrol/CRMについて、休止・再起動・container再作成後の保持を確認する。新しいDBへのbackup/restore後に再ログインし、件数と内容を照合する。
   - 結果不明の要求と占有gateで処理が拒否されること、default/cloudの品質検査とamd64 image/Worker bundleを確認する。

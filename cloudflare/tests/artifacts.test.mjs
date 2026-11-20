@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import http from "node:http";
-import { containerProbe, sha256, verifyOci } from "../scripts/artifacts.mjs";
+import { containerProbe, sha256, verifiedLoginMode, verifyArtifactCommand, verifyOci } from "../scripts/artifacts.mjs";
+import { planFingerprint } from "../scripts/preflight.mjs";
 
 async function fixture(t, layerBytes = Buffer.from("synthetic layer data")) {
   const root = await mkdtemp(join(tmpdir(), "meibo-oci-"));
@@ -76,4 +77,58 @@ test("the actual container probe preserves the public Host and refuses redirects
 });
 test("the private container probe rejects an external destination", () => {
   assert.throws(() => containerProbe("http://untrusted.invalid:4317", "meibo-beta.fixture.workers.dev", "/health"));
+});
+
+test("the boot probe identifies the login mode by its configuration and HTTP response", () => {
+  const origin = "https://meibo.example.test";
+  const headers = { "cache-control": "no-store", "content-security-policy": "default-src 'self'" };
+  const passwordLogin = { status: 200, headers, body: `${origin}<input id="login-password"><button id="login-submit">` };
+  const accessLogin = { status: 401, headers, body: "Cloudflareでログインし直してください。" };
+  const access = { MEIBO_ACCESS_CONFIG: "synthetic" };
+  assert.equal(verifiedLoginMode({}, origin, passwordLogin), "password");
+  assert.equal(verifiedLoginMode(access, origin, accessLogin), "cloudflare-access");
+  assert.throws(() => verifiedLoginMode(access, origin, passwordLogin));
+  assert.throws(() => verifiedLoginMode({}, origin, accessLogin));
+});
+
+test("local boot checks the prepared plan on every run and preserves earlier evidence on failure", async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), "meibo-local-boot-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const plan = { sourceRevision: "1".repeat(64), imageDigest: `sha256:${"2".repeat(64)}`,
+    bundleSha256: "3".repeat(64), origin: "https://meibo.example.test" };
+  const secrets = { MEIBO_DB_TOKEN: "synthetic-secret-for-local-boot" };
+  const secretFile = join(dir, "fixture.json"), planFile = join(dir, "plan.json");
+  await writeFile(planFile, JSON.stringify(plan), { mode: 0o600 });
+  await writeFile(secretFile, JSON.stringify(secrets), { mode: 0o600 });
+  const args = ["--artifacts", dir, "--secrets", secretFile, "--image", "meibo-beta:fixture"];
+  const proof = { image: { digest: plan.imageDigest, sourceRevision: plan.sourceRevision, bootVerified: true },
+    bundle: { sha256: plan.bundleSha256, sourceRevision: plan.sourceRevision, buildVerified: true },
+    imageConfigDigest: `sha256:${"4".repeat(64)}`, authenticationMode: "password" };
+  const verify = async (planned, values, image, out) => {
+    assert.deepEqual(planned, plan);
+    assert.deepEqual(values, secrets);
+    assert.equal(image, "meibo-beta:fixture");
+    assert.equal(out, dir);
+    return proof;
+  };
+  const first = await verifyArtifactCommand(args, verify);
+  const second = await verifyArtifactCommand(args, verify);
+  assert.notEqual(first.report, second.report);
+  assert.equal(first.deploymentAuthorized, false);
+  assert.equal(first.deployed, false);
+  const path = join(dir, first.report), raw = await readFile(path, "utf8"), receipt = JSON.parse(raw);
+  assert.equal((await stat(path)).mode & 0o777, 0o600);
+  assert.equal(receipt.kind, "local-boot");
+  assert.equal(receipt.planSha256, planFingerprint(plan, secrets));
+  assert.deepEqual(receipt.image, proof.image);
+  assert.deepEqual(receipt.bundle, proof.bundle);
+  assert.equal(receipt.imageConfigDigest, proof.imageConfigDigest);
+  assert.equal(receipt.authenticationMode, "password");
+  assert.ok(!raw.includes(plan.origin) && !raw.includes(secrets.MEIBO_DB_TOKEN));
+  // The real verifier must reject this stale revision before touching Docker.
+  const before = (await readdir(dir)).sort();
+  await assert.rejects(verifyArtifactCommand(args), (error) => error.code === "artifact");
+  assert.deepEqual((await readdir(dir)).sort(), before);
+  assert.equal(await readFile(planFile, "utf8"), JSON.stringify(plan));
+  assert.equal(await readFile(path, "utf8"), raw);
 });

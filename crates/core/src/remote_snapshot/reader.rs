@@ -39,7 +39,7 @@ fn source_row(row: &Row<'_>, columns: usize) -> Result<Vec<Value>, EngineError> 
 pub(crate) fn visit(
     db: &Db,
     mut visitor: impl FnMut(&CrmTable, &[u8]) -> Result<(), EngineError>,
-) -> Result<CrmSequences, EngineError> {
+) -> Result<(u32, CrmSequences), EngineError> {
     let transaction = db.conn().unchecked_transaction().map_err(storage)?;
     let occupied: bool = transaction
         .query_row("SELECT EXISTS(SELECT 1 FROM erase_gate)", [], |row| {
@@ -51,7 +51,13 @@ pub(crate) fn visit(
     }
     let sequences =
         read_crm_sequences(&transaction).map_err(|error| EngineError::Storage(Box::new(error)))?;
-    for table in crm_tables() {
+    let version = crate::crm::version(&transaction)?;
+    for current in crm_tables() {
+        let table = if version == 1 {
+            current.legacy_v1()
+        } else {
+            *current
+        };
         let base = format!(
             "SELECT {} FROM {} WHERE 1",
             table.columns().join(","),
@@ -75,10 +81,10 @@ pub(crate) fn visit(
             let values = source_row(row, table.columns().len())?;
             let encoded =
                 encode_row(&values).map_err(|error| EngineError::Storage(Box::new(error)))?;
-            visitor(table, &encoded)?;
+            visitor(&table, &encoded)?;
             Ok(true)
         })?;
     }
     transaction.rollback().map_err(storage)?;
-    Ok(sequences)
+    Ok((version, sequences))
 }

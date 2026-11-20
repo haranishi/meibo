@@ -10,6 +10,21 @@ use crate::{
 
 const FTS_PAGE_SQL: &str = "SELECT c.* FROM name_fts CROSS JOIN companies c ON c.id=name_fts.rowid WHERE name_fts MATCH ? AND name_fts.rowid>? AND (? OR c.status<>5) ORDER BY name_fts.rowid LIMIT ?";
 
+pub(crate) struct NameMatch {
+    pub key: String,
+    pub phrase: Option<String>,
+}
+
+impl NameMatch {
+    pub fn new(term: &str) -> Result<Self, EngineError> {
+        let (key, length) = normalize::search_term(term)?;
+        // FTSの構文解析はNULで終端する。短い語とNULを含む語は部分一致で照合する。
+        let phrase = (length >= 3 && !key.contains('\0'))
+            .then(|| format!("\"{}\"", key.replace('"', "\"\"")));
+        Ok(Self { key, phrase })
+    }
+}
+
 pub(crate) fn search_name(
     db: &Db,
     term: &str,
@@ -17,7 +32,7 @@ pub(crate) fn search_name(
 ) -> Result<SearchPage, EngineError> {
     let _snapshot = db.conn().unchecked_transaction().map_err(storage)?;
     validate_limit(o.limit)?;
-    let (key, length) = normalize::search_term(term)?;
+    let name = NameMatch::new(term)?;
     let after = o
         .after
         .as_ref()
@@ -28,11 +43,8 @@ pub(crate) fn search_name(
                 .ok_or_else(|| invalid("after", "invalid search cursor"))
         })
         .transpose()?;
-    // FTSの構文解析はNULで終端するため、この語は部分一致で照合する。
-    let use_fts = length >= 3 && !key.contains('\0');
-    let phrase = format!("\"{}\"", key.replace('"', "\"\""));
     let mut rows;
-    if use_fts {
+    if let Some(phrase) = &name.phrase {
         let mut stmt = db.conn().prepare(FTS_PAGE_SQL).map_err(storage)?;
         rows = stmt
             .query_map(
@@ -52,7 +64,7 @@ pub(crate) fn search_name(
         rows = stmt
             .query_map(
                 params![
-                    key,
+                    name.key,
                     after.unwrap_or(i64::MIN),
                     o.include_excluded,
                     o.limit + 1
@@ -68,14 +80,14 @@ pub(crate) fn search_name(
     } else if rows.len() <= o.limit as usize {
         // limit+1件に届かなければ、候補を最後まで読み切っている。
         Some(rows.len() as u64)
-    } else if use_fts {
-        Some(fts_count(db, &phrase, &key, o.include_excluded)?)
+    } else if let Some(phrase) = &name.phrase {
+        Some(fts_count(db, phrase, &name.key, o.include_excluded)?)
     } else {
         Some(
             db.conn()
                 .query_row(
                     "SELECT count(*) FROM companies WHERE instr(name_key,?)>0 AND (? OR status<>5)",
-                    params![key, o.include_excluded],
+                    params![name.key, o.include_excluded],
                     unsigned,
                 )
                 .map_err(storage)?,

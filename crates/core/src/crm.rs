@@ -12,7 +12,10 @@ use crate::{
 /// ブラウザでも整数として正確に扱える最大金額。
 pub const MAX_AMOUNT_JPY: i64 = 9_007_199_254_740_991;
 const MAX_TIME: i64 = 253_402_300_799;
-pub(crate) const EXTENSION_VERSION: u32 = 1;
+pub(crate) const EXTENSION_VERSION: u32 = 2;
+
+mod sales;
+pub use sales::{OwnerForecast, SalesReport};
 
 /// 仕事の種類。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -99,6 +102,8 @@ pub struct OpportunityInput {
 /// 保存された商談。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Opportunity {
+    /// 日本時間で商談が受注・失注した日。未決着や日付不明なら空。
+    pub outcome_date: Option<String>,
     /// 独立した識別番号。
     pub id: i64,
     /// 企業の名称。個人事業では非表示。
@@ -180,26 +185,88 @@ pub(crate) fn initialize(conn: &Connection) -> Result<(), EngineError> {
         )
         .optional()
         .map_err(storage)?;
-    if let Some(version) = version {
-        let found = version.parse::<u32>().map_err(|_| EngineError::Corrupt)?;
-        if found > EXTENSION_VERSION {
-            return Err(EngineError::UnsupportedVersion {
-                found,
-                supported: EXTENSION_VERSION,
-            });
-        }
-        if found < EXTENSION_VERSION {
-            return Err(EngineError::NeedsMigration);
-        }
-    }
+    let version = version.as_deref().map(parse_version).transpose()?;
     conn.execute_batch(DDL).map_err(storage)?;
-    conn.execute(
-        "INSERT OR IGNORE INTO meta(key,value) VALUES('crm_schema_version',?1)",
-        [EXTENSION_VERSION.to_string()],
-    )
-    .map_err(storage)?;
+    if version != Some(EXTENSION_VERSION) {
+        upgrade_outcomes(conn)?;
+    }
     Ok(())
 }
+
+fn parse_version(raw: &str) -> Result<u32, EngineError> {
+    let version = raw.parse::<u32>().map_err(|_| EngineError::Corrupt)?;
+    if version.to_string() != raw {
+        return Err(EngineError::Corrupt);
+    }
+    match version {
+        1 | EXTENSION_VERSION => Ok(version),
+        0 => Err(EngineError::NeedsMigration),
+        found => Err(EngineError::UnsupportedVersion {
+            found,
+            supported: EXTENSION_VERSION,
+        }),
+    }
+}
+
+pub(crate) fn version(conn: &Connection) -> Result<u32, EngineError> {
+    let marker: String = conn
+        .query_row(
+            "SELECT value FROM meta WHERE key='crm_schema_version'",
+            [],
+            |r| r.get(0),
+        )
+        .map_err(storage)?;
+    parse_version(&marker)
+}
+
+fn upgrade_outcomes(conn: &Connection) -> Result<(), EngineError> {
+    // ADD COLUMN leaves existing outcomes unknown. Both the physical layout
+    // and its marker belong to the caller's single write transaction.
+    conn.execute_batch(
+        "ALTER TABLE crm_opportunities ADD COLUMN outcome_date TEXT
+        CHECK(outcome_date IS NULL OR (stage IN (4,5) AND length(outcome_date)=10
+        AND substr(outcome_date,1,4)<>'0000' AND date(outcome_date,'+0 days') IS outcome_date));
+        INSERT INTO meta(key,value) VALUES('crm_schema_version','2')
+        ON CONFLICT(key) DO UPDATE SET value=excluded.value;",
+    )
+    .map_err(storage)
+}
+
+fn ensure_outcomes(conn: &Connection) -> Result<(), EngineError> {
+    if version(conn)? == 1 {
+        upgrade_outcomes(conn)?;
+    }
+    Ok(())
+}
+
+fn outcome_column(conn: &Connection) -> Result<&'static str, EngineError> {
+    Ok(if version(conn)? == 1 {
+        "NULL"
+    } else {
+        "o.outcome_date"
+    })
+}
+
+/// Check the nullable actual decision date accepted by CRM writes and typed snapshots.
+/// # Errors
+/// Returns invalid input for an unknown stage, invalid date or a date on an open deal.
+pub fn validate_outcome_date(stage: u8, date: Option<&str>) -> Result<(), EngineError> {
+    if stage > 5 {
+        return Err(invalid("stage", "must be between 0 and 5"));
+    }
+    if date.is_some_and(|day| stage < 4 || !valid_date(day)) {
+        return Err(invalid(
+            "outcome_date",
+            "requires a real date and a decided opportunity",
+        ));
+    }
+    Ok(())
+}
+
+// A stage transition sets the Japanese business date; an ordinary edit keeps
+// the recorded value, including an unknown legacy date.
+const NEXT_OUTCOME: &str = "CASE WHEN ?2<4 THEN NULL WHEN ?3 IS NOT NULL THEN ?3
+    WHEN stage=?2 THEN outcome_date ELSE date(?4,'unixepoch','+9 hours') END";
 
 impl Engine {
     /// タスクまたは予定を追加する。
@@ -302,12 +369,26 @@ impl Engine {
     /// # Errors
     /// 不正入力、企業/担当者不在、他社担当者、除外、保存の失敗。
     pub fn crm_create_opportunity(&mut self, input: &OpportunityInput) -> Result<i64, EngineError> {
+        self.crm_create_opportunity_dated(input, None)
+    }
+
+    /// Add an opportunity with an optional explicitly recorded decision date.
+    /// # Errors
+    /// Returns an error for invalid dates, unavailable records or failed storage.
+    pub fn crm_create_opportunity_dated(
+        &mut self,
+        input: &OpportunityInput,
+        date: Option<&str>,
+    ) -> Result<i64, EngineError> {
         let name = validate_opportunity(input)?;
+        validate_outcome_date(input.stage, date)?;
         self.db.write(WRITE_BASE + 4096, |tx| {
             target(tx, input.company, input.contact)?;
+            ensure_outcomes(tx)?;
             tx.execute(
-                "INSERT INTO crm_opportunities(company_id,contact_id,name,amount_jpy,stage,close_date,created_at,updated_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?7)",
-                params![input.company.0,input.contact.map(|c| c.0),name,input.amount_jpy,input.stage,input.close_date,now_secs()],
+                "INSERT INTO crm_opportunities(company_id,contact_id,name,amount_jpy,stage,close_date,created_at,updated_at,outcome_date)
+                 VALUES(?1,?2,?3,?4,?5,?6,?7,?7,CASE WHEN ?5>=4 THEN coalesce(?8,date(?7,'unixepoch','+9 hours')) END)",
+                params![input.company.0,input.contact.map(|c| c.0),name,input.amount_jpy,input.stage,input.close_date,now_secs(),date],
             ).map_err(storage)?;
             Ok(tx.last_insert_rowid())
         })
@@ -321,16 +402,30 @@ impl Engine {
         id: i64,
         input: &OpportunityInput,
     ) -> Result<(), EngineError> {
+        self.crm_update_opportunity_dated(id, input, None)
+    }
+
+    /// Update an opportunity and optionally correct its actual decision date.
+    /// # Errors
+    /// Returns an error for invalid input, unavailable records or failed storage.
+    pub fn crm_update_opportunity_dated(
+        &mut self,
+        id: i64,
+        input: &OpportunityInput,
+        date: Option<&str>,
+    ) -> Result<(), EngineError> {
         let name = validate_opportunity(input)?;
+        validate_outcome_date(input.stage, date)?;
         self.db.write(WRITE_BASE + 4096, |tx| {
             let (company, _) = opportunity_target(tx, id)?;
             if company != input.company {
                 return Err(invalid("company_id", "cannot move an opportunity"));
             }
             target(tx, input.company, input.contact)?;
+            ensure_outcomes(tx)?;
             tx.execute(
-                "UPDATE crm_opportunities SET contact_id=?2,name=?3,amount_jpy=?4,stage=?5,close_date=?6,updated_at=?7 WHERE id=?1",
-                params![id,input.contact.map(|c| c.0),name,input.amount_jpy,input.stage,input.close_date,now_secs()],
+                &format!("UPDATE crm_opportunities SET stage=?2,outcome_date={NEXT_OUTCOME},updated_at=?4,contact_id=?5,name=?6,amount_jpy=?7,close_date=?8 WHERE id=?1"),
+                params![id,input.stage,date,now_secs(),input.contact.map(|c| c.0),name,input.amount_jpy,input.close_date],
             ).map_err(storage)?;
             Ok(())
         })
@@ -340,15 +435,26 @@ impl Engine {
     /// # Errors
     /// 不正段階、対象不在、除外、保存の失敗。
     pub fn crm_set_stage(&mut self, id: i64, stage: u8) -> Result<(), EngineError> {
-        if stage > 5 {
-            return Err(invalid("stage", "must be between 0 and 5"));
-        }
+        self.crm_set_stage_dated(id, stage, None)
+    }
+
+    /// Set the stage, optionally recording the actual date for a win or loss.
+    /// # Errors
+    /// Returns an error for invalid input, unavailable records or failed storage.
+    pub fn crm_set_stage_dated(
+        &mut self,
+        id: i64,
+        stage: u8,
+        date: Option<&str>,
+    ) -> Result<(), EngineError> {
+        validate_outcome_date(stage, date)?;
         self.db.write(WRITE_BASE + 4096, |tx| {
             let (company, contact) = opportunity_target(tx, id)?;
             target(tx, company, contact)?;
+            ensure_outcomes(tx)?;
             tx.execute(
-                "UPDATE crm_opportunities SET stage=?2,updated_at=?3 WHERE id=?1",
-                params![id, stage, now_secs()],
+                &format!("UPDATE crm_opportunities SET stage=?2,outcome_date={NEXT_OUTCOME},updated_at=?4 WHERE id=?1"),
+                params![id, stage, date, now_secs()],
             )
             .map_err(storage)?;
             Ok(())
@@ -384,8 +490,9 @@ impl Engine {
             args.extend([Value::Text(date), Value::Integer(id)]);
         }
         args.push(Value::Integer(i64::from(query.limit) + 1));
+        let outcome = outcome_column(conn)?;
         let sql = format!(
-            "SELECT o.id,o.company_id,CASE WHEN c.is_sole_proprietor=1 THEN NULL ELSE c.name END,o.contact_id,o.name,o.amount_jpy,o.stage,o.close_date {base}{suffix} ORDER BY o.close_date,o.id LIMIT ?"
+            "SELECT o.id,o.company_id,CASE WHEN c.is_sole_proprietor=1 THEN NULL ELSE c.name END,o.contact_id,o.name,o.amount_jpy,o.stage,o.close_date,{outcome} {base}{suffix} ORDER BY o.close_date,o.id LIMIT ?"
         );
         let mut stmt = conn.prepare(&sql).map_err(storage)?;
         let items = stmt
@@ -637,6 +744,7 @@ fn work_row(row: &Row<'_>) -> crate::sql::Result<WorkItem> {
 
 fn opportunity_row(row: &Row<'_>) -> crate::sql::Result<Opportunity> {
     Ok(Opportunity {
+        outcome_date: row.get(8)?,
         id: row.get(0)?,
         company_name: row.get(2)?,
         input: OpportunityInput {

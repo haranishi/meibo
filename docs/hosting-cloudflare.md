@@ -6,7 +6,8 @@ WorkerをHTTPS入口、ContainerをRustの実行先、Turso Cloudを保存先に
 
 ## 前提
 
-固定したNode/npmとDocker、Python、認証済みのWrangler/Turso CLIを使う。
+手元でのビルドと起動確認には、固定したNode/npm、Docker、Pythonを使う。
+公開前に提供者の設定を照合する段階で、WranglerとTurso CLIにログインする。
 Cloudflare ContainersにはWorkers Paidが必要で、新規契約は自動実行しない。
 配備先のIDはplanと`CLOUDFLARE_ACCOUNT_ID`に設定し、独立に確認した期待IDを
 `MEIBO_EXPECTED_CF_ACCOUNT_ID`へ渡す。Tursoの組織は
@@ -34,8 +35,30 @@ npm run artifacts:prepare -- \
 入力は私有の通常JSONファイル、出力先は本人だけが読める既存directoryとする。
 Docker用の認証・接続設定は環境で渡し、秘密をbuild argへ入れない。
 prepareはsource snapshotを付けたLinux/amd64 imageとWorker bundleを作る。
+arm64のLinuxビルダーでは、GNUとRustのクロスコンパイラでamd64用の実行ファイルを作り、
+Debianのamd64用OpenSSLにリンクする。amd64ビルダーではそのままコンパイルする。
 OCIのmanifest digestとimage config IDを区別し、全blobと秘密の非混入を照合する。
 prepareだけでは実起動や公開成功を記録しない。
+
+## 合成DBでコンテナの起動を確認する
+
+準備したディレクトリの `plan.json` と同じ環境変数名を使い、合成DBの接続情報を専用ファイルに用意する。
+コンテナからHTTPSで接続でき、証明書を検証できるDBを指定する。初期化の手順は[遠隔保存](hosting-remote.md)にある。
+
+```sh
+npm run artifacts:verify -- \
+  --artifacts /private/artifacts --secrets /private/synthetic-secrets.json \
+  --image meibo-beta:release
+```
+
+このコマンドはソースとOCIを再照合し、Workerを再ビルドする。
+照合したイメージをDockerで起動し、`/health`、`/login`、設定ファイルの権限を調べる。
+成功すると画面に記録のファイル名が出る。`local-boot-<UUID>.json` は実行ごとに同じディレクトリへ追加され、
+検査時刻、入力のハッシュ、イメージとWorkerの識別情報が残る。
+`authenticationMode` には、Access設定を省いてパスワード画面を確認した場合は `password`、
+Access設定を渡して未認証の要求が拒否された場合は `cloudflare-access` を記録する。
+
+## 公開前に提供者の設定と実行物を照合する
 
 ```sh
 npm run publication -- \

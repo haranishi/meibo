@@ -9,6 +9,7 @@ Usage:
   meibo init DB --origin synthetic|real
   meibo demo DB [--rows 1..100000]
   meibo import DB CSV [--encoding utf-8|shift-jis] [--duplicates error|skip]
+  meibo supplement-contacts DB CSV [--encoding utf-8|shift-jis]
   meibo export DB CSV [--encoding utf-8|shift-jis] [--include-personal] [--include-excluded]
   meibo list DB [--limit 1..200] [--search TERM]
   meibo verify DB
@@ -27,6 +28,7 @@ pub(crate) enum Command {
     Init(PathBuf, DataOrigin),
     Demo(PathBuf, u64),
     Import(PathBuf, PathBuf, ImportOptions),
+    SupplementContacts(PathBuf, PathBuf, Encoding),
     Export(PathBuf, PathBuf, ExportOptions),
     List(PathBuf, u32, Option<String>),
     Verify(PathBuf),
@@ -116,6 +118,7 @@ pub(crate) fn parse(mut args: Vec<OsString>) -> Result<Command, String> {
         "init" => (&["--origin"], &[]),
         "demo" => (&["--rows"], &[]),
         "import" => (&["--encoding", "--duplicates"], &[]),
+        "supplement-contacts" => (&["--encoding"], &[]),
         "export" => (
             &["--encoding"],
             &["--include-personal", "--include-excluded"],
@@ -128,7 +131,12 @@ pub(crate) fn parse(mut args: Vec<OsString>) -> Result<Command, String> {
         _ => return Err("unknown command".into()),
     };
     let a = Arguments::parse(args, values, flags)?;
-    a.paths(usize::from(matches!(command, "import" | "export" | "sync-nta")) + 1)?;
+    a.paths(
+        usize::from(matches!(
+            command,
+            "import" | "export" | "sync-nta" | "supplement-contacts"
+        )) + 1,
+    )?;
     parsed_command(command, &a)
 }
 
@@ -153,6 +161,11 @@ fn parsed_command(command: &str, a: &Arguments) -> Result<Command, String> {
                 .ok_or("rows must be 1..100000")?;
             Ok(Command::Demo(db, rows))
         }
+        "supplement-contacts" => Ok(Command::SupplementContacts(
+            db,
+            a.paths[1].clone(),
+            a.encoding()?,
+        )),
         "import" => Ok(Command::Import(
             db,
             a.paths[1].clone(),

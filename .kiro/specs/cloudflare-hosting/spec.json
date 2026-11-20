@@ -1,7 +1,7 @@
 {
   "feature_name": "cloudflare-hosting",
   "created_at": "2026-10-26T12:20:00Z",
-  "updated_at": "2026-10-27T02:58:40.003452+00:00",
+  "updated_at": "2026-11-20T07:19:00Z",
   "language": "ja",
   "phase": "implementing",
   "approvals": {
@@ -171,5 +171,77 @@
     ],
     "local_data_sync": "verified_separately_public-data-importers4.2",
     "transport_classification": "verified_separately_remote-storage5.1"
+  },
+  "continuation_20261120": {
+    "status": "not_deployed",
+    "workers_paid_required_verified": true,
+    "new_paid_subscription_authorized": false,
+    "target_worker_exists": false,
+    "turso_management_login_verified": true,
+    "database_primary_matches": 6,
+    "expired_saved_database_tokens": 6,
+    "artifacts": {
+      "source_revision": "5ec0bddf52922f79cb8138fd1dd2dacd20bc5233165aafab50736ac95922ba47",
+      "oci_manifest_digest": "sha256:e725a96141f32a278150f717bf42c862078e6a0031c4f05642b2b79e11c58e35",
+      "worker_bundle_sha256": "28296a7b0789562f54c8722c8a49ca1a60167aa847d7d9f43bcebbd7fd073452",
+      "target": "linux/amd64",
+      "synthetic_docker_boot_verified": ["password", "cloudflare-access"]
+    },
+    "local_sdk_https": {
+      "database": "synthetic_sqld",
+      "organizations": 2,
+      "roles_per_organization": 3,
+      "verified_lifecycle": ["restart", "recreate", "restore", "idle", "explicit_gate_recovery"],
+      "idle_observation_ms": 179610,
+      "normal_requests": 334,
+      "normal_5xx": 0,
+      "fault_test_requests": 29,
+      "expected_gate_denials": 2,
+      "all_fixture_upstream_requests": 15907,
+      "all_fixture_upstream_errors": 0,
+      "all_fixture_tls_error_events": 1,
+      "prior_real_turso_tls_root_cause_resolved": false
+    },
+    "quality": {
+      "rust_default_passed": 334,
+      "rust_cloud_passed": 503,
+      "worker_passed": 180,
+      "msrv_1_89_all_targets": ["default", "integration"],
+      "local_browser_viewport_widths": [390, 768, 1440]
+    },
+    "open_tasks": ["2.2", "2.3"],
+    "verification_record": "../../../docs/hosting-cloudflare-verification.md"
+  },
+  "team_sales_20261120": {
+    "product_commit": "a39e47f8fb77785ab3ef2bc8c0ef74fc3f5e85f8",
+    "source_revision": "1731cb5469d701d46333d5e128a007cd312aba58b6ad2673c38b3e8ba44bc193",
+    "oci_manifest_digest": "sha256:3f9ee35e1784db549f42d70b9f9e74811de91c58c8c7f3a1fe0656ce2c064a43",
+    "worker_bundle_sha256": "28296a7b0789562f54c8722c8a49ca1a60167aa847d7d9f43bcebbd7fd073452",
+    "synthetic_amd64_boot": ["password", "cloudflare-access"],
+    "restored_v1_then_rebacked_up_v2": {"users": 3, "memberships": 6, "companies_by_tenant": [3, 3]},
+    "final_synthetic_sdk": {
+      "normal_requests": 488,
+      "normal_http_5xx": 0,
+      "worker_dispatch_errors": 0,
+      "confirmed_lifecycle": ["restart", "recreate", "restore", "idle"],
+      "idle_observation_ms": 180109,
+      "test_https_listener_tls_error_events": 66,
+      "test_https_listener_client_error_events": 66,
+      "test_https_listener_interpretation": "Node forwarded the same 66 TLS error notifications as clientError; individual TLS causes were not recorded.",
+      "interrupted_backup_recovery": {"requests": 29, "expected_login_503": 2, "outcome_unknown": 0, "same_session_and_data_after_explicit_recovery": true},
+      "known_production_values_absent_in_source_worker_and_oci": true
+    },
+    "preceding_sdk_run": {"requests": 363, "outcome_unknown_503": 3, "last_confirmed": "container_recreation"},
+    "provider": {
+      "renewed_database_scoped_tokens": 6,
+      "verified_primary_connections": 6,
+      "verified_storage_limits": true,
+      "workers_paid_required": true,
+      "new_subscription_authorized": false,
+      "target_worker_exists": false,
+      "live_invitation_policy_pending_owner_login": true
+    },
+    "public_beta": "not_deployed",
+    "open_publication_tasks": ["2.2", "2.3"]
   }
 }

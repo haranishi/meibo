@@ -26,6 +26,11 @@ pub(super) fn dispatch(
             "POST" if query.is_empty() => work_save(engine, &input.body, None),
             _ => bad_input(),
         }),
+        "/api/sales-report" => Some(if input.method == "GET" {
+            sales_report(engine, query)
+        } else {
+            bad_input()
+        }),
         "/api/opportunities" => Some(match input.method.as_str() {
             "GET" => opportunity_list(engine, query),
             "POST" if query.is_empty() => opportunity_save(engine, &input.body, None),
@@ -56,12 +61,19 @@ fn record_route(engine: &mut Engine, input: &Input, path: &str, query: &str) -> 
         return Some(if input.method != "POST" || !query.is_empty() {
             bad_input()
         } else if let Some(id) = rest.strip_suffix("/stage").and_then(positive) {
-            let stage = object(&input.body, &["stage"])
-                .and_then(|o| o.get("stage").and_then(Value::as_u64))
-                .and_then(|v| u8::try_from(v).ok())
-                .filter(|v| *v <= 5);
-            match stage {
-                Some(stage) => saved(engine.crm_set_stage(id, stage).map(|()| id), false),
+            let change = object(&input.body, &["stage", "outcome_date"]).and_then(|o| {
+                Some((
+                    u8::try_from(o.get("stage")?.as_u64()?).ok()?,
+                    outcome_date(&o)?,
+                ))
+            });
+            match change {
+                Some((stage, date)) => saved(
+                    engine
+                        .crm_set_stage_dated(id, stage, date.as_deref())
+                        .map(|()| id),
+                    false,
+                ),
                 None => bad_input(),
             }
         } else if let Some(id) = positive(rest) {
@@ -85,12 +97,14 @@ fn work_save(engine: &mut Engine, body: &[u8], id: Option<i64>) -> Reply {
 }
 
 fn opportunity_save(engine: &mut Engine, body: &[u8], id: Option<i64>) -> Reply {
-    let Some(input) = parse_opportunity(body) else {
+    let Some((input, date)) = parse_opportunity(body) else {
         return bad_input();
     };
     let result = match id {
-        Some(id) => engine.crm_update_opportunity(id, &input).map(|()| id),
-        None => engine.crm_create_opportunity(&input),
+        Some(id) => engine
+            .crm_update_opportunity_dated(id, &input, date.as_deref())
+            .map(|()| id),
+        None => engine.crm_create_opportunity_dated(&input, date.as_deref()),
     };
     saved(result, id.is_none())
 }
@@ -152,6 +166,39 @@ fn opportunity_list(engine: &Engine, query: &str) -> Reply {
     }
 }
 
+fn sales_report(engine: &Engine, query: &str) -> Reply {
+    let Some(params) = parameters(query, &["month"]) else {
+        return bad_input();
+    };
+    let Some(month) = params.get("month") else {
+        return bad_input();
+    };
+    match engine.crm_sales_report(month) {
+        Ok(report) => {
+            let forecasts: Vec<_> = report
+                .forecasts
+                .iter()
+                .map(|(owner, group)| {
+                    json!({
+                        "owner":owner.map(|id| id.0.to_string()), "count":group.count,
+                        "amount_jpy":group.amount_jpy.to_string()
+                    })
+                })
+                .collect();
+            Reply::json(
+                200,
+                &json!({
+                    "month":month, "won_amount_jpy":report.won_amount_jpy.to_string(),
+                    "won_count":report.won_count, "lost_count":report.lost_count,
+                    "win_rate_percent":report.win_rate_percent(), "undated_count":report.undated_count,
+                    "forecasts":forecasts
+                }),
+            )
+        }
+        Err(error) => engine_error(&error),
+    }
+}
+
 fn parse_work(body: &[u8]) -> Option<WorkItemInput> {
     let o = object(
         body,
@@ -192,7 +239,7 @@ fn parse_work(body: &[u8]) -> Option<WorkItemInput> {
     })
 }
 
-fn parse_opportunity(body: &[u8]) -> Option<OpportunityInput> {
+fn parse_opportunity(body: &[u8]) -> Option<(OpportunityInput, Option<String>)> {
     let o = object(
         body,
         &[
@@ -202,6 +249,7 @@ fn parse_opportunity(body: &[u8]) -> Option<OpportunityInput> {
             "amount_jpy",
             "stage",
             "close_date",
+            "outcome_date",
         ],
     )?;
     let company = CompanyId(o.get("company_id")?.as_i64().filter(|v| *v > 0)?);
@@ -209,14 +257,26 @@ fn parse_opportunity(body: &[u8]) -> Option<OpportunityInput> {
     if contact.is_some_and(|c| c.0 <= 0) {
         return None;
     }
-    Some(OpportunityInput {
-        company,
-        contact,
-        name: o.get("name")?.as_str()?.to_owned(),
-        amount_jpy: o.get("amount_jpy")?.as_i64()?,
-        stage: u8::try_from(o.get("stage")?.as_u64()?).ok()?,
-        close_date: o.get("close_date")?.as_str()?.to_owned(),
-    })
+    let date = outcome_date(&o)?;
+    Some((
+        OpportunityInput {
+            company,
+            contact,
+            name: o.get("name")?.as_str()?.to_owned(),
+            amount_jpy: o.get("amount_jpy")?.as_i64()?,
+            stage: u8::try_from(o.get("stage")?.as_u64()?).ok()?,
+            close_date: o.get("close_date")?.as_str()?.to_owned(),
+        },
+        date,
+    ))
+}
+
+#[allow(clippy::option_option)] // omitted/null requests the ordinary transition policy
+fn outcome_date(o: &Map<String, Value>) -> Option<Option<String>> {
+    match o.get("outcome_date") {
+        None | Some(Value::Null) => Some(None),
+        Some(value) => value.as_str().map(|date| Some(date.to_owned())),
+    }
 }
 
 #[allow(clippy::option_option)] // malformed / absent / present must remain distinct
@@ -286,7 +346,7 @@ fn work_json(item: &WorkItem) -> Value {
 fn opportunity_json(item: &Opportunity) -> Value {
     let input = &item.input;
     json!({"id":item.id,"company_id":input.company.0,"company_name":item.company_name,"contact_id":input.contact.map(|c| c.0),
-        "name":input.name,"amount_jpy":input.amount_jpy,"stage":input.stage,"close_date":input.close_date})
+        "name":input.name,"amount_jpy":input.amount_jpy,"stage":input.stage,"close_date":input.close_date,"outcome_date":item.outcome_date})
 }
 
 fn saved(result: Result<i64, EngineError>, created: bool) -> Reply {

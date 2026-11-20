@@ -45,6 +45,7 @@ fn fixture() -> tempfile::TempDir {
             database_id: CONTROL_ID.into(),
             database_kind: "control".into(),
             schema_version: 1,
+            crm_extension_version: None,
             data_origin: None,
             sequences: None,
             tables: write_tables(&root, "control", profile::CONTROL.to_vec(), &control),
@@ -55,6 +56,7 @@ fn fixture() -> tempfile::TempDir {
                 database_id: TENANT_ID.into(),
                 database_kind: "crm".into(),
                 schema_version: 1,
+                crm_extension_version: None,
                 data_origin: Some("synthetic".into()),
                 sequences: Some(manifest::Sequences {
                     custom_field_definitions: "42".into(),

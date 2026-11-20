@@ -255,7 +255,12 @@ fn hosted_boundary_tenants_roles_context_and_csrf_are_enforced_before_dispatch()
     assert_eq!(html.matches("rel=\"stylesheet\"").count(), 1);
     assert!(!html.contains("<script src=\"/hosted-app.js\""));
     assert!(html.contains("src=\"/login.js\""));
-    for asset in ["/hosted-app.js", "/hosted-app.css"] {
+    for asset in [
+        "/hosted-app.js",
+        "/hosted-app.css",
+        "/workspace.js",
+        "/workspace.css",
+    ] {
         assert_eq!(
             app.dispatch(&request(asset, "GET", None, &json!(null)), AT)
                 .reply
@@ -345,4 +350,140 @@ fn viewer_can_search_custom_fields_but_cannot_mutate_or_use_similar_paths() {
             403
         );
     }
+}
+
+#[test]
+fn monthly_sales_report_allows_viewer_reads_and_isolates_tenants_and_corrections() {
+    let (_dir, store) = fixture();
+    let mut app = Hosted::new(store, config());
+    let admin = login(&mut app.store, "alpha");
+    let viewer = login(&mut app.store, "beta");
+    let create = json!({"company_id":1,"name":"合成案件","amount_jpy":23000,"stage":4,"close_date":"2026-12-05","outcome_date":"2026-10-31"});
+    assert_eq!(
+        app.dispatch(
+            &request("/api/opportunities", "POST", Some(&admin), &create),
+            AT
+        )
+        .reply
+        .status,
+        201
+    );
+    let route = "/api/sales-report?month=2026-10";
+    let get = |app: &mut Hosted, who: &Login| {
+        let reply = app
+            .dispatch(&request(route, "GET", Some(who), &json!(null)), AT)
+            .reply;
+        assert_eq!(reply.status, 200);
+        serde_json::from_slice::<serde_json::Value>(&reply.body).unwrap()
+    };
+    assert_eq!(get(&mut app, &admin)["won_amount_jpy"], "23000");
+    assert_eq!(
+        get(&mut app, &viewer)["win_rate_percent"],
+        serde_json::Value::Null
+    );
+    assert_eq!(
+        app.dispatch(
+            &request(
+                "/api/opportunities/1/stage",
+                "POST",
+                Some(&viewer),
+                &json!({"stage":4,"outcome_date":"2026-10-31"})
+            ),
+            AT
+        )
+        .reply
+        .status,
+        403
+    );
+    assert_eq!(
+        app.dispatch(&request(route, "GET", None, &json!(null)), AT)
+            .reply
+            .status,
+        401
+    );
+    for query in [
+        "",
+        "month=2026-14",
+        "month=2026-10&month=2026-11",
+        "month=2026-10&company_id=1",
+    ] {
+        assert_eq!(
+            app.dispatch(
+                &request(
+                    &format!("/api/sales-report?{query}"),
+                    "GET",
+                    Some(&admin),
+                    &json!(null)
+                ),
+                AT
+            )
+            .reply
+            .status,
+            400
+        );
+    }
+}
+
+#[test]
+fn calling_lists_follow_tenant_and_role_and_survive_backup() {
+    let (dir, mut store) = fixture();
+    store.add_user("colleague", PASSWORD).unwrap();
+    store
+        .set_member("colleague", "alpha", Some(Role::Editor))
+        .unwrap();
+    let mut app = Hosted::new(store, config());
+    let admin = login(&mut app.store, "alpha");
+    let other = login(&mut app.store, "beta");
+    let LoginOutcome::Success(editor) =
+        app.store.login("alpha", "colleague", PASSWORD, AT).unwrap()
+    else {
+        panic!("editor should sign in")
+    };
+    let url = "/api/calling-lists";
+    let definition = json!({"name":"秋田の架電先","conditions":{"prefecture":"5","has_phone":"true","status":"0"}});
+    let result = app
+        .dispatch(&request(url, "POST", Some(&editor), &definition), AT)
+        .reply;
+    assert_eq!(result.status, 201);
+    let saved: serde_json::Value = serde_json::from_slice(&result.body).unwrap();
+    let get = |app: &mut Hosted, auth: &Login| {
+        let response = app
+            .dispatch(&request(url, "GET", Some(auth), &json!(null)), AT)
+            .reply;
+        assert_eq!(response.status, 200);
+        serde_json::from_slice::<serde_json::Value>(&response.body).unwrap()["lists"].clone()
+    };
+    assert_eq!(get(&mut app, &admin), json!([saved]));
+    assert_eq!(get(&mut app, &other), json!([]));
+    app.store
+        .set_member("colleague", "alpha", Some(Role::Viewer))
+        .unwrap();
+    let LoginOutcome::Success(viewer) =
+        app.store.login("alpha", "colleague", PASSWORD, AT).unwrap()
+    else {
+        panic!("viewer should sign in")
+    };
+    assert_eq!(get(&mut app, &viewer), json!([saved]));
+    let id = saved["id"].as_u64().unwrap();
+    for path in [
+        url.to_owned(),
+        format!("{url}/{id}"),
+        format!("{url}/{id}/delete"),
+    ] {
+        assert_eq!(
+            app.dispatch(&request(&path, "POST", Some(&viewer), &definition), AT)
+                .reply
+                .status,
+            403
+        );
+    }
+    let snapshot = dir.path().join("calling-backup");
+    backup::create(&app.store, &snapshot).unwrap();
+    let recovered = dir.path().join("calling-restore");
+    backup::restore(&snapshot, &recovered).unwrap();
+    let mut restored = Hosted::new(Store::open(&recovered).unwrap(), config());
+    let admin = login(&mut restored.store, "alpha");
+    let other = login(&mut restored.store, "beta");
+    assert_eq!(get(&mut restored, &admin), json!([saved]));
+    assert_eq!(get(&mut restored, &other), json!([]));
 }
