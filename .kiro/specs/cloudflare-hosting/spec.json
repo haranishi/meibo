@@ -197,6 +197,9 @@
       "normal_5xx": 0,
       "fault_test_requests": 29,
       "expected_gate_denials": 2,
+      "all_fixture_upstream_requests": 15907,
+      "all_fixture_upstream_errors": 0,
+      "all_fixture_tls_error_events": 1,
       "prior_real_turso_tls_root_cause_resolved": false
     },
     "quality": {
