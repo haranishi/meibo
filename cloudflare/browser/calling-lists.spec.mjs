@@ -1,5 +1,20 @@
 import { test, expect } from '@playwright/test';
 
+async function expectCallingTarget(page, company) {
+  const title = page.getByRole('heading', {name: company.name, exact: true});
+  await expect(title).toBeVisible();
+  if (page.viewportSize().width > 960) {
+    await expect(page.getByLabel('活動メモ', {exact: true})).toBeFocused();
+    return;
+  }
+  const phone = page.locator('.record-highlights .highlight-field').filter({has: page.getByText('電話番号', {exact: true})}).locator('dd');
+  await expect(phone).toHaveText(company.phone || '未登録');
+  for (const item of [title, phone, page.getByRole('button', {name: '保存して次へ', exact: true})]) {
+    await expect(item).toBeInViewport({ratio: 1});
+  }
+  await expect(title).toBeFocused();
+}
+
 test('saved calling conditions open in another browser and drive calls across pages', async ({ page, browser, baseURL }, testInfo) => {
   const label = `合成架電リスト ${testInfo.project.name}`;
   const rows = page.locator('#company-rows tr');
@@ -60,7 +75,11 @@ test('saved calling conditions open in another browser and drive calls across pa
   await page.locator('#next-page').click();
   await expect(rows.first()).toHaveAttribute('data-company-id', String(full.rows[25].id));
   await page.getByRole('button', {name: '架電モード', exact: true}).click();
-  await expect(page.locator('#record-workspace h1')).toHaveText(full.rows[0].name);
+  await expectCallingTarget(page, full.rows[0]);
+  if (page.viewportSize().width <= 960) {
+    await page.getByRole('button', {name: '架電を記録', exact: true}).press('Enter');
+    await expect(page.getByLabel('活動メモ', {exact: true})).toBeFocused();
+  }
   const second = full.rows[1], note = `合成・別担当による記録 ${testInfo.project.name}`;
   const activity = id => `${baseURL}/api/companies/${id}/activities`;
   const mutation = { 'Origin': baseURL, 'X-Meibo-Local': '1' };
@@ -69,19 +88,19 @@ test('saved calling conditions open in another browser and drive calls across pa
   try {
     await page.getByLabel('活動メモ', {exact:true}).fill(ownNote);
     await page.locator('#record-workspace').getByLabel('営業状態', {exact:true}).selectOption('1');
-    await page.getByRole('button', {name: '保存して次へ', exact:true}).click();
+    await page.getByLabel('活動メモ', {exact: true}).press('Control+Enter');
     await expect(page.getByRole('button', {name:'次の取引先を再読み込み', exact:true})).toBeVisible();
     await expect(page.getByRole('button', {name:'再試行', exact:true})).toHaveCount(0);
     await expect(page.locator('#activity-form')).toHaveCount(0);
     const changed = await page.request.post(activity(second.id), {headers: mutation, data:{note, status:1}});
     expect(changed.ok()).toBeTruthy();
     await page.getByRole('button', {name:'次の取引先を再読み込み', exact:true}).click();
-    await expect(page.locator('#record-workspace h1')).toHaveText(full.rows[2].name);
+    await expectCallingTarget(page, full.rows[2]);
     await page.screenshot({path:testInfo.outputPath('call-mode.png')});
     const stored = await (await page.request.get(`${baseURL}/api/companies/${full.rows[0].id}`)).json();
     expect(stored.activities.filter(a => a.note === ownNote)).toHaveLength(1);
     await page.getByRole('button', {name: '記録せずスキップ'}).click();
-    await expect(page.locator('#record-workspace h1')).toHaveText(full.rows[3].name);
+    await expectCallingTarget(page, full.rows[3]);
     await page.getByRole('button', {name: '架電モードを終了'}).click();
     await expect(page.locator('#accounts-workspace')).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);

@@ -491,7 +491,7 @@ impl<S: HostedStorage> Hosted<S> {
         }
         if path == "/" && reply.status == 200 {
             let html = String::from_utf8(reply.body)?;
-            reply.body = super::assets::compact(html)
+            reply.body = super::assets::hosted_paths(&html)
                 .replace(
                     "<script src=",
                     "<script type=\"application/x-meibo-gated\" data-meibo-src=",

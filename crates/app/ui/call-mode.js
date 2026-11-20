@@ -68,7 +68,14 @@
       }
     } catch (error) {
       if (session === current) current.error = `記録済みの内容は保持しています。${error.message}`;
-    } finally { moving = false; render(); if (session && !session.error) document.getElementById("activity-note")?.focus(); }
+    } finally {
+      moving = false;
+      render();
+      // The stacked record already focuses the company heading, above the phone number.
+      if (session && !session.error && !window.matchMedia("(max-width: 960px)").matches) {
+        document.getElementById("activity-note")?.focus();
+      }
+    }
   }
   async function start() {
     if (moving || context.busy()) return;

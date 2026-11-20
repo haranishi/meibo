@@ -255,7 +255,12 @@ fn hosted_boundary_tenants_roles_context_and_csrf_are_enforced_before_dispatch()
     assert_eq!(html.matches("rel=\"stylesheet\"").count(), 1);
     assert!(!html.contains("<script src=\"/hosted-app.js\""));
     assert!(html.contains("src=\"/login.js\""));
-    for asset in ["/hosted-app.js", "/hosted-app.css"] {
+    for asset in [
+        "/hosted-app.js",
+        "/hosted-app.css",
+        "/workspace.js",
+        "/workspace.css",
+    ] {
         assert_eq!(
             app.dispatch(&request(asset, "GET", None, &json!(null)), AT)
                 .reply

@@ -202,6 +202,56 @@ fn browser_assets_lists_cursors_details_and_csv_are_served() {
     assert_eq!(running.get("/not-found").0, 404);
 }
 
+#[test]
+fn cold_workspace_requests_one_stylesheet_and_one_ordered_script() {
+    let server = Running::start();
+    let (_, _, html) = server.get("/");
+    assert_eq!(html.matches("rel=\"stylesheet\"").count(), 1);
+    assert_eq!(html.matches("<script src=").count(), 1);
+    assert!(html.contains("<link rel=\"stylesheet\" href=\"/workspace.css\">"));
+    assert!(html.contains("<script src=\"/workspace.js\" defer></script>"));
+    for (bundle, mime, separator, parts) in [
+        (
+            "/workspace.css",
+            "text/css",
+            "\n",
+            [
+                "/style.css",
+                "/crm.css",
+                "/list-tools.css",
+                "/custom-fields.css",
+                "/call-mode.css",
+            ],
+        ),
+        (
+            "/workspace.js",
+            "text/javascript",
+            "\n;\n",
+            [
+                "/custom-fields.js",
+                "/call-mode.js",
+                "/app.js",
+                "/crm.js",
+                "/list-tools.js",
+            ],
+        ),
+    ] {
+        let (status, headers, result) = server.get(bundle);
+        assert_eq!(status, 200);
+        assert!(
+            headers
+                .to_ascii_lowercase()
+                .contains(&format!("content-type: {mime}"))
+        );
+        let original = parts.map(|path| {
+            let (status, _, content) = server.get(path);
+            assert_eq!(status, 200, "{path}");
+            content
+        });
+        assert_eq!(result, original.join(separator));
+    }
+}
+
 // REQ 15.2, REQ 16.3
 #[test]
 fn only_same_origin_json_can_save_an_activity() {
