@@ -37,6 +37,9 @@ DOの直列化は混雑を減らすためで、保存の正しさはremote-stora
 Wrangler 4.153.0とTypeScript/Workers型をlockfileで固定する。compatibility_dateは`2026-10-23`。`containers`は`class_name: MeiboContainer`、`scheduling_policy: default`、cloud Dockerfile、`image_build_context: ..`（repo root）、`instance_type: lite`、`max_instances: 1`。bindingは`MEIBO_CONTAINER`、`exports.MeiboContainer={type: durable-object,storage: sqlite}`とし、legacy migrationsを混ぜない。`.dev.vars*`や生成したprivate設定をGitとbuild contextから除外する。
 新規の`durable_object` scheduling policyは`max_instances`非対応なので採らない。built-in `DurableObject`/`ctx.container`を使い、追加のContainer SDKは導入しない。SDK/APIが合わなければ型/ローカル起動で検知し、非互換な設定を黙って採らない。
 cloud DockerfileはDebian build段へ`pkg-config`と`libssl-dev`を用意し、`cargo build --locked --release -p meibo-app --features cloud`を行う。Linux/amd64を明示してbuild/inspect/起動検証し、arm64だけの成功をCloudflare向け成功と扱わない。Debian runtimeは`libssl3`と`ca-certificates`を持つnon-root UID/GID 10001、DB Volume不要、書込先は一時領域のみ。remote-storageが選ぶsystem OpenSSLのtransportに合わせた依存であり、旧SDKのTLS実装を追加しない。
+
+2026-11-20にARM64のビルダーで公開用イメージを作ったところ、QEMU上のコンパイラが署名ライブラリのアセンブリ処理中に停止した。ビルド段はホストのCPUで動かす。ARM64上のRustとGNU C/C++コンパイラにAMD64を出力先として指定し、AMD64用のOpenSSLにリンクする。公開前の起動検証には完成したLinux/amd64イメージを使う。[Dockerのマルチプラットフォームビルド](https://docs.docker.com/build/building/multi-platform/#cross-compilation)
+
 静的準備の完了は設定schema・共有型・shell構文の成功で判断し、保存実装に先行できる。Env/検査済み要求/runtime操作の共有型はboundaryとcoordinatorが実際に使う契約であり、HTTPの仮実装は置かない。boundaryとcoordinatorは互いの実装をimportせず、共有型と注入したruntimeで単体検査できる。両者を結合する実際のWorker/DO exportとimageのbuild/inspect/実起動は、remote-storage完了後の公開統合で初めて検証する。
 Worker varsは`MEIBO_ORIGIN`と設定の参照名だけ、URL/tokenはWorker secretへ置く。`MEIBO_REMOTE_CONFIG`はremote-storage形式の設定JSON、DB環境変数は`MEIBO_DB_`接頭辞のsecret bindingとして渡す。機密値はDocker build arg・image・Gitへ埋めない。entrypointはumask 077でCONFIGだけを`/tmp/meibo-remote.json`へ書き、`exec meibo hosted-remote /tmp/meibo-remote.json serve --origin "$MEIBO_ORIGIN" --bind 0.0.0.0:4317`を実行する。DB秘密は環境変数からのみ参照する。
 

@@ -21,6 +21,7 @@
     "check": "npm run types:check && npm run typecheck && npm test && npm run check:shell",
     "preflight": "node scripts/preflight.mjs",
     "artifacts:prepare": "node scripts/artifacts.mjs",
+    "artifacts:verify": "node scripts/artifacts.mjs verify",
     "publication": "node scripts/deploy.mjs",
     "verify": "node scripts/verify.mjs"
   },

@@ -38,12 +38,12 @@
 - [x] api-mcp -- 画面用のloopback APIは追加済み。版付きAPIとstdio MCPをapi-mcpで完了。Dependencies: list-engine
 - [x] public-data-importers -- 国税庁の法人番号など公的データの取込器。データは同梱しない。Dependencies: csv-import-export
 - [x] team-access -- 複数の利用者、権限、監査ログ。Dependencies: web-ui, api-mcp
-- [ ] remote-storage -- 公開版だけにTurso Cloud libSQL接続を追加し、ローカルSQLite・既存業務契約を維持する。Dependencies: list-engine, team-access
+- [x] remote-storage -- 公開版のTurso Cloud libSQL接続とローカルSQLiteの互換性を[保存仕様のタスク](../specs/remote-storage/tasks.md)で検証済み。Dependencies: list-engine, team-access
 - [ ] cloudflare-hosting -- Cloudflare上の招待制ベータ、HTTPS転送、秘密管理と公開後の永続化・復旧検証。Dependencies: remote-storage
 
 ## 次の一手
 
-2026-10-26にpublic-data-importers・custom-fields・call-mode・api-mcp・team-accessを実装・統合検証した。既存の完了仕様を引き継ぎ、公開前に全体検証・依存/ライセンス/秘密検査と権利記録を更新する。
+招待制ベータは[公開仕様の2.2・2.3](../specs/cloudflare-hosting/tasks.md)から再開する。配布用イメージは合成DBで手元から検証できる。指定アカウントでの配備にはWorkers Paidが必要。
 
 ## 2026-10-26の提供境界
 無料・招待制ベータを既定とし、組織別DB、認証/権限、監査、HTTPS前段とVolume/復旧を追加する。実企業データは別保存先に取り込み、Gitや配布物へ含めない。ソース公開と外部サーバーへのSaaS配備は別の完了条件とする。外部domain/公開先が未指定なら、配備済みと報告しない。
