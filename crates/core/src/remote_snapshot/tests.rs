@@ -258,7 +258,7 @@ fn registry_matches_actual_physical_columns_and_primary_key_order() {
     registered.sort();
     names.sort();
     assert_eq!(registered, names);
-    assert_eq!(registered.len(), 12);
+    assert_eq!(registered.len(), 18);
     for table in crm_tables() {
         let columns = db
             .conn()

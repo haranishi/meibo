@@ -1,0 +1,16 @@
+services:
+  app:
+    build:
+      context: .
+      target: activity-sync
+    image: meibo:activity-sync
+    environment:
+      MEIBO_SYNC_ORIGIN: https://${MEIBO_DOMAIN:?Set MEIBO_DOMAIN to your public domain}
+      MEIBO_SYNC_GOOGLE_CLIENT_ID:
+      MEIBO_SYNC_GOOGLE_CLIENT_SECRET:
+      MEIBO_SYNC_MICROSOFT_CLIENT_ID:
+      MEIBO_SYNC_MICROSOFT_CLIENT_SECRET:
+    volumes:
+      - meibo_activity_credentials:/var/lib/meibo-activity
+volumes:
+  meibo_activity_credentials:

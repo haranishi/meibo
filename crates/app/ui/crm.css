@@ -29,3 +29,26 @@
 .sales-report-table td, .sales-report-table th { text-align: right; border-bottom: 1px solid #d8dde6; padding: 8px 4px; overflow-wrap: anywhere; }
 .sales-report-table th:first-child { text-align: left; }
 @media (max-width: 600px) { .sales-report { padding: 16px; } }
+
+.sales-projection-scroll { max-width: 100%; overflow-x: auto; margin: 10px 0 15px; }
+.sales-projection-table { width: 100%; min-width: 660px; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.sales-projection-table th, .sales-projection-table td { padding: 9px 7px; text-align: right; border-bottom: 1px solid #d8dde6; }
+.sales-projection-table th:first-child { max-width: 160px; text-align: left; overflow-wrap: anywhere; position: sticky; left: 0; background: #fff; }
+.sales-target { margin-top: 14px; padding: 10px 14px; border: 1px solid #c6d3e1; border-radius: 5px; }
+.sales-target summary { color: #17658d; font-weight: 600; cursor: pointer; }
+.sales-target .dialog-fields { padding: 16px 0 10px; }
+.sales-target-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.sales-target .field-error { margin-top: 6px; }
+.form-field > .form-field[hidden] { display: none; }
+@media (min-width: 601px) and (max-width: 960px) {
+  .sales-report-totals { grid-template-columns: repeat(2,minmax(0,1fr)); }
+}
+@media (max-width: 600px) {
+  .sales-projection-table { min-width: 0; }
+  .sales-projection-table thead { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .sales-projection-table tbody { display: grid; gap: 10px; }
+  .sales-projection-table tbody tr { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); border: 1px solid #d8dde6; border-radius: 4px; padding: 8px 10px; }
+  .sales-projection-table tbody th:first-child { position: static; max-width: none; grid-column: 1/-1; }
+  .sales-projection-table tbody td { text-align: left; border-bottom: none; min-width: 0; overflow-wrap: anywhere; }
+  .sales-projection-table tbody td::before { display: block; content: attr(data-label); color: #53657c; font-size: 12px; }
+}

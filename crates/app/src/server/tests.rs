@@ -1,3 +1,4 @@
+mod followups;
 use super::*;
 use meibo_core::types::{CompanyId, CompanyInput, ContactInput, Filters, Status};
 
@@ -943,6 +944,140 @@ fn crm_routes_persist_independent_records_and_validate_changes() {
     assert_eq!(
         engine.company_detail(id, &vec![]).unwrap().company.status,
         Status::Untouched
+    );
+}
+
+// Requirements 20.5 and 20.8: old editors omit both forecast fields on a full deal update.
+#[test]
+fn forecast_routes_preserve_legacy_edits_and_clear_only_explicit_fields() {
+    let (_dir, mut engine, company) = fixture();
+    let deal = json!({"company_id":company.0,"name":"合成商談","amount_jpy":101,"stage":2,"close_date":"2026-12-01"});
+    let mut create = deal.clone();
+    create["owner_id"] = json!(12);
+    create["probability"] = json!(50);
+    let endpoint = "/api/opportunities";
+    let posted = dispatch(&mut engine, &input("POST", endpoint, &create), PORT);
+    assert_eq!(posted.status, 201);
+    let path = format!("{endpoint}/{}", json_reply(&posted)["id"].as_i64().unwrap());
+    assert_eq!(
+        dispatch(&mut engine, &input("POST", &path, &deal), PORT).status,
+        200
+    );
+    for (key, value) in [
+        ("owner_id", json!(0)),
+        ("owner_id", json!("12")),
+        ("probability", json!(101)),
+        ("probability", json!(-1)),
+        ("probability", json!(0.5)),
+        ("inherit_owner", json!(true)),
+    ] {
+        let mut invalid = create.clone();
+        invalid[key] = value;
+        assert_eq!(
+            dispatch(&mut engine, &input("POST", &path, &invalid), PORT).status,
+            400
+        );
+    }
+    let target = json!({"owner_id":12,"month":"2026-12","amount_jpy":200});
+    assert_eq!(
+        dispatch(
+            &mut engine,
+            &input("POST", "/api/sales-targets", &target),
+            PORT
+        )
+        .status,
+        200
+    );
+    let report = input("GET", "/api/sales-report?month=2026-12", &Value::Null);
+    let value = json_reply(&dispatch(&mut engine, &report, PORT));
+    let row = &value["projections"][0];
+    assert_eq!(
+        (
+            row["owner"].as_str(),
+            row["weighted_amount_jpy"].as_str(),
+            row["target_difference_jpy"].as_str()
+        ),
+        (Some("12"), Some("51"), Some("-149"))
+    );
+    let mut clear = deal.clone();
+    clear["probability"] = Value::Null;
+    assert_eq!(
+        dispatch(&mut engine, &input("POST", &path, &clear), PORT).status,
+        200
+    );
+    let row = &json_reply(&dispatch(&mut engine, &report, PORT))["projections"][0];
+    assert_eq!(
+        (
+            row["owner"].as_str(),
+            row["unknown_probability_count"].as_u64()
+        ),
+        (Some("12"), Some(1))
+    );
+    clear["owner_id"] = Value::Null;
+    assert_eq!(
+        dispatch(&mut engine, &input("POST", &path, &clear), PORT).status,
+        200
+    );
+    let result = dispatch(&mut engine, &input("GET", endpoint, &Value::Null), PORT);
+    let item = &json_reply(&result)["items"][0];
+    assert_eq!(
+        (
+            item["owner_id"].is_null(),
+            item["owner_inherited"].as_bool()
+        ),
+        (true, Some(false))
+    );
+    let mut inherit = deal.clone();
+    inherit["inherit_owner"] = json!(true);
+    assert_eq!(
+        dispatch(&mut engine, &input("POST", &path, &inherit), PORT).status,
+        200
+    );
+    let result = dispatch(&mut engine, &input("GET", endpoint, &Value::Null), PORT);
+    assert_eq!(json_reply(&result)["items"][0]["owner_inherited"], true);
+}
+
+#[test]
+fn forecast_target_route_requires_an_explicit_amount_or_null() {
+    let (_dir, mut engine, _) = fixture();
+    let missing_amount = json!({"owner_id":12,"month":"2026-12"});
+    assert_eq!(
+        dispatch(
+            &mut engine,
+            &input("POST", "/api/sales-targets", &missing_amount),
+            PORT
+        )
+        .status,
+        400
+    );
+    let mut zero = json!({"owner_id":12,"month":"2026-12","amount_jpy":0});
+    assert_eq!(
+        dispatch(
+            &mut engine,
+            &input("POST", "/api/sales-targets", &zero),
+            PORT
+        )
+        .status,
+        200
+    );
+    let report = input("GET", "/api/sales-report?month=2026-12", &Value::Null);
+    assert_eq!(
+        json_reply(&dispatch(&mut engine, &report, PORT))["projections"][0]["target_jpy"],
+        "0"
+    );
+    zero["amount_jpy"] = Value::Null;
+    assert_eq!(
+        dispatch(
+            &mut engine,
+            &input("POST", "/api/sales-targets", &zero),
+            PORT
+        )
+        .status,
+        200
+    );
+    assert_eq!(
+        json_reply(&dispatch(&mut engine, &report, PORT))["projections"],
+        json!([])
     );
 }
 

@@ -57,6 +57,14 @@ jobs:
         run: |
           npm run test:browser:server
           npm run test:browser
+      - name: Exercise both read-only mailbox and calendar connectors with synthetic providers
+        env:
+          MEIBO_BINARY: ${{ github.workspace }}/target/debug/meibo
+          PLAYWRIGHT_MODULE: ${{ github.workspace }}/cloudflare/node_modules/playwright/index.mjs
+          TMPDIR: ${{ runner.temp }}
+        run: |
+          node --test crates/app/tests/activity-providers.cjs
+          node crates/app/tests/activity-sync-browser.mjs
       - name: Retain synthetic browser evidence
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5

@@ -62,7 +62,8 @@ export function validateRequest(request: Request, origin: ValidatedPublicOrigin)
   }
   const method = request.method;
   if (method !== "GET" && method !== "POST") throw new BoundaryError("method_not_allowed");
-  const bodyLimitBytes = url.pathname === "/auth/login" ? 8192 : url.pathname === "/api/import" ? CSV_LIMIT_BYTES : JSON_LIMIT_BYTES;
+  const bodyLimitBytes = url.pathname === "/auth/login" || url.pathname.startsWith("/forms/")
+    ? 8192 : url.pathname === "/api/import" ? CSV_LIMIT_BYTES : JSON_LIMIT_BYTES;
   const declared = request.headers.get("Content-Length");
   if (declared !== null) {
     if (!/^[0-9]+$/.test(declared)) throw new BoundaryError("invalid_request");

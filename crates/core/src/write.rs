@@ -239,17 +239,22 @@ pub(crate) fn register_company(db: &mut Db, c: &CompanyInput) -> Result<CompanyI
     db.check_origin(c.origin)?;
     let normalized = validate_company_input(c)?;
     let estimate = company_estimate(c);
+    db.write(estimate, |tx| insert_company_tx(tx, &normalized))
+}
+
+pub(crate) fn insert_company_tx(
+    tx: &Transaction<'_>,
+    normalized: &NormalizedCompany,
+) -> Result<CompanyId, EngineError> {
     let c = &normalized.company;
-    db.write(estimate, |tx| {
-        check_duplicate(tx, c.corporate_number.as_deref(), None)?;
-        tx.execute("INSERT INTO companies(corporate_number,name,name_key,prefecture_code,municipality_code,industry_code,status,phone,website,owner_id,base_status,is_sole_proprietor,source_id,source_as_of,created_at,updated_at,last_activity_at,next_action_at)
+    check_duplicate(tx, c.corporate_number.as_deref(), None)?;
+    tx.execute("INSERT INTO companies(corporate_number,name,name_key,prefecture_code,municipality_code,industry_code,status,phone,website,owner_id,base_status,is_sole_proprietor,source_id,source_as_of,created_at,updated_at,last_activity_at,next_action_at)
             VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?7,?11,?12,?13,?14,?14,0,NULL)",
             params![c.corporate_number,c.name,normalized.name_key,c.prefecture,c.municipality,c.industry.map(Industry::code),c.status.code(),c.phone,c.website,c.owner.map(|u| u.0),c.is_sole_proprietor,c.source_id,c.source_as_of,now_secs()]).map_err(storage)?;
-        let id = CompanyId(tx.last_insert_rowid());
-        fts::insert(tx, id.0, &normalized.name_key)?;
-        counts::apply_delta(tx, None, Some((c.status, c.phone.is_some())))?;
-        Ok(id)
-    })
+    let id = CompanyId(tx.last_insert_rowid());
+    fts::insert(tx, id.0, &normalized.name_key)?;
+    counts::apply_delta(tx, None, Some((c.status, c.phone.is_some())))?;
+    Ok(id)
 }
 
 fn status(code: u8) -> Result<Status, EngineError> {
@@ -312,7 +317,7 @@ pub(crate) fn update_company(
     })
 }
 
-pub(crate) fn add_contact(db: &mut Db, c: &ContactInput) -> Result<ContactId, EngineError> {
+pub(crate) fn validate_contact_input(c: &ContactInput) -> Result<(), EngineError> {
     reject_nul("name", &c.name)?;
     for (field, value) in [("phone", c.phone.as_deref()), ("email", c.email.as_deref())] {
         if let Some(value) = value {
@@ -322,24 +327,33 @@ pub(crate) fn add_contact(db: &mut Db, c: &ContactInput) -> Result<ContactId, En
     if c.name.trim().is_empty() {
         return Err(EngineError::EmptyName);
     }
-    let estimate = contact_estimate(c);
-    db.write(estimate, |tx| {
-        if company_state(tx, c.company)?.erased {
-            return Err(EngineError::NotFound);
-        }
-        tx.execute(
-            "INSERT INTO contacts(company_id,name,phone,email,created_at) VALUES(?1,?2,?3,?4,?5)",
-            params![
-                c.company.0,
-                c.name,
-                phone(c.phone.as_deref()),
-                optional_text(c.email.as_deref()),
-                now_secs()
-            ],
-        )
-        .map_err(storage)?;
-        Ok(ContactId(tx.last_insert_rowid()))
-    })
+    Ok(())
+}
+
+pub(crate) fn add_contact(db: &mut Db, c: &ContactInput) -> Result<ContactId, EngineError> {
+    validate_contact_input(c)?;
+    db.write(contact_estimate(c), |tx| add_contact_tx(tx, c))
+}
+
+pub(crate) fn add_contact_tx(
+    tx: &Transaction<'_>,
+    c: &ContactInput,
+) -> Result<ContactId, EngineError> {
+    if company_state(tx, c.company)?.erased {
+        return Err(EngineError::NotFound);
+    }
+    tx.execute(
+        "INSERT INTO contacts(company_id,name,phone,email,created_at) VALUES(?1,?2,?3,?4,?5)",
+        params![
+            c.company.0,
+            c.name,
+            phone(c.phone.as_deref()),
+            optional_text(c.email.as_deref()),
+            now_secs()
+        ],
+    )
+    .map_err(storage)?;
+    Ok(ContactId(tx.last_insert_rowid()))
 }
 
 pub(crate) fn update_contact(
@@ -347,15 +361,7 @@ pub(crate) fn update_contact(
     id: ContactId,
     c: &ContactInput,
 ) -> Result<(), EngineError> {
-    reject_nul("name", &c.name)?;
-    for (field, value) in [("phone", c.phone.as_deref()), ("email", c.email.as_deref())] {
-        if let Some(value) = value {
-            reject_nul(field, value)?;
-        }
-    }
-    if c.name.trim().is_empty() {
-        return Err(EngineError::EmptyName);
-    }
+    validate_contact_input(c)?;
     let estimate = db.local_growth_estimate(|| {
         let previous_bytes: i64 = db.conn().query_row(
             "SELECT coalesce(length(CAST(name AS BLOB)),0)+coalesce(length(CAST(phone AS BLOB)),0)+coalesce(length(CAST(email AS BLOB)),0) FROM contacts WHERE id=?1",

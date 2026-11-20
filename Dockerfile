@@ -4,7 +4,7 @@ COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
 RUN cargo build --locked --release -p meibo-app
 
-FROM debian:bookworm-slim
+FROM debian:bookworm-slim AS runtime
 RUN groupadd --gid 10001 meibo \
     && useradd --uid 10001 --gid 10001 --no-create-home --shell /usr/sbin/nologin meibo \
     && mkdir /data \
@@ -15,3 +15,17 @@ USER 10001:10001
 WORKDIR /data
 ENTRYPOINT ["/usr/local/bin/meibo"]
 CMD ["--help"]
+
+FROM node:24.22.3-bookworm-slim AS connector-node
+FROM runtime AS activity-sync
+USER root
+COPY --from=connector-node /usr/local/bin/node /usr/local/bin/node
+COPY --from=connector-node /usr/local/LICENSE /usr/local/share/doc/node/LICENSE
+RUN /usr/local/bin/node --version \
+    && install -d -m 0700 -o 10001 -g 10001 /var/lib/meibo-activity
+ENV MEIBO_ACTIVITY_SYNC_NODE=/usr/local/bin/node \
+    MEIBO_SYNC_VAULT=/var/lib/meibo-activity
+USER 10001:10001
+
+# Keep the default build free of connector runtimes and external account configuration.
+FROM runtime AS default

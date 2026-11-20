@@ -50,7 +50,7 @@ Worker bindingは5120bytesまでで、公開前検査でもこの上限を確認
 
 ## sessionと確認範囲
 
-health以外は毎回Accessの署名・宛先・期限・利用者を検証する。
+ログインとCRMでは毎回Accessの署名・宛先・期限・利用者を検証する。ヘルスチェックは認証なしで利用できる。
 CRM操作には所属組織のsessionも必要で、別人のcookieは利用・延長できない。
 所属変更・利用停止・revokeと既存のCSRF/context検査を維持する。
 CRMのログアウトはCRM sessionを失効する。CloudflareのSSO sessionは継続し得る。
@@ -63,6 +63,13 @@ CRMのログアウトはCRM sessionを失効する。CloudflareのSSO sessionは
 本番hostを配備してから本人のログイン・期限切れ・許可対象を確認する。
 host全体をAccessで保護すると、未認証の共有crawlerも通れない。
 canonical/OGPの生成は維持するが、公開リンクのpreviewは実hostで別途確認する。
+
+## 問い合わせを外部から受け付ける
+
+管理者がホームの「問い合わせ受付」から「公開フォームの設定」を開き、「受付を開始」で組織専用のURLを発行する。
+Accessでホストを保護している場合は、発行したURLのパスと `/forms/intake.js`、`/forms/intake.css` の3か所に限定して公開用のポリシーを設定する。対象パスを指定する方法は[Cloudflare公式の手順](https://developers.cloudflare.com/cloudflare-one/access-controls/policies/common-policies/#bypass-a-public-endpoint)に従う。
+配布前に、ログアウトしたブラウザでフォームを開き、営業ホームにはログインが必要なことを確認する。
+受付を停止すると旧URLは無効になる。再開時は、新しいURLに合わせて公開対象のパスを更新する。
 
 Cloudflare公式: [Cloudflare IdP](https://developers.cloudflare.com/cloudflare-one/integrations/identity-providers/cloudflare/)、
 [JWT検証](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/authorization-cookie/validating-json/)、

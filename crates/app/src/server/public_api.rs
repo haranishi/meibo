@@ -9,6 +9,7 @@ pub(crate) fn dispatch(
     input: &Input,
     path: &str,
     query: &str,
+    user_id: Option<i64>,
 ) -> Option<Reply> {
     if path != "/api/v1" && !path.starts_with("/api/v1/") {
         return None;
@@ -23,7 +24,7 @@ pub(crate) fn dispatch(
         return Some(match action {
             "" if input.method == "GET" => api::detail(engine, id, query),
             "activities" if input.method == "POST" && query.is_empty() => {
-                api::activity(engine, id, &input.body)
+                api::activity(engine, id, &input.body, user_id)
             }
             "activities" if input.method == "POST" => {
                 Reply::error(400, "活動記録には検索条件を指定できません。")
@@ -71,7 +72,7 @@ pub(crate) fn call_tool(
         headers: vec![],
         body,
     };
-    let reply = dispatch(engine, &input, path, query).expect("fixed v1 tool route");
+    let reply = dispatch(engine, &input, path, query, None).expect("fixed v1 tool route");
     let value = serde_json::from_slice(&reply.body)
         .unwrap_or_else(|_| json!({"error":"処理結果を読み取れませんでした。"}));
     Ok((reply.status >= 400, value))

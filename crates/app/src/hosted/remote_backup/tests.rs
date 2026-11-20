@@ -61,7 +61,12 @@ fn fixture() -> tempfile::TempDir {
                 sequences: Some(manifest::Sequences {
                     custom_field_definitions: "42".into(),
                 }),
-                tables: write_tables(&root, "tenants/alpha", profile::crm().collect(), &crm),
+                tables: write_tables(
+                    &root,
+                    "tenants/alpha",
+                    profile::crm_version(1).collect(),
+                    &crm,
+                ),
             },
         }],
     };

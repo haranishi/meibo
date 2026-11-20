@@ -5,10 +5,10 @@ use std::collections::HashMap;
 use meibo_core::{
     Engine,
     crm::{
-        Opportunity, OpportunityInput, OpportunityQuery, WorkItem, WorkItemInput, WorkKind,
-        WorkQuery,
+        Opportunity, OpportunityForecastPatch, OpportunityInput, OpportunityOwnerChange,
+        OpportunityQuery, WorkItem, WorkItemInput, WorkKind, WorkQuery,
     },
-    types::{CompanyId, ContactId, EngineError},
+    types::{CompanyId, ContactId, EngineError, UserId},
 };
 use serde_json::{Map, Value, json};
 
@@ -28,6 +28,11 @@ pub(super) fn dispatch(
         }),
         "/api/sales-report" => Some(if input.method == "GET" {
             sales_report(engine, query)
+        } else {
+            bad_input()
+        }),
+        "/api/sales-targets" => Some(if input.method == "POST" && query.is_empty() {
+            set_sales_target(engine, &input.body)
         } else {
             bad_input()
         }),
@@ -97,14 +102,14 @@ fn work_save(engine: &mut Engine, body: &[u8], id: Option<i64>) -> Reply {
 }
 
 fn opportunity_save(engine: &mut Engine, body: &[u8], id: Option<i64>) -> Reply {
-    let Some((input, date)) = parse_opportunity(body) else {
+    let Some((input, date, forecast)) = parse_opportunity(body) else {
         return bad_input();
     };
     let result = match id {
         Some(id) => engine
-            .crm_update_opportunity_dated(id, &input, date.as_deref())
+            .crm_update_opportunity_forecast(id, &input, date.as_deref(), forecast)
             .map(|()| id),
-        None => engine.crm_create_opportunity_dated(&input, date.as_deref()),
+        None => engine.crm_create_opportunity_forecast(&input, date.as_deref(), forecast),
     };
     saved(result, id.is_none())
 }
@@ -185,16 +190,44 @@ fn sales_report(engine: &Engine, query: &str) -> Reply {
                     })
                 })
                 .collect();
+            let projections: Vec<_> = report.projections.iter().map(|(owner, group)| {
+                json!({
+                    "owner":owner.map(|id| id.0.to_string()), "open_count":group.open_count,
+                    "open_amount_jpy":group.open_amount_jpy.to_string(), "won_amount_jpy":group.won_amount_jpy.to_string(),
+                    "weighted_amount_jpy":group.weighted_amount_jpy.to_string(), "projected_amount_jpy":group.projected_amount_jpy().to_string(),
+                    "unknown_probability_count":group.unknown_probability_count, "target_jpy":group.target_jpy.map(|v| v.to_string()),
+                    "target_difference_jpy":group.target_difference_jpy()
+                })
+            }).collect();
             Reply::json(
                 200,
                 &json!({
                     "month":month, "won_amount_jpy":report.won_amount_jpy.to_string(),
                     "won_count":report.won_count, "lost_count":report.lost_count,
                     "win_rate_percent":report.win_rate_percent(), "undated_count":report.undated_count,
-                    "forecasts":forecasts
+                    "forecasts":forecasts, "projections":projections
                 }),
             )
         }
+        Err(error) => engine_error(&error),
+    }
+}
+
+fn set_sales_target(engine: &mut Engine, body: &[u8]) -> Reply {
+    let Some((month, owner, amount)) =
+        object(body, &["month", "owner_id", "amount_jpy"]).and_then(|o| {
+            o.get("amount_jpy")?;
+            Some((
+                o.get("month")?.as_str()?.to_owned(),
+                UserId(o.get("owner_id")?.as_i64()?),
+                optional_integer(&o, "amount_jpy")?,
+            ))
+        })
+    else {
+        return bad_input();
+    };
+    match engine.crm_set_sales_target(&month, owner, amount) {
+        Ok(()) => Reply::json(200, &json!({"saved":true})),
         Err(error) => engine_error(&error),
     }
 }
@@ -239,7 +272,9 @@ fn parse_work(body: &[u8]) -> Option<WorkItemInput> {
     })
 }
 
-fn parse_opportunity(body: &[u8]) -> Option<(OpportunityInput, Option<String>)> {
+fn parse_opportunity(
+    body: &[u8],
+) -> Option<(OpportunityInput, Option<String>, OpportunityForecastPatch)> {
     let o = object(
         body,
         &[
@@ -250,6 +285,9 @@ fn parse_opportunity(body: &[u8]) -> Option<(OpportunityInput, Option<String>)> 
             "stage",
             "close_date",
             "outcome_date",
+            "owner_id",
+            "inherit_owner",
+            "probability",
         ],
     )?;
     let company = CompanyId(o.get("company_id")?.as_i64().filter(|v| *v > 0)?);
@@ -258,6 +296,26 @@ fn parse_opportunity(body: &[u8]) -> Option<(OpportunityInput, Option<String>)> 
         return None;
     }
     let date = outcome_date(&o)?;
+    let inherit = match o.get("inherit_owner") {
+        Some(value) => value.as_bool()?,
+        None => false,
+    };
+    let owner = match (inherit, o.get("owner_id")) {
+        (true, None) => OpportunityOwnerChange::Inherit,
+        (true, Some(_)) => return None,
+        (false, None) => OpportunityOwnerChange::Keep,
+        (false, Some(Value::Null)) => OpportunityOwnerChange::Unassigned,
+        (false, Some(value)) => {
+            OpportunityOwnerChange::Assign(UserId(value.as_i64().filter(|id| *id > 0)?))
+        }
+    };
+    let probability = match o.get("probability") {
+        None => None,
+        Some(Value::Null) => Some(None),
+        Some(value) => Some(Some(
+            u8::try_from(value.as_u64()?).ok().filter(|p| *p <= 100)?,
+        )),
+    };
     Some((
         OpportunityInput {
             company,
@@ -268,6 +326,7 @@ fn parse_opportunity(body: &[u8]) -> Option<(OpportunityInput, Option<String>)> 
             close_date: o.get("close_date")?.as_str()?.to_owned(),
         },
         date,
+        OpportunityForecastPatch { owner, probability },
     ))
 }
 
@@ -346,7 +405,8 @@ fn work_json(item: &WorkItem) -> Value {
 fn opportunity_json(item: &Opportunity) -> Value {
     let input = &item.input;
     json!({"id":item.id,"company_id":input.company.0,"company_name":item.company_name,"contact_id":input.contact.map(|c| c.0),
-        "name":input.name,"amount_jpy":input.amount_jpy,"stage":input.stage,"close_date":input.close_date,"outcome_date":item.outcome_date})
+        "name":input.name,"amount_jpy":input.amount_jpy,"stage":input.stage,"close_date":input.close_date,"outcome_date":item.outcome_date,
+        "owner_id":item.owner.map(|id| id.0.to_string()),"owner_inherited":item.owner_inherited,"probability":item.probability})
 }
 
 fn saved(result: Result<i64, EngineError>, created: bool) -> Reply {

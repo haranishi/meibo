@@ -52,12 +52,10 @@ pub(crate) fn visit(
     let sequences =
         read_crm_sequences(&transaction).map_err(|error| EngineError::Storage(Box::new(error)))?;
     let version = crate::crm::version(&transaction)?;
-    for current in crm_tables() {
-        let table = if version == 1 {
-            current.legacy_v1()
-        } else {
-            *current
-        };
+    for table in crm_tables()
+        .iter()
+        .filter_map(|table| table.for_version(version))
+    {
         let base = format!(
             "SELECT {} FROM {} WHERE 1",
             table.columns().join(","),

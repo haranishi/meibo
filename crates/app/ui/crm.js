@@ -18,6 +18,16 @@
   const kind = () => crm.name === "crm-events" ? "event" : "task";
   const endpoint = () => isDeal() ? "/api/opportunities" : "/api/work-items";
   const money = (v) => new Intl.NumberFormat("ja-JP", { style: "currency", currency: "JPY", maximumFractionDigits: 0 }).format(v);
+  let memberNames = new Map();
+  async function readMembers() {
+    const data = await (await request("/api/sales-members")).json();
+    return new Map(data.members.map((member) => [String(member.id), member.name]));
+  }
+  function ownerLabel(id) { return id == null ? "未割当" : memberNames.get(String(id)) || `担当 ${id}`; }
+  function assignmentLabel(item) {
+    const probability = item.probability == null ? "確度未設定" : `確度 ${item.probability}%`;
+    return `${ownerLabel(item.owner_id)} · ${probability}`;
+  }
   const post = async (url, body) => (await request(url, { method: "POST", headers: { "Content-Type": "application/json", "X-Meibo-Local": "1" }, body: JSON.stringify(body) })).json();
   function reset() { crm.cursors = [null]; crm.page = 0; crm.next = null; }
   function open(name, company = null) { if (busy() || crm.saving) return; crm.name = name; crm.company = company; showingReport = false; reset(); showWorkspace(name); }
@@ -67,7 +77,12 @@
     if (crm.company) params.set("company_id", crm.company.id);
     if (crm.cursors[crm.page]) params.set("after", crm.cursors[crm.page]);
     try {
-      const data = await (await request(`${endpoint()}?${params}`)).json(); if (version !== crm.version) return;
+      const [data, members] = await Promise.all([
+        request(`${endpoint()}?${params}`).then((response) => response.json()),
+        isDeal() ? readMembers().catch(() => new Map()) : null,
+      ]);
+      if (version !== crm.version) return;
+      if (members) memberNames = members;
       crm.items = data.items; crm.next = data.next; crm.total = data.total; render();
     } catch (error) { if (version !== crm.version) return; heading(); box.append(el("p", "inline-error", error.message), button("再試行", "button button-secondary", load)); }
   }
@@ -90,8 +105,12 @@
       reportMonth = month.value;
       result.replaceChildren(el("p", "subtle", "集計しています…"));
       try {
-        const data = await (await request(`/api/sales-report?month=${encodeURIComponent(reportMonth)}`)).json();
+        const [data, members] = await Promise.all([
+          request(`/api/sales-report?month=${encodeURIComponent(reportMonth)}`).then((response) => response.json()),
+          readMembers().catch(() => new Map()),
+        ]);
         if (version !== crm.version || current !== generation) return;
+        memberNames = members;
         const summary = el("dl", "sales-report-totals");
         const figure = (name, value, caption) => {
           const cell = el("div");
@@ -103,8 +122,14 @@
         const decided = data.won_count + data.lost_count;
         const breakdown = decided ? `決着 ${numberFormat.format(decided)} 件のうち受注 ${numberFormat.format(data.won_count)} 件（失注 ${numberFormat.format(data.lost_count)} 件）` : "対象月に決着した商談がないため未算出です。";
         figure("受注率", data.win_rate_percent === null ? "—" : `${data.win_rate_percent}%`, breakdown);
+        const weighted = data.projections.reduce((sum, row) => sum + BigInt(row.weighted_amount_jpy), 0n);
+        const unknown = data.projections.reduce((sum, row) => sum + row.unknown_probability_count, 0);
+        figure("確度加重見込み", money(weighted), `未決着の商談金額 × 受注確度。確度未設定 ${numberFormat.format(unknown)} 件は集計外です。`);
+        figure("着地予測", money(weighted + BigInt(data.won_amount_jpy)), "月次受注額と確度加重見込みの合計");
         result.replaceChildren(summary);
         if (data.undated_count) result.append(el("p", "sales-report-unknown", `決着日が不明な商談が全期間で ${numberFormat.format(data.undated_count)} 件あります。商談に決着日を入力すると実績に加わります。`));
+        showProjections(result, data);
+        if (!window.MeiboContext?.hosted || window.MeiboContext.role === "admin") targetForm(result, data, refresh);
         result.append(el("h3", "", "担当別の見込み額"), el("p", "subtle", "対象月に完了予定の未決着商談を、取引先の現在の担当ごとに表示します。"));
         if (!data.forecasts.length) {
           result.append(el("p", "sales-report-empty", "対象月に完了予定の未決着商談はありません。"));
@@ -128,6 +153,65 @@
     month.addEventListener("change", refresh);
     refresh();
   }
+  function showProjections(result, data) {
+    result.append(el("h3", "", "商談担当別の着地予測"));
+    if (!data.projections.length) {
+      result.append(el("p", "subtle", "対象月の受注・見込み・目標はまだありません。"));
+      return;
+    }
+    result.append(el("p", "subtle", "目標との差は、着地予測から月間目標を引いた金額です。"));
+    const container = el("div", "sales-projection-scroll"), table = el("table", "sales-projection-table");
+    table.setAttribute("aria-label", "商談担当別の着地予測"); container.tabIndex = 0;
+    const header = table.createTHead().insertRow();
+    const columns = ["商談担当", "受注額", "確度加重見込み", "着地予測", "月間目標", "目標との差", "確度未設定"];
+    for (const title of columns) {
+      const th = el("th", "", title); th.scope = "col"; header.append(th);
+    }
+    const body = table.createTBody();
+    for (const group of data.projections) {
+      const row = body.insertRow(), name = el("th", "", ownerLabel(group.owner));
+      name.scope = "row"; row.append(name);
+      const amounts = [group.won_amount_jpy, group.weighted_amount_jpy, group.projected_amount_jpy, group.target_jpy, group.target_difference_jpy];
+      const values = amounts.map((value) => value == null ? "—" : money(BigInt(value)));
+      values.push(`${numberFormat.format(group.unknown_probability_count)} 件`);
+      for (const [index, value] of values.entries()) {
+        const cell = el("td", "", value); cell.dataset.label = columns[index + 1]; row.append(cell);
+      }
+    }
+    container.append(table); result.append(container);
+  }
+  function targetForm(result, data, refresh) {
+    const details = el("details", "sales-target"), form = el("form"), fields = el("fieldset", "dialog-fields");
+    details.append(el("summary", "", "月間目標を設定"), form);
+    const owner = ownerField(fields, "目標の担当", "target-owner", "", false);
+    const amount = inputField(fields, "月間目標（円）", "target-amount", "number", "");
+    amount.min = "0"; amount.max = String(Number.MAX_SAFE_INTEGER); amount.step = "1";
+    const actions = el("div", "sales-target-actions"), save = el("button", "button button-primary", "目標を保存");
+    const clear = el("button", "button button-secondary", "目標を解除"), error = el("p", "field-error");
+    error.setAttribute("role", "alert"); save.type = "submit"; clear.type = "submit"; clear.formNoValidate = true;
+    const showCurrent = () => {
+      const target = data.projections.find((group) => group.owner === owner.value())?.target_jpy;
+      amount.value = target ?? ""; clear.disabled = target == null;
+    };
+    owner.field.addEventListener("change", showCurrent); owner.field.addEventListener("input", showCurrent);
+    showCurrent();
+    actions.append(save, clear); form.append(fields, actions, error); result.append(details);
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      try {
+        const id = ownerNumber(owner.value());
+        const removing = event.submitter === clear;
+        if (!removing && !form.reportValidity()) return;
+        fields.disabled = true; save.disabled = true; clear.disabled = true;
+        await post("/api/sales-targets", { month:data.month, owner_id:id, amount_jpy:removing ? null : Number(amount.value) });
+        notify(removing ? "目標を解除しました。" : "月間目標を保存しました。");
+        await refresh();
+      } catch (e) {
+        error.textContent = e.message; fields.disabled = false; save.disabled = false;
+        clear.disabled = data.projections.find((group) => group.owner === owner.value())?.target_jpy == null;
+      }
+    });
+  }
   function render() {
     heading();
     const stats = el("div", "crm-summary"); stats.append(el("strong", "", `${numberFormat.format(crm.total)} 件`));
@@ -150,7 +234,7 @@
       const lane = el("section", "crm-lane"), items = crm.items.filter((v) => v.stage === stage);
       lane.append(el("h2", "", `${label} · ${items.length}`), el("p", "subtle", money(items.reduce((sum, v) => sum + BigInt(v.amount_jpy), 0n))));
       for (const item of items) {
-        const card = el("article", "crm-deal-card"); card.append(button(item.name, "crm-record-name", () => editor(item)), account(item), el("strong", "crm-money", money(item.amount_jpy)), el("p", "subtle", `完了予定 ${item.close_date}`), stageControl(item)); lane.append(card);
+        const card = el("article", "crm-deal-card"); card.append(button(item.name, "crm-record-name", () => editor(item)), account(item), el("strong", "crm-money", money(item.amount_jpy)), el("p", "subtle", assignmentLabel(item)), el("p", "subtle", `完了予定 ${item.close_date}`), stageControl(item)); lane.append(card);
       }
       if (!items.length) lane.append(el("p", "empty-message", "商談なし")); board.append(lane);
     }); box.append(board);
@@ -172,7 +256,7 @@
     columns.forEach((c) => { const th = el("th", "", c); th.scope = "col"; tr.append(th); }); head.append(tr); table.append(head);
     const body = el("tbody"); crm.items.forEach((item) => {
       const row = el("tr"), title = el("td"), company = el("td"); title.append(button(item.name || item.subject, "company-name", () => editor(item))); company.append(account(item)); row.append(title, company);
-      if (isDeal()) { row.append(el("td", "", money(item.amount_jpy)), el("td", "", item.close_date)); const stage = el("td"); stage.append(stageControl(item)); row.append(stage); }
+      if (isDeal()) { title.append(el("div", "subtle", assignmentLabel(item))); row.append(el("td", "", money(item.amount_jpy)), el("td", "", item.close_date)); const stage = el("td"); stage.append(stageControl(item)); row.append(stage); }
       else {
         const date = el("td", kind() === "task" && !item.completed && item.due_at !== null && item.due_at < Date.now() / 1000 ? "crm-overdue" : "", kind() === "event" ? `${formatDate(item.start_at)} 〜 ${formatDate(item.end_at)}` : formatDate(item.due_at));
         row.append(date); const action = el("td");
@@ -187,6 +271,53 @@
   function inputField(form, label, name, type, value, required = true) {
     const field = el("div", "form-field"), id = `crm-${name}`, labelEl = el("label", "", label), input = el("input"); labelEl.htmlFor = id; input.id = id; input.name = name; input.type = type; input.required = required; input.value = value ?? "";
     field.append(labelEl, input); form.append(field); return input;
+  }
+  function ownerNumber(value) {
+    const id = Number(value);
+    if (!/^[1-9][0-9]*$/.test(value) || !Number.isSafeInteger(id)) throw new Error("担当者を選ぶか、正の整数で担当番号を入力してください。");
+    return id;
+  }
+  function ownerField(parent, text, id, initial, allowInheritance) {
+    const field = el("div", "form-field"), label = el("label", "", text), select = el("select");
+    select.id = `crm-${id}`; label.htmlFor = select.id;
+    const hosted = Boolean(window.MeiboContext?.hosted), choices = new Map();
+    function option(value, name) {
+      const entry = el("option", "", name); entry.value = value; select.append(entry); choices.set(value, entry);
+    }
+    if (allowInheritance) { option("inherit", "取引先の担当を引き継ぐ"); option("none", "未割当"); }
+    else if (hosted) { option("", "担当者を選択"); select.required = true; }
+    for (const [value, name] of memberNames) option(value, name);
+    if (initial && !choices.has(initial)) { option(initial, ownerLabel(initial)); choices.get(initial).disabled = hosted; }
+    if (!hosted) option("custom", "担当番号を入力");
+    select.value = initial || (hosted ? "" : "custom"); field.append(label, select); parent.append(field);
+    let custom;
+    if (!hosted) {
+      custom = inputField(field, "担当番号", `${id}-number`, "number", "", false);
+      custom.min = "1"; custom.max = String(Number.MAX_SAFE_INTEGER); custom.step = "1";
+      const showNumber = () => {
+        custom.parentElement.hidden = select.value !== "custom"; custom.disabled = select.value !== "custom";
+        custom.required = !custom.disabled;
+      };
+      select.addEventListener("change", showNumber); showNumber();
+    } else {
+      const feedback = el("div", "subtle"); field.append(feedback);
+      async function loadChoices() {
+        feedback.replaceChildren();
+        try {
+          const names = await readMembers();
+          if (!field.isConnected) return;
+          for (const [value, name] of names) {
+            if (!choices.has(value)) option(value, name);
+            else { choices.get(value).textContent = name; choices.get(value).disabled = false; }
+          }
+          for (const [value, entry] of choices) if (/^[0-9]+$/.test(value) && !names.has(value)) entry.disabled = true;
+        } catch (e) {
+          if (field.isConnected) feedback.replaceChildren(el("span", "", e.message), button("担当者を再読込", "text-button", loadChoices));
+        }
+      }
+      loadChoices();
+    }
+    return { field, value: () => select.value === "custom" ? custom.value : select.value };
   }
   const localTime = (seconds) => { if (seconds === null || seconds === undefined) return ""; const date = new Date(seconds * 1000); return new Date(date - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16); };
   function editor(item = null, context = null) {
@@ -208,10 +339,15 @@
     if (!item) { chooser.append(search, button("取引先を検索", "button button-secondary", find), results); }
     fields.append(chooser);
     const subject = inputField(fields, deal ? "商談名" : "件名", "subject", "text", item?.name || item?.subject); subject.maxLength = 200;
-    let amount, close, stage, outcome, due, start, end;
+    let amount, close, stage, outcome, owner, probability, due, start, end;
+    const initialOwner = !item || item.owner_inherited ? "inherit" : String(item.owner_id ?? "none");
     if (deal) {
       amount = inputField(fields, "金額（円・JPY）", "amount", "number", item?.amount_jpy ?? 0); amount.min = "0"; amount.max = "9007199254740991"; amount.step = "1";
       close = inputField(fields, "完了予定日", "close-date", "date", item?.close_date);
+      owner = ownerField(fields, "商談担当", "deal-owner", initialOwner, true);
+      probability = inputField(fields, "受注確度（%）", "probability", "number", item?.probability, false);
+      probability.min = "0"; probability.max = "100"; probability.step = "1";
+      probability.parentElement.append(el("p", "subtle", "未設定の商談は確度加重見込みの集計外です。"));
       const field = el("div", "form-field"), label = el("label", "", "商談段階"); stage = el("select"); stage.id = "crm-stage"; label.htmlFor = stage.id; stages.forEach((text, i) => { const op = el("option", "", text); op.value = i; stage.append(op); }); stage.value = item?.stage ?? 0; field.append(label, stage); fields.append(field);
       outcome = inputField(fields, "決着日", "outcome-date", "date", item?.outcome_date, false);
       const help = el("p", "subtle");
@@ -241,6 +377,13 @@
       try {
       if (deal) {
         Object.assign(body, { name: subject.value.trim(), amount_jpy: Number(amount.value), stage: Number(stage.value), close_date: close.value });
+        const selection = owner.value();
+        if (selection !== initialOwner) {
+          if (selection === "inherit") body.inherit_owner = true;
+          else body.owner_id = selection === "none" ? null : ownerNumber(selection);
+        }
+        const percent = probability.value === "" ? null : Number(probability.value);
+        if (percent !== (item?.probability ?? null)) body.probability = percent;
         if (!outcome.disabled && outcome.value && (!item || Number(stage.value) !== item.stage || outcome.value !== item.outcome_date)) body.outcome_date = outcome.value;
       }
       else Object.assign(body, { kind: itemKind, subject: subject.value.trim(), due_at: due ? parseLocalDate(due.value) : null, start_at: start ? parseLocalDate(start.value) : null, end_at: end ? parseLocalDate(end.value) : null, completed: item?.completed ?? false });

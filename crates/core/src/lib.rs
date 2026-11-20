@@ -5,6 +5,7 @@ pub(crate) use meibo_db as sql;
 #[cfg(not(feature = "cloud"))]
 pub(crate) use rusqlite as sql;
 
+pub mod activity_sync;
 mod bulk;
 pub mod calling;
 pub mod company_contacts;
@@ -12,7 +13,9 @@ pub mod crm;
 pub mod custom_fields;
 pub mod engine;
 mod erase;
+pub mod followups;
 pub mod houjin;
+pub mod leads;
 mod lists;
 pub mod normalize;
 pub mod public_data;

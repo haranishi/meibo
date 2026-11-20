@@ -77,6 +77,14 @@ fn login_template(config: &HostedConfig) -> String {
 
 pub(super) fn asset(path: &str) -> Option<Reply> {
     match path {
+        "/login.js" => Some(Reply::text(
+            "text/javascript; charset=utf-8",
+            include_str!("../../ui/login.js"),
+        )),
+        "/login.css" => Some(Reply::text(
+            "text/css; charset=utf-8",
+            include_str!("../../ui/login.css"),
+        )),
         "/public-entry.js" => Some(Reply::text(
             "text/javascript; charset=utf-8",
             include_str!("../../ui/public-entry.js"),

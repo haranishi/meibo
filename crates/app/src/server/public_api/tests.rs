@@ -70,7 +70,7 @@ fn input(method: &str, target: &str, body: &Value) -> Input {
 
 fn request(engine: &mut Engine, method: &str, target: &str, body: &Value) -> Reply {
     let (path, query) = target.split_once('?').unwrap_or((target, ""));
-    dispatch(engine, &input(method, target, body), path, query).expect("v1 route")
+    dispatch(engine, &input(method, target, body), path, query, None).expect("v1 route")
 }
 
 fn value(reply: &Reply) -> Value {
@@ -226,7 +226,8 @@ fn v1_method_path_and_outer_http_boundary_remain_enforced() {
             &mut engine,
             &input("GET", "/api/companies", &Value::Null),
             "/api/companies",
-            ""
+            "",
+            None
         )
         .is_none()
     );
