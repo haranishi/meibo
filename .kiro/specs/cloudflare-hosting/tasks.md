@@ -38,6 +38,7 @@
 
 - [ ] 2.2 実Workerと実行物を結合し、検査した対象へ公開する
   - 2026-11-20、指定先の管理APIでWorkers Paidが必要なことと、公開用Workerが未作成であることを確認した。Tursoの6個のDBは、管理API・CLI・保存済み設定でprimaryが一致した。保存済みのDB専用トークンは6個とも期限切れ。実配備と公開後の本人ログインは保留。
+  - 同日、6個のDBに限定した後継トークンで、それぞれのprimaryへの疎通と容量を確認した。指定先への実配備はWorkers Paidの契約と、Cloudflare Accessの招待設定を再確認したあとに行う。
   - `artifacts:verify` で、配備前に合成DBを使ってソース・イメージ・Workerを照合し、起動時の認証方式を記録できる。[実行手順](../../../docs/hosting-cloudflare.md)。
   - boundary/coordinatorを実Worker/DO exportへ結合し、Linux/amd64 imageのbuild・inspect・実起動、Worker bundle、起動/復旧入口を検証する。
   - 最新の提供者照会と実artifactから得た結果を2.1の同じ検査実装へ渡し、対象・設定・digestを対応付ける。fixture、未検証、変更後の古い結果では公開しない。

@@ -275,6 +275,11 @@ fn restore_round_trips_two_tenants_three_roles_all_rows_and_deleted_high_water()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     let fixture = source();
     let mut store = fixture.store();
+    store
+        .open_tenant("alpha")
+        .unwrap()
+        .crm_set_stage_dated(1, 4, Some("2026-11-30"))
+        .unwrap();
     let LoginOutcome::Success(old) = store
         .login("alpha", "admin", PASSWORD, 1_800_000_000)
         .unwrap()
@@ -290,6 +295,16 @@ fn restore_round_trips_two_tenants_three_roles_all_rows_and_deleted_high_water()
     )
     .unwrap();
     let mut target = targets.store();
+    assert_eq!(
+        target
+            .open_tenant("alpha")
+            .unwrap()
+            .crm_sales_report("2026-11")
+            .unwrap()
+            .won_amount_jpy,
+        42
+    );
+
     assert_ne!(target.instance(), store.instance());
     assert_ne!(target.database_id(), store.database_id());
     assert_same_rows(
@@ -548,5 +563,73 @@ fn restore_lost_tenant_write_stops_all_later_sql_and_keeps_candidate_offline() {
             )
             .unwrap(),
         0
+    );
+}
+
+#[test]
+fn sales_report_reads_legacy_remote_and_restores_v1_snapshot_without_guessing_dates() {
+    let _serial = FIXTURES
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let fixture = source();
+    for server in [&fixture.alpha, &fixture.beta] {
+        connection(&server.endpoint())
+            .execute_batch(
+                "ALTER TABLE crm_opportunities DROP COLUMN outcome_date;
+             UPDATE meta SET value='1' WHERE key='crm_schema_version';
+             UPDATE crm_opportunities SET stage=4;",
+            )
+            .unwrap();
+    }
+    let store = fixture.store();
+    let mut engine = store.open_tenant("alpha").unwrap();
+    let report = engine.crm_sales_report("2026-10").unwrap();
+    assert_eq!((report.won_count, report.undated_count), (0, 1));
+    let directory = backup(&store);
+    let root = directory.path().join("snapshot");
+    let manifest_path = root.join("manifest.json");
+    let mut manifest: Manifest =
+        serde_json::from_slice(&fs::read(&manifest_path).unwrap()).unwrap();
+    assert_eq!(manifest.version, 2);
+    // Both source databases still have the older physical schema. Their
+    // original files are also exactly the rows accepted by the old v1 manifest.
+    for tenant in &mut manifest.tenants {
+        assert_eq!(tenant.database.crm_extension_version.take(), Some(1));
+    }
+    manifest.version = 1;
+    fs::write(&manifest_path, serde_json::to_vec(&manifest).unwrap()).unwrap();
+    let targets = Targets::new();
+    run_restore(&store, &root, targets.endpoints()).unwrap();
+    let restored = targets.store();
+    let mut copy = restored.open_tenant("alpha").unwrap();
+    assert_eq!(copy.crm_sales_report("2026-10").unwrap(), report);
+    copy.crm_set_stage_dated(1, 4, Some("2026-11-01")).unwrap();
+    assert_eq!(copy.crm_sales_report("2026-11").unwrap().won_amount_jpy, 42);
+    let conn = connection(&fixture.alpha.endpoint());
+    let marker = || {
+        conn.query_row(
+            "SELECT value FROM meta WHERE key='crm_schema_version'",
+            [],
+            |r| r.get::<_, String>(0),
+        )
+        .unwrap()
+    };
+    assert_eq!(marker(), "1");
+    assert!(engine.crm_set_stage(12345, 4).is_err());
+    assert_eq!(marker(), "1");
+    engine.crm_set_stage(1, 4).unwrap();
+    assert_eq!(marker(), "2");
+    assert_eq!(engine.crm_sales_report("2026-10").unwrap(), report);
+    engine
+        .crm_set_stage_dated(1, 4, Some("2026-10-15"))
+        .unwrap();
+    assert_eq!(
+        store
+            .open_tenant("alpha")
+            .unwrap()
+            .crm_sales_report("2026-10")
+            .unwrap()
+            .won_amount_jpy,
+        42
     );
 }

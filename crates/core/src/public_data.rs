@@ -78,8 +78,7 @@ pub(crate) fn remember_erasure(
 pub const NTA_ATTRIBUTION: &str =
     "出典：国税庁法人番号公表サイト https://www.houjin-bangou.nta.go.jp/";
 /// Notice that the source has been converted to the CRM's fields.
-pub const NTA_MODIFICATION: &str =
-    "国税庁の公表データを加工して作成。国税庁による製品の推奨を意味しません。";
+pub const NTA_MODIFICATION: &str = "法人番号・名称・所在地は国税庁の公表データを加工して作成。電話・Webサイト・業種は利用者が登録する項目です。国税庁による製品の推奨を意味しません。";
 
 /// Only the public fields the importer may refresh.
 #[derive(Debug, Clone)]

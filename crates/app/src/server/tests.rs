@@ -432,7 +432,8 @@ fn workspace_views_filters_and_cursors_match_their_counts() {
         ("view=due", 1),
         ("status=2&prefecture=13", 1),
         ("has_phone=false", 1),
-        ("view=negotiating&status=1", 1),
+        ("view=negotiating&status=1", 0),
+        ("view=has_phone&has_phone=false", 0),
         ("view=scheduled&status=1", 0),
     ] {
         let reply = dispatch(
@@ -465,15 +466,15 @@ fn workspace_views_filters_and_cursors_match_their_counts() {
     assert!(second["next"].is_null());
 }
 
-// REQ 18.3: 検索とビューの未対応併用、不正/重複の条件を無言で無視しない。
+// REQ 18.3: 社名を併用していても、不正/重複の条件を無言で無視しない。
 #[test]
-fn workspace_search_filter_combinations_and_bad_parameters_are_rejected() {
+fn workspace_invalid_and_duplicate_parameters_are_rejected() {
     let (_dir, mut engine, _) = fixture();
     for query in [
-        "q=SECRET&view=negotiating",
-        "q=SECRET&status=0",
-        "q=SECRET&prefecture=13",
-        "q=SECRET&has_phone=true",
+        "q=SECRET&view=unknown",
+        "q=SECRET&status=5",
+        "q=SECRET&prefecture=100",
+        "q=SECRET&has_phone=1",
         "view=unknown",
         "view=all&view=all",
         "status=5",
@@ -984,7 +985,7 @@ fn csv_route_requires_same_origin_and_keeps_json_limits_separate() {
     }
     for target in [
         "/api/companies?sort=unknown",
-        "/api/companies?q=x&sort=last_activity",
+        "/api/companies?q=x&sort=unknown",
     ] {
         assert_eq!(
             dispatch(&mut engine, &input("GET", target, &json!(null)), PORT).status,
@@ -1020,5 +1021,168 @@ fn scheduled_default_sort_keeps_next_action_order() {
         let reply = dispatch(&mut engine, &input("GET", target, &json!(null)), PORT);
         assert_eq!(reply.status, 200);
         assert_eq!(json_reply(&reply)["rows"][0]["id"], second.0, "{target}");
+    }
+}
+
+#[test]
+// REQ 19.1
+fn calling_conditions_apply_to_all_pages_and_matching_counts() {
+    let (_dir, mut engine, _) = fixture();
+    let mut expected = Vec::new();
+    for (name, region, phone, status) in [
+        ("合成アキタ油田Ａ", 5, true, Status::Untouched),
+        ("合成アキタ油田Ｂ", 5, true, Status::Untouched),
+        ("合成アキタ油田Ｃ", 5, false, Status::Untouched),
+        ("合成アキタ油田Ｄ", 6, true, Status::Untouched),
+        ("合成製鉄Ｅ", 5, true, Status::Untouched),
+        ("合成アキタ油田Ｆ", 5, true, Status::InProgress),
+        ("合成アキタ油田Ｇ", 5, true, Status::Excluded),
+    ] {
+        let mut item = company(name);
+        item.prefecture = region;
+        item.municipality = None;
+        item.phone = phone.then(|| "0000000000".into());
+        item.status = status;
+        let id = engine.register_company(&item).unwrap().0;
+        if expected.len() < 2 {
+            expected.push(id);
+        }
+    }
+    for term in ["あきた", "油田", "油"] {
+        for sort in ["default", "next_action", "last_activity"] {
+            let url = format!(
+                "/api/companies?q={term}&view=untouched&prefecture=5&has_phone=true&sort={sort}&limit=1"
+            );
+            let first = dispatch(&mut engine, &input("GET", &url, &Value::Null), PORT);
+            assert_eq!(first.status, 200);
+            let first = json_reply(&first);
+            assert_eq!(first["count"], 2);
+            let after = first["next"].as_str().unwrap();
+            let second = json_reply(&dispatch(
+                &mut engine,
+                &input("GET", &format!("{url}&after={after}"), &Value::Null),
+                PORT,
+            ));
+            assert!(second["count"].is_null() && second["next"].is_null());
+            let mut ids = [
+                first["rows"][0]["id"].as_i64().unwrap(),
+                second["rows"][0]["id"].as_i64().unwrap(),
+            ];
+            ids.sort_unstable();
+            assert_eq!(ids.as_slice(), expected);
+        }
+    }
+}
+
+#[test]
+// REQ 19.2
+fn calling_lists_are_durable_and_reject_stale_updates_and_deletes() {
+    let (dir, mut engine, _) = fixture();
+    let url = "/api/calling-lists";
+    let conditions = json!({"q":"合成","view":"untouched","prefecture":"5","has_phone":"true","sort":"last_activity"});
+    let create = json!({"name":"秋田の架電","conditions":conditions});
+    let created = dispatch(&mut engine, &input("POST", url, &create), PORT);
+    assert_eq!(created.status, 201);
+    let saved = json_reply(&created);
+    let id = saved["id"].as_u64().unwrap();
+    let path = format!("{url}/{id}");
+    let edit = json!({"revision":1, "name":"秋田の未着手", "conditions":conditions});
+    let stale_delete = json!({"revision":1});
+    drop(engine);
+    let mut engine = open_demo(&dir.path().join("demo.db")).unwrap();
+    let read = json_reply(&dispatch(
+        &mut engine,
+        &input("GET", url, &Value::Null),
+        PORT,
+    ));
+    assert_eq!(read["lists"], json!([saved]));
+    let updated = dispatch(&mut engine, &input("POST", &path, &edit), PORT);
+    assert_eq!(updated.status, 200);
+    assert_eq!(json_reply(&updated)["revision"], 2);
+    assert_eq!(
+        dispatch(&mut engine, &input("POST", &path, &edit), PORT).status,
+        409
+    );
+    let delete = format!("{path}/delete");
+    assert_eq!(
+        dispatch(&mut engine, &input("POST", &delete, &stale_delete), PORT).status,
+        409
+    );
+    assert_eq!(
+        dispatch(
+            &mut engine,
+            &input("POST", &delete, &json!({"revision":2})),
+            PORT
+        )
+        .status,
+        200
+    );
+    assert_eq!(
+        json_reply(&dispatch(
+            &mut engine,
+            &input("GET", url, &Value::Null),
+            PORT
+        ))["lists"],
+        json!([])
+    );
+    let again = json_reply(&dispatch(&mut engine, &input("POST", url, &create), PORT));
+    assert_ne!(again["id"], id);
+}
+
+#[test]
+fn queued_call_candidates_follow_current_data_and_keep_private_fields_masked() {
+    let (_dir, mut engine, first) = fixture();
+    let query = "view=untouched&q=あおぞら&prefecture=13&has_phone=true";
+    let path = format!("/api/call-candidates/{}?{query}", first.0);
+    let read = |engine: &mut Engine, path: &str| {
+        let reply = dispatch(engine, &input("GET", path, &Value::Null), PORT);
+        assert_eq!(reply.status, 200);
+        json_reply(&reply)["company"].clone()
+    };
+    assert_eq!(read(&mut engine, &path)["id"], first.0);
+    let activity = format!("/api/companies/{}/activities", first.0);
+    let recorded = dispatch(
+        &mut engine,
+        &input("POST", &activity, &json!({"note":"合成検証", "status":1})),
+        PORT,
+    );
+    assert_eq!(recorded.status, 200);
+    assert!(read(&mut engine, &path).is_null());
+    let mut sole = company("合成あおぞら個人");
+    sole.is_sole_proprietor = true;
+    let id = engine.register_company(&sole).unwrap();
+    let path = format!("/api/call-candidates/{}?{query}", id.0);
+    let private = read(&mut engine, &path);
+    assert!(private.is_object());
+    assert!(
+        private["name"].is_null() && private["phone"].is_null() && private["website"].is_null()
+    );
+    engine.erase_company(id).unwrap();
+    assert!(read(&mut engine, &path).is_null());
+}
+
+#[test]
+fn shared_conditions_reject_private_fields_paging_and_invalid_search_without_echo() {
+    let (_dir, mut engine, _) = fixture();
+    for conditions in [
+        json!({"include_private":"1"}),
+        json!({"after":"SECRET"}),
+        json!({"limit":"1"}),
+        json!({"status":"5"}),
+        json!({"tenant":"SECRET"}),
+        json!({"q":"…" }),
+        json!({"prefecture":5}),
+    ] {
+        let reply = dispatch(
+            &mut engine,
+            &input(
+                "POST",
+                "/api/calling-lists",
+                &json!({"name":"合成条件","conditions":conditions}),
+            ),
+            PORT,
+        );
+        assert_eq!(reply.status, 400);
+        assert!(!String::from_utf8_lossy(&reply.body).contains("SECRET"));
     }
 }

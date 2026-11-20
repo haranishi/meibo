@@ -53,6 +53,12 @@ pub(crate) fn run(command: Command) -> Result<()> {
             })?;
             println!("synthetic_companies={}", report.companies);
         }
+        Command::SupplementContacts(db, input, encoding) => {
+            let reader = File::open(input)?;
+            let mut engine = Engine::open(&db, &options)?;
+            let result = meibo_import::supplement_contacts(&mut engine, reader, encoding)?;
+            println!("updated={} skipped={}", result.updated, result.skipped);
+        }
         Command::Import(db, input, opt) => {
             let reader = File::open(input)?;
             let mut engine = Engine::open(&db, &options)?;

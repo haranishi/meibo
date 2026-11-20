@@ -59,7 +59,7 @@ pub(super) fn tenant(
     for profile in profile::crm() {
         let sql = insert_sql(profile);
         let mut statement = tx.prepare(&sql)?;
-        snapshot.visit_rows(Some(&tenant.slug), profile.name, |values| {
+        snapshot.visit_restored_rows(&tenant.slug, profile.name, |values| {
             if profile.name == "meta" {
                 metadata(&tx, values, &["database_id"])?;
             } else {

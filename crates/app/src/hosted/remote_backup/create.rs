@@ -41,7 +41,7 @@ pub(super) fn run(
         });
     }
     let manifest = Manifest {
-        version: 1,
+        version: 2,
         service: Service {
             instance: store.instance().into(),
             database_id: store.database_id().into(),
@@ -107,6 +107,7 @@ fn control(store: &RemoteStore, root: &Path) -> HostedResult<Database> {
         database_id: store.database_id().into(),
         database_kind: "control".into(),
         schema_version: 1,
+        crm_extension_version: None,
         data_origin: None,
         sequences: None,
         tables,
@@ -177,7 +178,7 @@ fn tenant(
     let mut writers = profile::crm()
         .map(|table| RowWriter::new(root, &prefix, table.name))
         .collect::<HostedResult<Vec<_>>>()?;
-    let sequences = engine.visit_crm_snapshot(|table, bytes| {
+    let (version, sequences) = engine.visit_versioned_crm_snapshot(|table, bytes| {
         let index = profile::crm()
             .position(|profile| profile.name == table.name())
             .expect("compiled CRM table");
@@ -194,6 +195,7 @@ fn tenant(
         database_id: identity.database_id().into(),
         database_kind: "crm".into(),
         schema_version: 1,
+        crm_extension_version: Some(version),
         data_origin: Some(
             match engine.origin() {
                 DataOrigin::Real => "real",

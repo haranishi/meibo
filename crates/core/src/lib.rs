@@ -6,6 +6,8 @@ pub(crate) use meibo_db as sql;
 pub(crate) use rusqlite as sql;
 
 mod bulk;
+pub mod calling;
+pub mod company_contacts;
 pub mod crm;
 pub mod custom_fields;
 pub mod engine;

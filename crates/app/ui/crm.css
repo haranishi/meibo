@@ -9,3 +9,23 @@
 .crm-board-help,.crm-table-help{margin:0;padding:10px 24px;color:#53657c;font-size:12px}.crm-table-help{display:none}@media(max-width:767px){.crm-table-help{display:block}}
 
 .crm-workspace .object-actions select{min-height:36px;padding:6px 10px;border:1px solid #aebdcc;border-radius:4px;background:#fff;color:#304c66}
+
+.sales-report { padding: 20px 24px 28px; }
+.sales-report h2, .sales-report h3, .sales-report p { margin: 0; }
+.sales-report h2 { font-size: 20px; }
+.sales-report h3 { margin-top: 22px; font-size: 16px; }
+.sales-report .subtle { margin-top: 5px; }
+.sales-report-heading, .sales-report-month { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.sales-report-heading { justify-content: space-between; margin-bottom: 18px; }
+.sales-report-month { font-weight: 600; }
+.sales-report-month input { max-width: 100%; min-height: 36px; }
+.sales-report-totals { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(210px,100%),1fr)); gap: 12px; margin: 0; }
+.sales-report-totals > div { background: #f3f6fa; padding: 14px 16px; border-radius: 6px; }
+.sales-report-totals dt { font-weight: 600; }
+.sales-report-totals dd { margin: 4px 0; font-size: 24px; font-weight: 700; overflow-wrap: anywhere; }
+.sales-report-totals dd.sales-report-caption { font-size: 13px; font-weight: 400; }
+.sales-report .sales-report-unknown, .sales-report .sales-report-empty { margin-top: 12px; }
+.sales-report-table { margin-top: 12px; border-collapse: collapse; width: 100%; }
+.sales-report-table td, .sales-report-table th { text-align: right; border-bottom: 1px solid #d8dde6; padding: 8px 4px; overflow-wrap: anywhere; }
+.sales-report-table th:first-child { text-align: left; }
+@media (max-width: 600px) { .sales-report { padding: 16px; } }

@@ -94,7 +94,7 @@ function syncControls() {
   if ($("list-heading")) $("list-heading").textContent = state.listContext === "tasks" ? "次回対応" : "取引先";
   if ($("object-title")) $("object-title").textContent = state.listContext === "tasks" ? "次回対応" : "取引先";
   $("accounts-title").textContent = state.listContext === "tasks" ? "次回対応" : "取引先";
-  $("view-title").textContent = state.query ? `社名検索: ${state.query}` : $("list-view").selectedOptions[0].textContent + (Object.keys(state.filters).length ? " · 絞り込みあり" : "");
+  $("view-title").textContent = [$("list-view").selectedOptions[0].textContent, Object.keys(state.filters).length ? "絞り込みあり" : "", state.query ? `「${state.query}」` : ""].filter(Boolean).join(" · ");
   window.MeiboListTools?.sync();
 }
 function navigate(name) {
@@ -133,9 +133,9 @@ function renderRecent() {
   if (!state.recent.length) box.append(el("p", "empty-state", "まだ開いた取引先はありません。取引先一覧から企業を選びましょう。"));
   else state.recent.forEach((company) => box.append(companyLink(company, `取引先 · ID ${company.id}`)));
 }
-function openFilteredList(view, filters = {}) {
+function openFilteredList(view, filters = {}, query = "", sort = "default") {
   if (busy()) return;
-  state.query = ""; state.view = view; state.filters = filters; state.listContext = "accounts";
+  state.query = query; state.view = view; state.filters = filters; state.sort = sort; state.listContext = "accounts";
   state.selected = null; state.detail = null; ++state.detailVersion; state.detailController?.abort();
   resetPages(); syncControls(); showWorkspace("accounts"); loadList();
 }
@@ -206,6 +206,7 @@ function renderRows() {
   $("company-rows").replaceChildren(fragment);
 }
 function renderPagination() {
+  $("start-call-mode").disabled = state.loading || !state.rows.length;
   $("previous-page").disabled = state.loading || state.page === 0; $("next-page").disabled = state.loading || !state.next;
   $("page-number").textContent = String(state.page + 1);
   if (state.loading) { $("page-description").textContent = "読み込み中"; return; }
@@ -214,14 +215,17 @@ function renderPagination() {
   $("page-description").textContent = state.count === null ? range : `${numberFormat.format(state.count)} 件中 ${range}`;
   $("list-count").textContent = state.count === null ? "—" : `${numberFormat.format(state.count)} 件`;
 }
+function listConditions() {
+  const conditions = { view: state.view, sort: state.sort || "default", ...state.filters };
+  if (state.query) conditions.q = state.query;
+  return conditions;
+}
+function listParameters() { return new URLSearchParams({ ...listConditions(), limit: "25" }); }
 async function loadList() {
   const version = ++state.listVersion; state.listController?.abort(); state.listController = new AbortController(); state.loading = true;
   $("table-container").setAttribute("aria-busy", "true"); $("company-rows").replaceChildren();
   $("list-state").replaceChildren(el("span", "loading-spinner"), el("p", "", "取引先を読み込んでいます…")); $("list-state").hidden = false; renderPagination();
-  const params = new URLSearchParams({ limit: "25" });
-  if (state.query) params.set("q", state.query); else {
-    params.set("sort", state.sort || "default"); params.set("view", state.view); Object.entries(state.filters).forEach(([key, value]) => params.set(key, value));
-  }
+  const params = listParameters();
   if (state.cursors[state.page]) params.set("after", state.cursors[state.page]);
   try {
     const data = await (await request(`/api/companies?${params}`, { signal: state.listController.signal })).json(); if (version !== state.listVersion) return;
@@ -233,25 +237,22 @@ async function loadList() {
     state.rows = []; state.next = null; showListState("取引先を読み込めませんでした", error.message, true);
   } finally { if (version === state.listVersion) { state.loading = false; $("table-container").setAttribute("aria-busy", "false"); renderPagination(); } }
 }
-function searchCompanies(value) {
+function searchCompanies(value, global = false) {
   if (busy() || window.MeiboCallMode?.stop() === false) return;
-  const cleared = state.view !== "all" || Object.keys(state.filters).length;
-  state.query = value.trim(); state.view = "all"; state.filters = {}; state.listContext = "accounts";
-  state.selected = null; state.detail = null; ++state.detailVersion; state.detailController?.abort();
-  resetPages(); syncControls(); showWorkspace("accounts"); loadList();
-  if (cleared) notify("すべての取引先を検索するため、表示条件を解除しました。");
+  if (global) { openFilteredList("all", {}, value.trim()); return; }
+  state.query = value.trim();
+  resetPages(); syncControls(); loadList();
 }
 function applyListView() {
   if (busy()) { syncControls(); return; }
-  const hadSearch = Boolean(state.query), hadFilters = Object.keys(state.filters).length > 0; state.view = $("list-view").value; state.query = ""; state.filters = {};
+  state.view = $("list-view").value;
   if (state.listContext === "tasks" && state.view !== "scheduled") { state.listContext = "accounts"; showWorkspace("accounts"); }
-  resetPages(); syncControls(); loadList(); if (hadSearch || hadFilters) notify("リストビューを切り替えるため、社名検索と個別の絞り込みを解除しました。");
+  resetPages(); syncControls(); loadList();
 }
 function applyFilters(clear = false) {
   if (busy()) return;
-  const hadSearch = Boolean(state.query); state.query = ""; state.view = state.listContext === "tasks" ? "scheduled" : "all";
   state.filters = clear ? {} : Object.fromEntries([["status", $("filter-status").value], ["prefecture", $("filter-prefecture").value], ["has_phone", $("filter-phone").value]].filter(([, value]) => value !== ""));
-  resetPages(); syncControls(); loadList(); if (hadSearch) notify("絞り込みを適用するため、社名検索を解除しました。");
+  resetPages(); syncControls(); loadList();
 }
 
 function getDraft(company) {
@@ -366,6 +367,7 @@ function recordTabs(company, activities, contacts) {
     ["法人番号", company.corporate_number || "未登録"], ["担当", company.owner === null || company.owner === undefined ? "未割当" : `担当 ${company.owner}`],
     ["都道府県", prefectures[company.prefecture] || "未設定"], ["市区町村コード", company.municipality || "未登録"],
     ["電話番号", company.phone || "未登録"], ["Webサイト", company.website || "未登録"],
+    ["業種（大分類）", company.industry ? String.fromCharCode(64 + company.industry) : "未登録"],
     ["最終活動", formatDate(company.last_activity_at)], ["次回対応", formatDate(company.next_action_at)]
   ]) { const field = el("div", "detail-field"); field.append(el("dt", "", label), el("dd", "", value)); facts.append(field); }
   details.append(el("h2", "card-heading", "取引先情報"), facts);
@@ -444,8 +446,10 @@ function renderDetail(data, focusHeading = false) {
   window.MeiboFields?.render({container:body.querySelector("#record-details"),companyId:company.id,request,notice:notify});
   container.append(header, path, body); window.MeiboCallMode?.render(); if (focusHeading) title.focus({ preventScroll: true });
 }
-async function openCompany(id, focusHeading = true) {
+async function openCompany(id, focusHeading = true, callingConditions = null) {
+  if (!callingConditions && window.MeiboCallMode?.awaitingCandidate()) return window.MeiboCallMode.retry();
   if (busy()) return;
+  if (callingConditions) state.detail = null;
   const previous = state.selected; if (state.workspace !== "record") state.returnWorkspace = state.workspace;
   if (previous !== id) { state.recordTab = "details"; state.detail = null; state.contactRevealCompany = null; }
   const version = ++state.detailVersion; state.detailController?.abort(); state.detailController = new AbortController();
@@ -453,12 +457,19 @@ async function openCompany(id, focusHeading = true) {
   const loading = el("div", "panel-state detail-loading"); loading.setAttribute("role", "status");
   loading.append(el("p", "", "取引先の詳細を読み込んでいます…"), button("一覧へ戻る", "button button-secondary", closeCompany)); $("detail-content").replaceChildren(loading);
   try {
-    const data = await (await request(`/api/companies/${encodeURIComponent(id)}${state.contactRevealCompany === id ? "?include_contacts=1" : ""}`, { signal: state.detailController.signal })).json();
+    const path = callingConditions ? `/api/call-candidates/${id}?${callingConditions}` :
+        `/api/companies/${encodeURIComponent(id)}${state.contactRevealCompany === id ? "?include_contacts=1" : ""}`;
+    const data = await (await request(path, { signal: state.detailController.signal })).json();
     if (version !== state.detailVersion || state.selected !== id) return;
+    if (callingConditions && !data.company) return false;
     state.detail = data; rememberCompany(data.company); renderDetail(data, focusHeading); showWorkspace("record");
     if (focusHeading) window.scrollTo({ top: 0, behavior: "instant" });
   } catch (error) {
     if (error.name === "AbortError" || version !== state.detailVersion) return;
+    if (callingConditions) {
+      $("detail-content").replaceChildren();
+      throw error;
+    }
     const failure = el("div", "panel-state detail-error"); failure.setAttribute("role", "alert");
     failure.append(el("h1", "", "取引先を表示できません"), el("p", "", error.message), button("再試行", "button button-secondary", () => openCompany(id)), button("一覧に戻る", "button button-secondary", closeCompany)); $("detail-content").replaceChildren(failure);
   } finally { if (version === state.detailVersion) $("record-workspace").setAttribute("aria-busy", "false"); }
@@ -475,7 +486,7 @@ function parseLocalDate(value) {
 }
 
 async function saveActivity(id, form, draft) {
-  if (state.saving || !form.reportValidity()) return;
+  if (state.saving || window.MeiboCallMode?.canRecord(id) === false || !form.reportValidity()) return;
   const errorBox = form.querySelector(".field-error"); errorBox.hidden = true;
   let body;
   try {
@@ -496,9 +507,9 @@ async function saveActivity(id, form, draft) {
   try {
     await request(`/api/companies/${encodeURIComponent(id)}/activities`, { method: "POST", headers: { "Content-Type": "application/json", "X-Meibo-Local": "1" }, body: JSON.stringify(body) });
     state.drafts.delete(id);
-    state.saving = false;
     notify("架電の記録を保存しました。");
     await Promise.all([loadSummary(), loadHomeDue(), loadList()]);
+    state.saving = false;
     if (window.MeiboCallMode?.active()) await window.MeiboCallMode.saved(id);
     else if (state.selected === id) await openCompany(id, false);
   } catch (error) {
@@ -635,10 +646,10 @@ let appStarted = false;
 window.MeiboAppStart = function () {
 if (appStarted) return; appStarted = true;
 window.MeiboCallMode?.configure({
-  rows:()=>state.rows, next:()=>state.next, company:()=>state.detail?.company,
-  params:()=>{ const p=new URLSearchParams({limit:"25"}); if(state.query)p.set("q",state.query);else{p.set("view",state.view);p.set("sort",state.sort||"default");Object.entries(state.filters).forEach(([k,v])=>p.set(k,v));}return p.toString(); },
-  request, open:openCompany, close:closeCompany, notice:notify,
-  busy:()=>state.saving || state.creating || state.contactSaving || Boolean(window.MeiboFields?.busy()),
+  rows:()=>state.rows, next:()=>state.next, page:()=>state.page, company:()=>state.detail?.company,
+  conditions:()=>new URLSearchParams(listConditions()).toString(), params:()=>listParameters().toString(),
+  request, open:(id, conditions)=>openCompany(id, true, conditions), close:closeCompany, notice:notify,
+  busy:()=>state.loading || state.saving || state.creating || state.contactSaving || Boolean(window.MeiboFields?.busy()),
   unsaved:()=>{const d=state.drafts.get(state.selected);return Boolean(d&&(d.note.trim()||d.nextMode!=="keep"||d.status!==d.baselineStatus||d.at||d.contact));}
 });
 $("start-call-mode").addEventListener("click",()=>window.MeiboCallMode?.start());
@@ -651,7 +662,7 @@ $("app-launcher").addEventListener("click", () => {
   if (expanded) $("app-menu").querySelector("button").focus();
 });
 document.addEventListener("click", (event) => { if (!event.target.closest(".app-switcher")) closeAppMenu(); });
-$("global-search-form").addEventListener("submit", (event) => { event.preventDefault(); searchCompanies($("global-search").value); });
+$("global-search-form").addEventListener("submit", (event) => { event.preventDefault(); searchCompanies($("global-search").value, true); });
 $("search-form").addEventListener("submit", (event) => { event.preventDefault(); searchCompanies($("search").value); });
 $("search").addEventListener("input", () => { $("clear-search").hidden = !$("search").value; });
 $("search").addEventListener("search", () => { if (!$("search").value && state.query) searchCompanies(""); });

@@ -7,7 +7,7 @@ use crate::{
     types::{
         Activity, ActivityId, ActivityKind, Company, CompanyId, Contact, ContactId, Counted,
         Cursor, DataOrigin, Detail, EngineError, Field, Fields, Filters, Industry, ListQuery,
-        NextAction, Page, Region, Sort, Status, UserId,
+        NextAction, Page, Region, SearchPage, Sort, Status, UserId,
     },
 };
 
@@ -15,6 +15,40 @@ pub(crate) fn list(db: &Db, q: &ListQuery) -> Result<Page, EngineError> {
     let _snapshot = db.conn().unchecked_transaction().map_err(storage)?;
     validate_limit(q.limit)?;
     let plan = Plan::new(&q.filters, q.sort)?;
+    page_from_plan(db, q, &plan)
+}
+
+pub(crate) fn calling_page(db: &Db, q: &ListQuery, term: &str) -> Result<SearchPage, EngineError> {
+    let _snapshot = db.conn().unchecked_transaction().map_err(storage)?;
+    validate_limit(q.limit)?;
+    let mut plan = Plan::new(&q.filters, q.sort)?;
+    plan.match_name(term, None)?;
+    let page = page_from_plan(db, q, &plan)?;
+    let n = if q.after.is_some() {
+        None
+    } else if page.next.is_none() {
+        Some(page.rows.len() as u64)
+    } else if term.is_empty() {
+        Some(count(db, &q.filters)?.n)
+    } else {
+        let sql = format!(
+            "SELECT count(*) FROM companies{} WHERE {}",
+            plan.index, plan.condition
+        );
+        Some(
+            db.conn()
+                .query_row(&sql, params_from_iter(&plan.args), unsigned)
+                .map_err(storage)?,
+        )
+    };
+    Ok(SearchPage {
+        rows: page.rows,
+        next: page.next,
+        n,
+    })
+}
+
+fn page_from_plan(db: &Db, q: &ListQuery, plan: &Plan) -> Result<Page, EngineError> {
     let after = q.after.as_ref().map(|c| plan.decode(c)).transpose()?;
     let mut rows = Vec::new();
     let mut keys = Vec::new();
@@ -379,6 +413,29 @@ impl Plan {
         })
     }
 
+    fn match_name(&mut self, term: &str, id: Option<CompanyId>) -> Result<(), EngineError> {
+        if term.is_empty() {
+            return Ok(());
+        }
+        let name = crate::search::NameMatch::new(term)?;
+        if let Some(phrase) = name.phrase {
+            self.args.push(Value::Text(phrase));
+            if let Some(id) = id {
+                self.condition.push_str(
+                    " AND EXISTS (SELECT 1 FROM name_fts WHERE name_fts MATCH ? AND rowid=?)",
+                );
+                self.args.push(Value::Integer(id.0));
+            } else {
+                self.condition
+                    .push_str(" AND id IN (SELECT rowid FROM name_fts WHERE name_fts MATCH ?)");
+            }
+        } else {
+            self.condition.push_str(" AND instr(name_key,?)>0");
+            self.args.push(Value::Text(name.key));
+        }
+        Ok(())
+    }
+
     fn statement(
         &self,
         projection: &str,
@@ -665,6 +722,35 @@ pub(crate) fn company_detail(
     fields: &Fields,
 ) -> Result<Detail, EngineError> {
     let _snapshot = db.conn().unchecked_transaction().map_err(storage)?;
+    read_company_detail(db, id, fields)
+}
+
+// Fetch eligibility and the protected detail from the same read snapshot.
+pub(crate) fn call_candidate(
+    db: &Db,
+    id: CompanyId,
+    filters: &Filters,
+    term: &str,
+) -> Result<Option<Detail>, EngineError> {
+    let _snapshot = db.conn().unchecked_transaction().map_err(storage)?;
+    let mut plan = Plan::new(filters, filter_sort(filters))?;
+    plan.match_name(term, Some(id))?;
+    plan.args.push(Value::Integer(id.0));
+    let sql = format!(
+        "SELECT 1 FROM companies WHERE {} AND id=? AND erased_at IS NULL",
+        plan.condition
+    );
+    let found = db
+        .conn()
+        .query_row(&sql, params_from_iter(plan.args), |_| Ok(()))
+        .optional()
+        .map_err(storage)?;
+    found
+        .map(|()| read_company_detail(db, id, &vec![]))
+        .transpose()
+}
+
+fn read_company_detail(db: &Db, id: CompanyId, fields: &Fields) -> Result<Detail, EngineError> {
     let company = db
         .conn()
         .query_row("SELECT * FROM companies WHERE id=?", [id.0], |r| {

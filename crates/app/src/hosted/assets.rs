@@ -23,6 +23,8 @@ const JS: &str = concat!(
     "\n;\n",
     include_str!("../../ui/crm.js"),
     "\n;\n",
+    include_str!("../../ui/calling-lists.js"),
+    "\n;\n",
     include_str!("../../ui/list-tools.js"),
 );
 

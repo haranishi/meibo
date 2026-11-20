@@ -17,6 +17,18 @@ impl CrmTable {
     pub const fn columns(&self) -> &'static [&'static str] {
         self.columns
     }
+    /// Physical column order used before CRM v2 added the actual decision date.
+    #[must_use]
+    pub fn legacy_v1(&self) -> Self {
+        if self.name == "crm_opportunities" {
+            Self {
+                columns: &self.columns[..10],
+                ..*self
+            }
+        } else {
+            *self
+        }
+    }
     /// Ordered primary-key columns used by later keyset readers.
     #[must_use]
     pub const fn key_columns(&self) -> &'static [&'static str] {
@@ -132,6 +144,7 @@ const TABLES: &[CrmTable] = &[
             "created_at",
             "updated_at",
             "erased_at",
+            "outcome_date",
         ],
         key_columns: &["id"],
     },

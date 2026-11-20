@@ -48,10 +48,21 @@ pub(super) const CONTROL: &[Profile] = &[
 ];
 
 pub(super) fn crm() -> impl Iterator<Item = Profile> {
-    crm_tables().iter().map(|table| Profile {
-        name: table.name(),
-        columns: table.columns(),
-        keys: table.key_columns(),
+    crm_version(2)
+}
+
+pub(super) fn crm_version(version: u32) -> impl Iterator<Item = Profile> {
+    crm_tables().iter().map(move |current| {
+        let table = if version == 1 {
+            current.legacy_v1()
+        } else {
+            *current
+        };
+        Profile {
+            name: table.name(),
+            columns: table.columns(),
+            keys: table.key_columns(),
+        }
     })
 }
 

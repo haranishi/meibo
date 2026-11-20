@@ -103,7 +103,7 @@ fn empty_database_gets_shared_schema_and_explicit_remote_metadata_without_file_p
             ("database_id", "tenant-alpha"),
             ("database_kind", "crm"),
             ("data_origin", "synthetic"),
-            ("crm_schema_version", "1"),
+            ("crm_schema_version", "2"),
             ("custom_fields_schema_version", "1"),
             ("public_data_schema_version", "1"),
         ] {
@@ -306,7 +306,9 @@ fn old_future_and_malformed_schema_or_extension_versions_refuse_open() {
             "custom_fields_schema_version",
             "public_data_schema_version",
         ] {
-            for value in ["0", "2", "01", "+1", " 1", "one", "4294967296"] {
+            let current = if key == "crm_schema_version" { 2 } else { 1 };
+            let future = (current + 1).to_string();
+            for value in ["0", &future, "01", "+1", " 1", "one", "4294967296"] {
                 conn.execute("UPDATE meta SET value=?2 WHERE key=?1", (key, value))
                     .unwrap();
                 let error = rejected(Engine::open_remote(
@@ -314,19 +316,18 @@ fn old_future_and_malformed_schema_or_extension_versions_refuse_open() {
                     &identity(),
                     &options(),
                 ));
-                if value == "2" {
-                    assert!(matches!(
-                        error,
-                        EngineError::UnsupportedVersion {
-                            found: 2,
-                            supported: 1
-                        }
-                    ));
+                if value == future {
+                    assert!(
+                        matches!(error, EngineError::UnsupportedVersion { found, supported } if found == current + 1 && supported == current)
+                    );
                 }
                 assert_eq!(meta(&conn, key), value);
             }
-            conn.execute("UPDATE meta SET value='1' WHERE key=?1", [key])
-                .unwrap();
+            conn.execute(
+                "UPDATE meta SET value=?2 WHERE key=?1",
+                (key, current.to_string()),
+            )
+            .unwrap();
         }
     });
 }

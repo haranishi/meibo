@@ -844,6 +844,9 @@ pub enum EngineError {
     /// 対象が存在しない。
     #[error("not found")]
     NotFound,
+    /// 保存後に別の利用者が定義を更新した。
+    #[error("revision conflict")]
+    RevisionConflict,
     /// 別企業の担当者。
     #[error("contact belongs to another company")]
     ForeignContact,

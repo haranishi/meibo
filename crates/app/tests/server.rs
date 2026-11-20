@@ -300,8 +300,8 @@ fn workspace_views_summary_and_search_scope_are_consistent() {
         "/api/companies?status=8",
         "/api/companies?prefecture=48",
         "/api/companies?has_phone=maybe",
-        "/api/companies?q=synthetic&view=untouched",
-        "/api/companies?q=synthetic&status=0",
+        "/api/companies?q=synthetic&view=unknown",
+        "/api/companies?q=synthetic&status=8",
     ] {
         assert_eq!(running.get(path).0, 400, "{path}");
     }

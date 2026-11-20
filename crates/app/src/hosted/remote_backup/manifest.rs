@@ -30,6 +30,8 @@ pub(in crate::hosted) struct SnapshotDatabase {
     pub database_kind: String,
     pub schema_version: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub crm_extension_version: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub data_origin: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sequences: Option<Sequences>,

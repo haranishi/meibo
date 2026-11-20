@@ -78,6 +78,18 @@ impl Engine {
         &self,
         visitor: impl FnMut(&crate::remote_snapshot::CrmTable, &[u8]) -> Result<(), EngineError>,
     ) -> Result<crate::remote_snapshot::CrmSequences, EngineError> {
+        self.visit_versioned_crm_snapshot(visitor)
+            .map(|(_, sequences)| sequences)
+    }
+
+    /// Visit canonical rows and return their CRM extension version from the same snapshot.
+    /// # Errors
+    /// Returns storage, schema, codec or visitor errors without partial success.
+    #[cfg(feature = "cloud")]
+    pub fn visit_versioned_crm_snapshot(
+        &self,
+        visitor: impl FnMut(&crate::remote_snapshot::CrmTable, &[u8]) -> Result<(), EngineError>,
+    ) -> Result<(u32, crate::remote_snapshot::CrmSequences), EngineError> {
         crate::remote_snapshot::visit(&self.db, visitor)
     }
 

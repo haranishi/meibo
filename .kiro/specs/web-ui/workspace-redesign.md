@@ -12,7 +12,7 @@
 
 ## APIの追加契約
 GET `/api/summary` に `status_counts:[0..5の件数]`、`scheduled`、`due` を追加する。既存のtotal/active/with_phone/originは維持する。
-GET `/api/companies` に `view=all|untouched|negotiating|has_phone|scheduled|due` と任意の `status=0..4`、`prefecture=1..47`、`has_phone=true|false` を追加する。scheduled/dueはNextAction順、それ以外はShapeDefault。qと非allのview/絞込併用は400で明示的に拒否。countは先頭ページで一致件数、続きではnull可。消去済み/除外の扱いは既定を維持する。
+GET `/api/companies` に `view=all|untouched|negotiating|has_phone|scheduled|due` と任意の `status=0..4`、`prefecture=1..47`、`has_phone=true|false` を追加する。scheduled/dueはNextAction順、それ以外はShapeDefault。社名・ビュー・個別の絞込はすべて同時に適用する。countは先頭ページで一致件数、続きではnull可。消去済み/除外の扱いは既定を維持する。
 POST `/api/companies`: `{name,prefecture,corporate_number?,phone?,website?}`。originはサーバーのSynthetic、状態はUntouched、個人事業ではない。成功201 `{id}`、重複409、不正400。既存のHTTP境界とcore検証を使う。今回のDBや既存行を再生成しない。
 
 ## タスクと受入の証拠

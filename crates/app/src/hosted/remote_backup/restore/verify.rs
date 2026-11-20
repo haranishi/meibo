@@ -58,23 +58,29 @@ pub(super) fn database(
     };
     for profile in profiles {
         let mut expected = DigestRows::default();
-        snapshot.visit_rows(slug, profile.name, |values| {
-            if slug.is_none() && profile.name == "remote_tenants" {
-                let [Value::Text(slug), _] = values else {
-                    return Err(INVALID.into());
-                };
-                expected.visit(
-                    None,
-                    profile.name,
-                    &[
-                        Value::Text(slug.clone()),
-                        Value::Text(identities.get(slug).ok_or(INVALID)?.database_id().into()),
-                    ],
-                )
-            } else {
-                expected.visit(slug, profile.name, values)
-            }
-        })?;
+        if let Some(slug) = slug {
+            snapshot.visit_restored_rows(slug, profile.name, |values| {
+                expected.visit(Some(slug), profile.name, values)
+            })?;
+        } else {
+            snapshot.visit_rows(None, profile.name, |values| {
+                if profile.name == "remote_tenants" {
+                    let [Value::Text(slug), _] = values else {
+                        return Err(INVALID.into());
+                    };
+                    expected.visit(
+                        None,
+                        profile.name,
+                        &[
+                            Value::Text(slug.clone()),
+                            Value::Text(identities.get(slug).ok_or(INVALID)?.database_id().into()),
+                        ],
+                    )
+                } else {
+                    expected.visit(slug, profile.name, values)
+                }
+            })?;
+        }
         let actual = table(&tx, slug, profile)?;
         if actual.finish() != expected.finish() {
             return Err(INVALID.into());

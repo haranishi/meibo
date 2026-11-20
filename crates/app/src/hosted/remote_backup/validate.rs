@@ -48,7 +48,11 @@ impl ValidatedSnapshot {
                     .iter()
                     .find(|tenant| tenant.slug == slug)
                     .ok_or(INVALID)?;
-                (&tenant.database, profile::crm().collect::<Vec<_>>())
+                (
+                    &tenant.database,
+                    profile::crm_version(tenant.database.crm_extension_version.unwrap_or(1))
+                        .collect::<Vec<_>>(),
+                )
             } else {
                 (&self.manifest.control, profile::CONTROL.to_vec())
             };
@@ -63,6 +67,37 @@ impl ValidatedSnapshot {
                 .ok_or(INVALID)?;
             read_rows(&self.root, table, profile, visitor)
         })())
+    }
+
+    /// Provide the current physical row to both restore and digest verification.
+    /// Legacy snapshots carry ten opportunity columns and an older extension marker.
+    pub(super) fn visit_restored_rows(
+        &self,
+        slug: &str,
+        table: &str,
+        mut visitor: impl FnMut(&[Value]) -> HostedResult<()>,
+    ) -> HostedResult<()> {
+        let tenant = self
+            .manifest
+            .tenants
+            .iter()
+            .find(|tenant| tenant.slug == slug)
+            .ok_or(INVALID)?;
+        let legacy = tenant.database.crm_extension_version.unwrap_or(1) == 1;
+        self.visit_rows(Some(slug), table, |values| {
+            if legacy && table == "crm_opportunities" {
+                let mut row = values.to_vec();
+                row.push(Value::Null);
+                visitor(&row)
+            } else if legacy
+                && table == "meta"
+                && matches!(values.first(), Some(Value::Text(key)) if key == "crm_schema_version")
+            {
+                visitor(&[values[0].clone(), Value::Text("2".into())])
+            } else {
+                visitor(values)
+            }
+        })
     }
 }
 
@@ -81,13 +116,14 @@ pub(in crate::hosted) fn validate(root: &Path) -> HostedResult<ValidatedSnapshot
 }
 
 fn header(manifest: &Manifest) -> HostedResult<()> {
-    if manifest.version != 1
+    if !matches!(manifest.version, 1 | 2)
         || manifest.tenants.len() > MAX_TENANTS
         || !opaque_id(&manifest.service.instance)
         || !opaque_id(&manifest.service.database_id)
         || manifest.control.database_id != manifest.service.database_id
         || manifest.control.database_kind != "control"
         || manifest.control.schema_version != 1
+        || manifest.control.crm_extension_version.is_some()
         || manifest.control.data_origin.is_some()
         || manifest.control.sequences.is_some()
     {
@@ -106,6 +142,10 @@ fn header(manifest: &Manifest) -> HostedResult<()> {
             || previous.is_some_and(|previous| previous >= tenant.slug.as_str())
             || database.database_kind != "crm"
             || database.schema_version != 1
+            || !matches!(
+                (manifest.version, database.crm_extension_version),
+                (1, None) | (2, Some(1 | 2))
+            )
             || !matches!(database.data_origin.as_deref(), Some("real" | "synthetic"))
             || database.sequences.is_none()
             || !identities.insert(&database.database_id)
@@ -211,6 +251,17 @@ fn check_database(
             if table.name == "meta" {
                 metadata_row(&mut metadata, values)?;
             }
+            if table.name == "crm_opportunities" && database.crm_extension_version == Some(2) {
+                let Value::Integer(stage) = values[5] else {
+                    return Err(INVALID.into());
+                };
+                let date = match &values[10] {
+                    Value::Null => None,
+                    Value::Text(day) => Some(day.as_str()),
+                    _ => return Err(INVALID.into()),
+                };
+                meibo_core::crm::validate_outcome_date(u8::try_from(stage)?, date)?;
+            }
             if table.name == "custom_field_definitions" {
                 let Value::Integer(id) = values[0] else {
                     return Err(INVALID.into());
@@ -280,11 +331,10 @@ fn metadata_check(
         {
             return Err(INVALID.into());
         }
-        for key in [
-            "crm_schema_version",
-            "custom_fields_schema_version",
-            "public_data_schema_version",
-        ] {
+        if value("crm_schema_version")? != database.crm_extension_version.unwrap_or(1).to_string() {
+            return Err(INVALID.into());
+        }
+        for key in ["custom_fields_schema_version", "public_data_schema_version"] {
             if value(key)? != "1" {
                 return Err(INVALID.into());
             }

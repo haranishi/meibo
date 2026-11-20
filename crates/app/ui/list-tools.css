@@ -55,3 +55,5 @@
   .list-tools-note { font-size: 10px; }
   .csv-import-guide, .csv-import-result { margin-left: 18px; margin-right: 18px; }
 }
+#calling-lists-dialog .calling-description { margin: 6px 0 0; color: #405970; font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+#calling-lists-dialog .filter-actions { flex-wrap: wrap; }

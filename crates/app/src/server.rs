@@ -1,5 +1,6 @@
 //! 同梱画面から合成デモを操作する、loopback専用のHTTP入口。
 mod api;
+mod calling;
 mod crm;
 mod custom_fields;
 mod import_ui;
@@ -14,6 +15,12 @@ use std::{
 use meibo_core::{Engine, OpenOptions, types::DataOrigin};
 use serde_json::{Value, json};
 use tiny_http::{Header, Request, Response, Server, StatusCode};
+
+const LIST_TOOLS: &str = concat!(
+    include_str!("../ui/calling-lists.js"),
+    "\n;\n",
+    include_str!("../ui/list-tools.js"),
+);
 
 const MAX_BODY: usize = 1024 * 1024;
 fn body_limit(input: &Input) -> usize {
@@ -236,6 +243,9 @@ pub(crate) fn dispatch(engine: &mut Engine, input: &Input, port: u16) -> Reply {
     if let Some(reply) = public_api::dispatch(engine, input, path, query) {
         return reply;
     }
+    if let Some(reply) = calling::dispatch(engine, input, path, query) {
+        return reply;
+    }
     if let Some(reply) = custom_fields::dispatch(engine, input, path, query) {
         return reply;
     }
@@ -278,10 +288,7 @@ pub(crate) fn dispatch(engine: &mut Engine, input: &Input, port: u16) -> Reply {
                 return Reply::text("text/html; charset=utf-8", include_str!("../ui/index.html"));
             }
             "/list-tools.js" => {
-                return Reply::text(
-                    "text/javascript; charset=utf-8",
-                    include_str!("../ui/list-tools.js"),
-                );
+                return Reply::text("text/javascript; charset=utf-8", LIST_TOOLS);
             }
             "/list-tools.css" => {
                 return Reply::text(

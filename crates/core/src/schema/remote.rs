@@ -150,6 +150,12 @@ impl Db {
         drop(statement);
         let origin = validate_metadata(&metadata, identity)?;
         tx.prepare(SCHEMA_PROBE).map_err(storage)?;
+        let has_outcome: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM pragma_table_info('crm_opportunities') WHERE name='outcome_date')", [], |row| row.get(0)).map_err(storage)?;
+        if has_outcome
+            != (metadata["crm_schema_version"] == crate::crm::EXTENSION_VERSION.to_string())
+        {
+            return Err(EngineError::Corrupt);
+        }
         if opt.integrity == Integrity::Always {
             check_integrity(&tx, true)?;
         }
@@ -204,7 +210,9 @@ fn validate_metadata(
         if found.to_string() != raw {
             return Err(EngineError::Corrupt);
         }
-        check_version(found, expected)?;
+        if key != "crm_schema_version" || found != 1 {
+            check_version(found, expected)?;
+        }
     }
     let created = required("created_at")?;
     let value: u64 = created.parse().map_err(|_| EngineError::Corrupt)?;

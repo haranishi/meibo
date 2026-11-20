@@ -7,7 +7,7 @@
     ["status", "営業状態"], ["owner", "担当"], ["next", "次回対応"], ["number", "法人番号"]
   ];
   const sorts = [["default", "既定の順序"], ["next_action", "次回対応が早い順"], ["last_activity", "最終活動が新しい順"]];
-  const presetViews = ["all", "untouched", "negotiating", "has_phone", "scheduled"];
+  const presetViews = ["all", "untouched", "negotiating", "has_phone", "scheduled", "due"];
   let selectedColumns = columns.map(([key]) => key), views = [], importRunning = false;
   let savedSelect, sortSelect, nameInput, viewsMessage, columnInputs;
 
@@ -24,7 +24,6 @@
       if (key === "has_phone" && ["true", "false"].includes(filter)) continue;
       return false;
     }
-    if (value.query && (value.view !== "all" || Object.keys(value.filters).length || value.sort !== "default")) return false;
     return Array.isArray(value.columns) && value.columns.length >= 1 && value.columns.length <= 8
       && value.columns.includes("name") && new Set(value.columns).size === value.columns.length
       && value.columns.every((key) => columns.some(([known]) => key === known));
@@ -70,8 +69,7 @@
   function sync() {
     if (sortSelect) {
       sortSelect.value = sorts.some(([key]) => key === state.sort) ? state.sort : "default";
-      sortSelect.disabled = Boolean(state.query);
-      sortSelect.title = state.query ? "社名検索では既定の検索順序を使います" : "一覧の順序";
+      sortSelect.title = "一覧の順序";
     }
     applyColumns();
   }
@@ -113,7 +111,7 @@
     item.form.addEventListener("submit", (event) => {
       event.preventDefault(); const name = nameInput.value.trim();
       const view = { name, query: state.query, view: state.view, filters: { ...state.filters },
-        sort: state.query ? "default" : state.sort || "default", columns: [...selectedColumns] };
+        sort: state.sort || "default", columns: [...selectedColumns] };
       if (!validView(view)) { nameInput.setCustomValidity("ビュー名と一覧の条件を確認してください。"); nameInput.reportValidity(); return; }
       const exists = views.some((entry) => entry.name === name);
       if (!exists && views.length >= 20) { nameInput.setCustomValidity("保存できるビューは20件までです。先に不要なビューを削除してください。"); nameInput.reportValidity(); return; }
@@ -126,25 +124,46 @@
   }
   function mountImportDialog() {
     const item = dialog("CSVを取り込む", "csv-import-dialog");
-    const description = el("p", "dialog-description", "合成データだけを取り込めます。最大32MiB。500行または8MiBごとに確定し、途中で失敗しても確定済みの取引先は残ります。");
+    const description = el("p", "dialog-description");
     description.id = "csv-import-description"; item.box.setAttribute("aria-describedby", description.id);
     const fields = el("fieldset", "dialog-fields"), file = el("input"); file.id = "csv-import-file";
     file.type = "file"; file.accept = ".csv,text/csv"; file.required = true;
     const encoding = select("csv-import-encoding", [["utf8", "UTF-8"], ["shift-jis", "Shift_JIS（Windows-31J）"]]);
     const duplicate = select("csv-import-duplicate", [["error", "同じ法人番号があれば中止"], ["skip", "同じ法人番号はスキップ"]]);
     const fileField = field("CSVファイル", file); fileField.classList.add("full-width");
-    fields.append(fileField, field("文字コード", encoding), field("重複時の処理", duplicate));
+    const mode = select("csv-import-mode", [["register", "取引先を登録"], ["supplement", "既存法人の連絡先を補完"]]);
+    const duplicateField = field("重複時の処理", duplicate);
+    fields.append(field("取込方法", mode), fileField, field("文字コード", encoding), duplicateField);
     const guide = el("details", "csv-import-guide"), summary = el("summary", "", "CSVのヘッダーと入力例");
-    const header = "origin,corporate_number,name,prefecture,municipality,industry,phone,website,owner,status,is_sole_proprietor,source_id,source_as_of";
-    guide.append(summary, el("p", "", "必須列は origin・name・prefecture。origin は synthetic、prefecture は1〜47です。列名は下記の固定項目だけを使い、不要な列は省略できます。"),
-      el("pre", "", header), el("pre", "", "origin,name,prefecture\nsynthetic,合成あおぞら商事,13"));
+    const companyHeader = "origin,corporate_number,name,prefecture,municipality,industry,phone,website,owner,status,is_sole_proprietor,source_id,source_as_of";
+    const contactsHeader = "source,corporate_number,phone,website,industry";
+    const help = el("p"), header = el("pre"), example = el("pre");
+    guide.append(summary, help, header, example);
     const template = button("UTF-8のテンプレートを保存", "button button-secondary", () => {
-      const url = URL.createObjectURL(new Blob(["\ufeff", header, "\r\n"], { type: "text/csv;charset=utf-8" }));
-      const link = el("a"); link.href = url; link.download = "meibo-synthetic-template.csv"; document.body.append(link); link.click(); link.remove();
+      const url = URL.createObjectURL(new Blob(["\ufeff", header.textContent, "\r\n"], { type: "text/csv;charset=utf-8" }));
+      const link = el("a"); link.href = url;
+      link.download = mode.value === "supplement" ? "meibo-contacts-template.csv" : `meibo-${state.summary?.origin === "real" ? "real" : "synthetic"}-template.csv`;
+      document.body.append(link); link.click(); link.remove();
       setTimeout(() => URL.revokeObjectURL(url), 10000);
     });
     guide.append(template);
     const result = el("div", "csv-import-result"); result.id = "csv-import-result"; result.setAttribute("role", "status"); result.hidden = true;
+    function showGuide() {
+      const supplement = mode.value === "supplement", real = state.summary?.origin === "real";
+      duplicateField.hidden = supplement;
+      description.textContent = supplement
+        ? "法人番号が一致する取引先の電話・Webサイト・業種の空欄を補います。最大32MiB、500行ずつ保存します。"
+        : `${real ? "実データを" : "合成データだけを"}取り込めます。最大32MiB。500行または8MiBごとに確定し、途中で失敗しても確定済みの取引先は残ります。`;
+      const origin = real ? "real" : "synthetic", source = real ? "first_party" : "synthetic";
+      help.textContent = supplement
+        ? `この順に5列を用意します。source は ${source} です。${real ? "自社で営業利用できることを確認した法人連絡先を使ってください。" : "電話やURLには合成の値を使ってください。"}業種は A〜T または1〜20です。`
+        : `必須列は origin・name・prefecture。origin は ${origin}、prefecture は1〜47です。不要な任意列は省略できます。`;
+      header.textContent = supplement ? contactsHeader : companyHeader;
+      example.textContent = supplement
+        ? (real ? "法人番号には登録済み取引先の13桁の番号を入力してください。" : `${source},6600000000000,03-0000-0000,https://example.invalid,F`)
+        : (real ? "法人名と都道府県コードを入力してください。" : "origin,name,prefecture\nsynthetic,合成あおぞら商事,13");
+    }
+    mode.addEventListener("change", () => { file.value = ""; result.hidden = true; showGuide(); });
     const footer = el("footer", "dialog-footer"), submit = el("button", "button button-primary", "取り込む"); submit.type = "submit";
     const cancel = button("閉じる", "button button-secondary", () => item.box.close()); footer.append(cancel, submit);
     item.form.append(description, fields, guide, result, footer);
@@ -160,19 +179,27 @@
       importRunning = true; state.saving = true; fields.disabled = true; submit.disabled = true; cancel.disabled = true; item.close.disabled = true;
       submit.textContent = "取り込み中…"; result.textContent = "CSVを取り込んでいます。この画面を閉じずにお待ちください。";
       try {
-        const params = new URLSearchParams({ encoding: encoding.value, duplicate: duplicate.value });
+        const supplement = mode.value === "supplement";
+        const params = new URLSearchParams({ encoding: encoding.value });
+        if (supplement) params.set("mode", "supplement"); else params.set("duplicate", duplicate.value);
         const response = await fetch(`/api/import?${params}`, { method: "POST", cache: "no-store",
           headers: { "Content-Type": "text/csv", "X-Meibo-Local": "1" }, body: selected });
         const data = await response.json();
-        const inserted = Number.isSafeInteger(data.inserted) && data.inserted >= 0 ? data.inserted : 0;
+        const changed = supplement ? data.updated : data.inserted;
+        const saved = Number.isSafeInteger(changed) && changed >= 0 ? changed : 0;
         const skipped = Number.isSafeInteger(data.skipped) && data.skipped >= 0 ? data.skipped : 0;
-        const counts = `確定済み ${numberFormat.format(inserted)}件、重複スキップ ${numberFormat.format(skipped)}件。`;
+        const counts = supplement ? `連絡先を補完 ${numberFormat.format(saved)}件、変更なし ${numberFormat.format(skipped)}件。`
+          : `確定済み ${numberFormat.format(saved)}件、重複スキップ ${numberFormat.format(skipped)}件。`;
         if (!response.ok || data.ok !== true) {
           result.classList.add("is-error");
           const row = Number.isSafeInteger(data.row) && data.row > 0 ? `CSVの${data.row}レコード目で停止しました（ヘッダーを1と数えます）。` : "取り込めませんでした。";
-          result.textContent = `${row}${counts}${inserted ? "確定済みの取引先は保存されています。" : "新しい取引先は保存されていません。"} ${typeof data.error === "string" ? data.error : "CSVの形式を確認してください。"}`;
-        } else { result.textContent = `CSV取込が完了しました。${counts}`; notify(`CSVから${numberFormat.format(inserted)}件を登録しました。`); }
-        if (inserted > 0) { resetPages(); await Promise.all([loadList(), loadSummary(), loadHomeDue()]); }
+          const savedMessage = saved ? "確定済みの変更は保存されています。" : (supplement ? "連絡先の変更はありません。" : "新しい取引先は保存されていません。");
+          result.textContent = `${row}${counts}${savedMessage} ${typeof data.error === "string" ? data.error : "CSVの形式を確認してください。"}`;
+        } else {
+          result.textContent = `CSV取込が完了しました。${counts}`;
+          notify(supplement ? `連絡先を${numberFormat.format(saved)}件補完しました。` : `CSVから${numberFormat.format(saved)}件を登録しました。`);
+        }
+        if (saved > 0) { resetPages(); await Promise.all([loadList(), loadSummary(), loadHomeDue()]); }
       } catch (_) {
         result.classList.add("is-error");
         result.textContent = "通信結果を確認できませんでした。途中まで保存された可能性があります。再送の前に一覧を更新し、確定済みの取引先を確認してください。選択したファイルと設定は保持しています。";
@@ -180,7 +207,7 @@
         importRunning = false; state.saving = false; fields.disabled = false; submit.disabled = false; cancel.disabled = false; item.close.disabled = false; submit.textContent = "取り込む";
       }
     });
-    return () => { if (busy()) return; item.box.showModal(); };
+    return () => { if (busy()) return; showGuide(); item.box.showModal(); };
   }
 
   function mount() {
@@ -205,7 +232,7 @@
       line.append(input, document.createTextNode(label + (key === "name" ? "（常に表示）" : ""))); choices.append(line); return input;
     });
     columnControl.append(caption, choices);
-    bar.append(savedGroup, field("順序", sortSelect), columnControl, viewsMessage); filters.before(bar);
+    bar.append(window.MeiboCallingLists.mount({ dialog, field, select }), savedGroup, field("順序", sortSelect), columnControl, viewsMessage); filters.before(bar);
     const importButton = button("CSVを取り込む", "button button-secondary", mountImportDialog()); importButton.id = "import-csv";
     container.querySelector(".object-actions")?.append(importButton);
     refreshSavedViews(); sync();

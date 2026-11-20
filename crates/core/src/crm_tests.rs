@@ -372,7 +372,7 @@ fn legacy_base_database_is_extended_atomically_and_future_extension_rejected() {
         .db
         .conn()
         .execute(
-            "UPDATE meta SET value='2' WHERE key='crm_schema_version'",
+            "UPDATE meta SET value='3' WHERE key='crm_schema_version'",
             [],
         )
         .unwrap();
@@ -380,8 +380,8 @@ fn legacy_base_database_is_extended_atomically_and_future_extension_rejected() {
     assert!(matches!(
         Engine::open(&path, &OpenOptions::default()),
         Err(EngineError::UnsupportedVersion {
-            found: 2,
-            supported: 1
+            found: 3,
+            supported: 2
         })
     ));
     let conn = Connection::open(&path).unwrap();
@@ -396,7 +396,7 @@ fn legacy_base_database_is_extended_atomically_and_future_extension_rejected() {
             |r| r.get(0),
         )
         .unwrap();
-    assert_eq!(marker, "2");
+    assert_eq!(marker, "3");
 }
 
 #[test]
@@ -561,4 +561,186 @@ fn erasing_many_related_crm_records_checks_space_and_is_atomic() {
             .total,
         0
     );
+}
+
+#[test]
+fn sales_report_uses_decision_month_current_owner_and_exact_all_page_totals() {
+    let (_dir, mut engine, a, _) = fixture();
+    let b = engine
+        .register_company(&company("合成個人事業", true))
+        .unwrap();
+    let input = opportunity(a);
+    let mut won = input.clone();
+    won.stage = 4;
+    won.amount_jpy = MAX_AMOUNT_JPY;
+    for day in ["2026-11-01", "2026-11-30", "2026-12-01"] {
+        engine
+            .crm_create_opportunity_dated(&won, Some(day))
+            .unwrap();
+    }
+    won.stage = 5;
+    engine
+        .crm_create_opportunity_dated(&won, Some("2026-11-01"))
+        .unwrap();
+    let zero = OpportunityInput {
+        company: b,
+        amount_jpy: 0,
+        close_date: "2026-11-01".into(),
+        ..input.clone()
+    };
+    engine.crm_create_opportunity(&zero).unwrap();
+    engine.db.conn().execute(
+        "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n WHERE i<1031)
+         INSERT INTO crm_opportunities(company_id,name,amount_jpy,stage,close_date,created_at,updated_at)
+         SELECT ?1,'fixture',?2,1,'2026-11-30',0,0 FROM n", params![a.0, MAX_AMOUNT_JPY]).unwrap();
+    let mut changed = company("合成取引先A", false);
+    changed.owner = Some(crate::types::UserId(17));
+    engine.update_company(a, &changed).unwrap();
+    let report = engine.crm_sales_report("2026-11").unwrap();
+    assert_eq!(
+        (report.won_count, report.lost_count, report.undated_count),
+        (2, 1, 0)
+    );
+    assert_eq!(report.win_rate_percent(), Some(66.7));
+    let maximum = u128::try_from(MAX_AMOUNT_JPY).unwrap();
+    assert_eq!(report.won_amount_jpy, maximum * 2);
+    assert_eq!(
+        report.forecasts[&changed.owner],
+        OwnerForecast {
+            count: 1031,
+            amount_jpy: maximum * 1031
+        }
+    );
+    assert_eq!(
+        report.forecasts[&None],
+        OwnerForecast {
+            count: 1,
+            amount_jpy: 0
+        }
+    );
+    assert_eq!(engine.crm_sales_report("2026-12").unwrap().won_count, 1);
+    engine.erase_company(b).unwrap();
+    engine
+        .record_activity(&crate::types::ActivityInput {
+            company: a,
+            contact: None,
+            kind: crate::types::ActivityKind::StatusChange,
+            at: 10,
+            note: None,
+            status_after: Some(Status::Excluded),
+            next_action: crate::types::NextAction::Keep,
+            reverses: None,
+        })
+        .unwrap();
+    assert_eq!(
+        engine.crm_sales_report("2026-11").unwrap(),
+        SalesReport::default()
+    );
+    for month in [
+        "",
+        "2026-00",
+        "2026-13",
+        "0000-01",
+        "2026-1",
+        "2026-11-30",
+        "１２３４-０１",
+    ] {
+        assert!(engine.crm_sales_report(month).is_err());
+    }
+    assert_eq!(SalesReport::default().win_rate_percent(), None);
+}
+
+#[test]
+fn sales_report_preserves_unknown_legacy_dates_and_records_reopened_decisions() {
+    let (dir, engine, a, _) = fixture();
+    let path = dir.path().join("crm.db");
+    engine.db.conn().execute_batch("ALTER TABLE crm_opportunities DROP COLUMN outcome_date;
+         UPDATE meta SET value='1' WHERE key='crm_schema_version';
+         INSERT INTO crm_opportunities(id,company_id,name,amount_jpy,stage,close_date,created_at,updated_at)
+         VALUES(1,1,'old',120,4,'2026-12-01',1,1700000000);").unwrap();
+    drop(engine);
+    let mut engine = Engine::open(&path, &OpenOptions::default()).unwrap();
+    let item = engine
+        .crm_opportunities(&opportunity_query(None))
+        .unwrap()
+        .items
+        .remove(0);
+    assert_eq!(item.outcome_date, None);
+    let mut input = item.input;
+    input.name = "合成・名称訂正".into();
+    engine.crm_update_opportunity(1, &input).unwrap();
+    engine.crm_set_stage(1, 4).unwrap();
+    let old = engine.crm_sales_report("2026-12").unwrap();
+    assert_eq!((old.won_count, old.undated_count), (0, 1));
+    for day in ["2026-02-29", "2026-00-01", "2026-11-31", "0000-01-01", "a"] {
+        assert!(
+            engine
+                .crm_update_opportunity_dated(1, &input, Some(day))
+                .is_err()
+        );
+    }
+    engine
+        .crm_update_opportunity_dated(1, &input, Some("2024-02-29"))
+        .unwrap();
+    engine.crm_set_stage(1, 4).unwrap();
+    assert_eq!(
+        engine.crm_sales_report("2024-02").unwrap().won_amount_jpy,
+        120
+    );
+    let backup = dir.path().join("sales-copy.db");
+    engine.backup_to(&backup).unwrap();
+    let copy = Engine::open(&backup, &OpenOptions::default()).unwrap();
+    assert_eq!(
+        copy.crm_opportunities(&opportunity_query(Some(a)))
+            .unwrap()
+            .items[0]
+            .outcome_date
+            .as_deref(),
+        Some("2024-02-29")
+    );
+    engine.crm_set_stage(1, 5).unwrap();
+    let today: String = engine
+        .db
+        .conn()
+        .query_row("SELECT date('now','+9 hours')", [], |r| r.get(0))
+        .unwrap();
+    assert_eq!(
+        engine
+            .crm_opportunities(&opportunity_query(None))
+            .unwrap()
+            .items[0]
+            .outcome_date
+            .as_ref(),
+        Some(&today)
+    );
+    engine.crm_set_stage(1, 2).unwrap();
+    assert_eq!(
+        engine
+            .crm_opportunities(&opportunity_query(None))
+            .unwrap()
+            .items[0]
+            .outcome_date,
+        None
+    );
+    assert!(
+        engine
+            .crm_set_stage_dated(1, 2, Some("2026-12-01"))
+            .is_err()
+    );
+    let expression = format!("SELECT {NEXT_OUTCOME} FROM crm_opportunities WHERE id=?1");
+    for (instant, day) in [
+        (1_767_193_199_i64, "2025-12-31"),
+        (1_767_193_200, "2026-01-01"),
+    ] {
+        let actual: String = engine
+            .db
+            .conn()
+            .query_row(
+                &expression,
+                params![1, 4, Option::<String>::None, instant],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(actual, day);
+    }
 }

@@ -17,7 +17,8 @@
     const actions = make("div", "", "call-mode-actions");
     if (session.error) actions.append(control("次の取引先を再読み込み", () => showCurrent()));
     else actions.append(control("保存して次へ", () => document.getElementById("activity-form")?.requestSubmit(), true));
-    actions.append(control("記録せずスキップ", skip), control("架電モードを終了", () => stop(true)));
+    if (session.position < session.ids.length) actions.append(control("記録せずスキップ", skip));
+    actions.append(control("架電モードを終了", () => stop(true)));
     box.append(info, actions); document.getElementById("detail-content").prepend(box);
   }
   function allowMove() {
@@ -58,7 +59,8 @@
           session = null; moving = false;
           context.notice("対象の記録が完了しました。取引先一覧へ戻ります。"); context.close(); return;
         }
-        await context.open(current.ids[current.position]);
+        const eligible = await context.open(current.ids[current.position], current.conditions);
+        if (eligible === false) { current.position++; continue; }
         const company = context.company();
         if (!company || company.id !== current.ids[current.position]) throw new Error("詳細を取得できませんでした。");
         if (company.status === 5) { current.position++; continue; }
@@ -69,11 +71,23 @@
     } finally { moving = false; render(); if (session && !session.error) document.getElementById("activity-note")?.focus(); }
   }
   async function start() {
-    if (context.busy()) return;
+    if (moving || context.busy()) return;
     if (session) { await showCurrent(); return; }
-    const rows = context.rows().filter(r => r.status !== 5);
+    const params = context.params(), conditions = context.conditions();
+    let rows = context.rows(), next = context.next();
+    if (context.page() > 0) {
+      moving = true;
+      try {
+        const first = await (await context.request(`/api/companies?${params}`)).json();
+        if (params !== context.params()) return;
+        rows = first.rows; next = first.next;
+      } catch (error) { context.notice(error.message, true); return; }
+      finally { moving = false; }
+    }
+    rows = rows.filter(row => row.status !== 5);
     if (!rows.length) { context.notice("対象の取引先がありません。検索条件を変更してください。"); return; }
-    session = {ids: rows.map(r => r.id), seen: new Set(rows.map(r => r.id)), next: context.next(), params: context.params(), position: 0, restarted: false, error: null};
+    const ids = rows.map(row => row.id);
+    session = { ids, seen: new Set(ids), next, params, conditions, position: 0, restarted: false, error: null };
     await showCurrent();
   }
   async function skip() { if (!session || !allowMove()) return; session.position++; await showCurrent(); }
@@ -81,11 +95,13 @@
     if (!session || session.ids[session.position] !== id) return;
     session.position++; await showCurrent();
   }
+  const awaitingCandidate = () => Boolean(session && (moving || session.error));
+  const canRecord = id => !session || (!awaitingCandidate() && session.ids[session.position] === id);
   document.addEventListener("keydown", event => {
-    if (session && !moving && !context.busy() && (event.ctrlKey || event.metaKey) && event.key === "Enter") {
+    if (session && !awaitingCandidate() && !context.busy() && (event.ctrlKey || event.metaKey) && event.key === "Enter") {
       if (document.querySelector("dialog[open]")) return;
       event.preventDefault(); document.getElementById("activity-form")?.requestSubmit();
     }
   });
-  window.MeiboCallMode = {configure: value => { context = value; }, start, render, saved, stop, active: () => Boolean(session)};
+  window.MeiboCallMode = {configure: value => { context = value; }, start, render, saved, stop, canRecord, awaitingCandidate, retry: showCurrent, active: () => Boolean(session)};
 })();

@@ -1,0 +1,13 @@
+{
+  "feature_name": "team-sales-workspace",
+  "language": "ja",
+  "created_at": "2026-11-20",
+  "phase": "implementing",
+  "approvals": {
+    "requirements": {"generated": true, "approved": true},
+    "design": {"generated": true, "approved": true},
+    "tasks": {"generated": true, "approved": true}
+  },
+  "ready_for_implementation": true,
+  "basis": "2026-11-20 request to implement all three agreed improvements under the existing development workflow"
+}
