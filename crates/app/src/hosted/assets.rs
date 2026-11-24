@@ -16,6 +16,11 @@ pub(super) fn asset(path: &str) -> Option<Reply> {
     }
 }
 
+/// 公開デモ専用の注意書き帯と非表示導線のCSSを返す。
+pub(super) fn demo_css() -> Reply {
+    Reply::text("text/css; charset=utf-8", include_str!("../../ui/demo.css"))
+}
+
 pub(super) fn hosted_paths(html: &str) -> String {
     html.replace("href=\"/workspace.css\"", "href=\"/hosted-app.css\"")
         .replace("src=\"/workspace.js\"", "src=\"/hosted-app.js\"")

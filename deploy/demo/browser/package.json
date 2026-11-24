@@ -1,0 +1,19 @@
+{
+  "name": "meibo-public-demo-browser",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "公開デモのブラウザ試験（実バイナリと自己署名のHTTPS前段。外部には接続しない）",
+  "engines": {
+    "node": "24.22.1",
+    "npm": "12.2.1"
+  },
+  "packageManager": "npm@12.2.1",
+  "scripts": {
+    "test": "node run-widths.mjs",
+    "test:one": "playwright test --config playwright.config.mjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.64.1"
+  }
+}

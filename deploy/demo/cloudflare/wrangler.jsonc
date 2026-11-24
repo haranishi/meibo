@@ -1,0 +1,72 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "meibo-demo",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-10-23",
+  // カスタムドメインのみで公開し、workers.dev と preview URL は無効にする。
+  "workers_dev": false,
+  "preview_urls": false,
+  // 訪問者の入力や通信情報をログへ残さないため、観測ログは無効にする。
+  "observability": { "enabled": false },
+  "vars": {
+    // 公開ドメインはリポジトリへ書かず、配備時に --var MEIBO_DOMAIN:<公開ドメイン> で渡す。
+    "MEIBO_DOMAIN": "",
+    // "true" 以外にするとコンテナへ通さず 503（メンテナンス中）を返す。
+    "DEMO_ENABLED": "true",
+    // 任意。デモ入口に出す運用者への連絡先 URL。配備時に --var で渡す。
+    "MEIBO_DEMO_CONTACT": ""
+  },
+  // 接続元（CF-Connecting-IP）ごとの頻度制限。namespace_id はアカウント内で一意にする。
+  "ratelimits": [
+    {
+      "name": "RATE_LIMIT_DEMO_ENTER",
+      "namespace_id": "9901",
+      "simple": {
+        "limit": 20,
+        "period": 60
+      }
+    },
+    {
+      "name": "RATE_LIMIT_POST",
+      "namespace_id": "9902",
+      "simple": {
+        "limit": 60,
+        "period": 60
+      }
+    },
+    {
+      "name": "RATE_LIMIT_GET",
+      "namespace_id": "9903",
+      "simple": {
+        "limit": 600,
+        "period": 60
+      }
+    }
+  ],
+  "containers": [
+    {
+      "class_name": "DemoContainer",
+      "scheduling_policy": "default",
+      "image": "./Dockerfile",
+      "image_build_context": "../../..",
+      // 既定は lite（256MiB）。起動後のメモリ実測の結果しだいで basic（1GiB）へ変更できる。
+      "instance_type": "lite",
+      // 同時に動くコンテナは 1 台に固定する（費用の上限ではない点に注意）。
+      "max_instances": 1
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "DEMO_CONTAINER",
+        "class_name": "DemoContainer"
+      }
+    ]
+  },
+  "exports": {
+    "DemoContainer": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    }
+  }
+}

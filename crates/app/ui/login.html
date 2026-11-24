@@ -12,7 +12,7 @@
 <body class="login-page">
   <main class="login-card">
     <a class="login-brand" href="/login" aria-label="meibo ログイン">m<span>meibo</span></a>
-    <h1>営業ワークスペースへ</h1>
+    <!-- auth:login:start --><h1>営業ワークスペースへ</h1>
     <p class="login-intro">招待された組織のアカウントでログインしてください。</p>
     <form id="login-form">
       <fieldset id="login-fields">
@@ -25,7 +25,21 @@
         <button id="login-submit" type="submit">ログイン</button>
       </fieldset>
     </form>
-    <p class="login-help">アカウントや組織IDが分からない場合は、招待した管理者へお問い合わせください。</p>
+    <p class="login-help">アカウントや組織IDが分からない場合は、招待した管理者へお問い合わせください。</p><!-- auth:login:end --><!-- demo:enter:start -->
+    <div id="demo-reset-notice" class="demo-reset-notice" role="status" aria-live="polite" hidden></div>
+    <h1>営業ワークスペースを試す</h1>
+    <p class="login-intro">ボタンを押すと、合成データだけのデモに入れます。</p>
+    <div class="demo-enter-actions">
+      <div id="login-error" class="login-error" role="alert" hidden></div>
+      <button id="demo-enter" type="button">デモを開く</button>
+    </div>
+    <ul class="demo-notes">
+      <li>データはすべて合成です。実在の企業や個人とは関係ありません。</li>
+      <li>全員が同じデモを共有します。他の人の操作で表示が変わることがあります。</li>
+      <li>{{DEMO_IDLE_MINUTES}}分操作がないと初期化されます。</li>
+      <li>個人情報を入力しないでください。</li>
+    </ul>
+    <p class="login-help">実行先に通信の記録が残ります。</p><!-- demo:contact --><!-- demo:enter:end -->
     <!-- public-entry:share:start -->
     <footer id="public-entry-share" class="public-share" aria-labelledby="public-share-heading">
       <h2 id="public-share-heading">ログインURLを共有</h2>

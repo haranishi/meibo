@@ -9,9 +9,21 @@ use super::{
 
 pub(super) struct ControlStore {
     pub(super) conn: Connection,
+    audit_enabled: bool,
 }
 
 impl ControlStore {
+    pub(super) const fn new(conn: Connection) -> Self {
+        Self {
+            conn,
+            audit_enabled: true,
+        }
+    }
+
+    pub(super) fn disable_audit(&mut self) {
+        self.audit_enabled = false;
+    }
+
     pub(super) fn sales_members(&self, tenant: &str) -> HostedResult<Vec<Value>> {
         let mut statement = self.conn.prepare("SELECT u.id,u.username FROM memberships m JOIN users u ON u.id=m.user_id
             WHERE m.tenant=?1 AND m.role IN ('admin','editor') AND u.disabled=0 ORDER BY u.username,u.id")?;
@@ -134,6 +146,9 @@ impl ControlStore {
         operation: &str,
         outcome: &str,
     ) -> HostedResult<()> {
+        if !self.audit_enabled {
+            return Ok(());
+        }
         self.conn.execute(
             "INSERT INTO audit(at,actor,tenant,operation,outcome) VALUES(?1,?2,?3,?4,?5)",
             params![now()?, actor, tenant, operation, outcome],

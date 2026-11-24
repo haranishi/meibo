@@ -1,0 +1,49 @@
+{
+  "feature_name": "public-demo",
+  "created_at": "2026-11-24T08:00:00Z",
+  "updated_at": "2026-11-24T12:30:00Z",
+  "language": "ja",
+  "phase": "implementing",
+  "approvals": {
+    "requirements": {
+      "generated": true,
+      "approved": true
+    },
+    "design": {
+      "generated": true,
+      "approved": true
+    },
+    "tasks": {
+      "generated": true,
+      "approved": true
+    }
+  },
+  "ready_for_implementation": true,
+  "execution_authorization": {
+    "basis": "運用者が、紹介の投稿より前に公開デモを作ると選んだ。実行先はCloudflareを希望し、公開のURLは独自ドメインのサブドメインに決めた。2026-11-24に、ブランチのpushとPRの作成（マージは運用者）、公開URLのDNS（Workerのカスタムドメイン）の追加（実行は配備のとき）、手元のDockerへのbuildxの導入を承認した。Workers Paid の契約は「まだ契約しない」とした。この範囲の、手元での実装・検証（タスク1から5）とPRの作成だけを進める。仕様の全文は運用者が未読で、異議があれば要件の更新として扱う。",
+    "scope": "local_implementation_verification_and_pull_request_only",
+    "pass_obtained": false,
+    "public_exposure": false,
+    "new_paid_subscription": false,
+    "payment_method_registration": false,
+    "dns_change_approved": true,
+    "hosting": "cloudflare_containers_preferred",
+    "hosting_fallback": "fly.io",
+    "domain": "chosen_by_operator",
+    "gated_tasks": [
+      "6.1",
+      "6.2",
+      "6.3",
+      "6.4"
+    ],
+    "upstream": [
+      "team-access",
+      "public-entry",
+      "sales-operations"
+    ],
+    "pull_request_approved": true,
+    "pull_request_merge_approved": false,
+    "dns_change_executed": false,
+    "buildx_install_approved": true
+  }
+}

@@ -61,7 +61,7 @@ enum Action {
     Restore(PathBuf, PathBuf),
     Status,
     Recover(String),
-    Serve(HostedConfig),
+    Serve(Box<HostedConfig>),
 }
 
 fn parse(command: &str, args: &[String]) -> HostedResult<Action> {
@@ -155,7 +155,13 @@ fn parse(command: &str, args: &[String]) -> HostedResult<Action> {
         {
             Ok(Action::Recover(owner.clone()))
         }
-        ("serve", options) => Ok(Action::Serve(cli::serve_config(options)?)),
+        ("serve", options) => {
+            let config = cli::serve_config(options)?;
+            if config.demo.is_some() {
+                return Err("公開デモは遠隔保存では利用できません。".into());
+            }
+            Ok(Action::Serve(Box::new(config)))
+        }
         _ => Err("hosted-remote --helpで引数を確認してください。".into()),
     }
 }
@@ -203,7 +209,7 @@ pub(super) fn run(args: Vec<OsString>) -> HostedResult<()> {
     }
     let mut store = RemoteStore::open(endpoints)?;
     if let Action::Serve(config) = action {
-        return Hosted::new(store, config).serve();
+        return Hosted::new(store, *config).serve();
     }
     if matches!(action, Action::Status) {
         let status = store.gate_status()?;
@@ -309,5 +315,28 @@ fn execute(
         Action::Init | Action::Status | Action::Recover(_) | Action::Serve(_) => unreachable!(
             "bootstrap/status/server actions were handled before acquiring a work gate"
         ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn remote_serve_rejects_public_demo() {
+        let err = parse(
+            "serve",
+            &[
+                "--origin".into(),
+                "https://demo.example.invalid".into(),
+                "--bind".into(),
+                "127.0.0.1:4317".into(),
+                "--public-demo".into(),
+            ],
+        )
+        .err()
+        .unwrap()
+        .to_string();
+        assert!(err.contains("遠隔保存"));
     }
 }

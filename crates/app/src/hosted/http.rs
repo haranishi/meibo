@@ -2,6 +2,7 @@ use std::{
     collections::VecDeque,
     io::{Read, Write},
     net::SocketAddr,
+    path::Path,
 };
 
 use meibo_core::Engine;
@@ -31,6 +32,7 @@ pub(super) struct HostedConfig {
     pub(super) development: bool,
     #[cfg(feature = "cloud")]
     pub(super) access: Option<super::access::Access>,
+    pub(super) demo: Option<super::demo::DemoConfig>,
 }
 impl HostedConfig {
     pub(super) fn parse(origin: &str, bind: &str, development: bool) -> HostedResult<Self> {
@@ -84,6 +86,7 @@ impl HostedConfig {
             development,
             #[cfg(feature = "cloud")]
             access: None,
+            demo: None,
         })
     }
     // The same interface serves the native build without the optional verifier.
@@ -118,6 +121,15 @@ pub(super) struct HostedReply {
     pub(super) reply: Reply,
     headers: Vec<(&'static str, String)>,
 }
+impl HostedReply {
+    #[cfg(test)]
+    pub(super) fn header(&self, name: &str) -> Option<&str> {
+        self.headers
+            .iter()
+            .find(|(key, _)| key.eq_ignore_ascii_case(name))
+            .map(|(_, value)| value.as_str())
+    }
+}
 impl From<Reply> for HostedReply {
     fn from(reply: Reply) -> Self {
         Self {
@@ -135,6 +147,7 @@ fn path(input: &Input) -> &str {
 fn limit(input: &Input) -> usize {
     match path(input) {
         "/auth/login" => 8192,
+        "/demo/enter" => 256,
         route if route.starts_with("/forms/") => leads::FORM_LIMIT,
         "/api/import" => MAX_IMPORT,
         _ => MAX_JSON,
@@ -165,6 +178,9 @@ pub(super) trait HostedStorage: std::ops::DerefMut<Target = ControlStore> {
         uncertain: bool,
     ) -> HostedResult<T>;
     fn open_engine(&self, tenant: &str) -> HostedResult<Engine>;
+    fn storage_root(&self) -> Option<&Path> {
+        None
+    }
     fn remote(&self) -> bool {
         false
     }
@@ -188,6 +204,9 @@ impl HostedStorage for Store {
     }
     fn open_engine(&self, tenant: &str) -> HostedResult<Engine> {
         Ok(Engine::open(&self.tenant_path(tenant)?, &engine_options())?)
+    }
+    fn storage_root(&self) -> Option<&Path> {
+        Some(&self.root)
     }
 }
 
@@ -222,14 +241,32 @@ pub(super) struct Hosted<S = Store> {
     config: HostedConfig,
     engines: VecDeque<(String, Engine)>,
     uncertain: bool,
+    demo_enter: super::demo::EnterRateLimit,
+    demo_session_token: Option<String>,
 }
 impl<S: HostedStorage> Hosted<S> {
-    pub(super) fn new(store: S, config: HostedConfig) -> Self {
+    pub(super) fn new(mut store: S, config: HostedConfig) -> Self {
+        if config.demo.is_some() {
+            store.disable_audit();
+        }
         Self {
             store,
             config,
             engines: VecDeque::new(),
             uncertain: false,
+            demo_enter: super::demo::EnterRateLimit::default(),
+            demo_session_token: None,
+        }
+    }
+
+    fn body_limit(&self, input: &Input) -> usize {
+        if self.config.demo.is_some() {
+            match path(input) {
+                "/demo/enter" => 256,
+                _ => super::demo::MAX_POST_BODY_BYTES,
+            }
+        } else {
+            limit(input)
         }
     }
 
@@ -247,7 +284,7 @@ impl<S: HostedStorage> Hosted<S> {
         if !matches!(input.method.as_str(), "GET" | "POST") {
             return Some(error(405, "この操作には対応していません。"));
         }
-        if input.body.len() > limit(input) {
+        if input.body.len() > self.body_limit(input) {
             return Some(error(413, "送信内容が上限を超えています。"));
         }
         if input.method == "POST" {
@@ -371,6 +408,9 @@ impl<S: HostedStorage> Hosted<S> {
         access_user: Option<&str>,
     ) -> HostedResult<HostedReply> {
         let path = path(input);
+        if self.config.demo.is_some() && super::demo::is_disabled_public_path(path) {
+            return Ok(error(404, "対象が見つかりません。"));
+        }
         if input.method == "GET"
             && let Some(reply) = crate::server::activity_sync::callback(path)
         {
@@ -390,6 +430,7 @@ impl<S: HostedStorage> Hosted<S> {
                 return Ok(super::public_entry::login(&self.config).into());
             }
             ("POST", "/auth/login") => return self.login(input, at, access_user),
+            ("POST", "/demo/enter") => return self.demo_enter(input, at),
             _ => {}
         }
         let token = self.token(input);
@@ -403,9 +444,7 @@ impl<S: HostedStorage> Hosted<S> {
         };
         let Some(identity) = identity else {
             if path == "/" {
-                let mut reply = error(302, "ログインしてください。");
-                reply.headers.push(("Location", "/login".into()));
-                return Ok(reply);
+                return Ok(self.unauthenticated_root_redirect(token));
             }
             return Ok(error(401, "ログインしてください。"));
         };
@@ -417,21 +456,7 @@ impl<S: HostedStorage> Hosted<S> {
             return Ok(Reply::json(409,&json!({"error":"利用者または組織が変わりました。ログインし直してください。","code":"context_changed"})).into());
         }
         if input.method == "POST" && path == "/auth/logout" {
-            self.store.logout(token.ok_or("sessionがありません。")?)?;
-            self.store.audit(
-                &identity.username,
-                Some(&identity.tenant),
-                "logout",
-                "success",
-            )?;
-            let mut reply: HostedReply = Reply::json(200, &json!({"ok":true})).into();
-            reply
-                .headers
-                .push(("Set-Cookie", self.config.cookie("", 0)));
-            reply
-                .headers
-                .push(("Clear-Site-Data", "\"cache\", \"storage\"".into()));
-            return Ok(reply);
+            return self.logout(token, &identity);
         }
         if path == "/auth/audit" {
             if input.method != "GET" || identity.role != Role::Admin {
@@ -449,6 +474,9 @@ impl<S: HostedStorage> Hosted<S> {
         {
             return self.denied(&identity);
         }
+        if self.config.demo.is_some() && super::demo::is_disabled_auth_path(path) {
+            return Ok(demo_disabled_reply());
+        }
         if let Some(reply) = self.sales_access(input, &identity)? {
             return Ok(reply);
         }
@@ -456,11 +484,184 @@ impl<S: HostedStorage> Hosted<S> {
             return Ok(error(404, "対象が見つかりません。"));
         }
         if input.method == "GET"
-            && let Some(reply) = super::assets::asset(path)
+            && let Some(reply) = self.authenticated_asset(path)
         {
             return Ok(reply.into());
         }
+        if let Some(reply) = self.check_demo_write_limits(input, &identity)? {
+            return Ok(reply);
+        }
         self.dispatch_crm(input, &identity)
+    }
+
+    fn check_demo_write_limits(
+        &mut self,
+        input: &Input,
+        identity: &Identity,
+    ) -> HostedResult<Option<HostedReply>> {
+        let Some(demo) = self.config.demo.clone() else {
+            return Ok(None);
+        };
+        if input.method != "POST" || read_only_post(input) {
+            return Ok(None);
+        }
+        let root = self
+            .store
+            .storage_root()
+            .ok_or("公開デモの保存先を確認できません。")?;
+        if super::demo::storage_bytes(root)? >= demo.max_storage_bytes {
+            return Ok(Some(
+                Reply::json(
+                    507,
+                    &json!({
+                        "error": "デモの保存量の上限に達しました。しばらくすると初期化されます。",
+                        "code": "demo_storage_full"
+                    }),
+                )
+                .into(),
+            ));
+        }
+        if self.demo_create_limit_reached(path(input), &input.body, &identity.tenant, &demo)? {
+            return Ok(Some(
+                Reply::json(
+                    403,
+                    &json!({
+                        "error": "デモの上限に達しました。しばらくすると初期化されます。",
+                        "code": "demo_limit"
+                    }),
+                )
+                .into(),
+            ));
+        }
+        Ok(None)
+    }
+
+    fn demo_create_limit_reached(
+        &mut self,
+        path: &str,
+        body: &[u8],
+        tenant: &str,
+        demo: &super::demo::DemoConfig,
+    ) -> HostedResult<bool> {
+        if path == "/api/companies" {
+            let count = self
+                .engine(tenant)?
+                .count(&meibo_core::types::Filters {
+                    include_excluded: true,
+                    ..meibo_core::types::Filters::default()
+                })?
+                .n;
+            return Ok(count >= demo.max_companies);
+        }
+        if path == "/api/opportunities" {
+            let total = self
+                .engine(tenant)?
+                .crm_opportunities(&meibo_core::crm::OpportunityQuery {
+                    company: None,
+                    after: None,
+                    limit: 1,
+                })?
+                .total;
+            return Ok(total >= demo.max_opportunities);
+        }
+        if path == "/api/custom-fields" {
+            let count = u64::try_from(self.engine(tenant)?.custom_fields()?.len())?;
+            return Ok(count >= demo.max_custom_fields);
+        }
+        if path == "/api/work-items" {
+            let total = self
+                .engine(tenant)?
+                .crm_work_items(&meibo_core::crm::WorkQuery {
+                    company: None,
+                    kind: None,
+                    completed: None,
+                    after: None,
+                    limit: 1,
+                })?
+                .total;
+            return Ok(total >= demo.max_work_items);
+        }
+        if path == "/api/calling-lists" {
+            let count = u64::try_from(self.engine(tenant)?.calling_lists()?.len())?;
+            return Ok(count >= demo.max_calling_lists);
+        }
+        if is_company_subroute(path, "/api/companies/", "/activities")
+            || is_company_subroute(path, "/api/v1/companies/", "/activities")
+        {
+            let engine = self.engine(tenant)?;
+            if engine.activity_count()? >= demo.max_activities {
+                return Ok(true);
+            }
+            let is_absence = serde_json::from_slice::<Value>(body)
+                .ok()
+                .and_then(|value| {
+                    value
+                        .get("follow_up")
+                        .and_then(Value::as_str)
+                        .map(|action| action == "absence")
+                })
+                .unwrap_or(false);
+            if is_absence {
+                let work_total = engine
+                    .crm_work_items(&meibo_core::crm::WorkQuery {
+                        company: None,
+                        kind: None,
+                        completed: None,
+                        after: None,
+                        limit: 1,
+                    })?
+                    .total;
+                return Ok(work_total >= demo.max_work_items);
+            }
+            return Ok(false);
+        }
+        if is_activity_cancel_route(path) {
+            return Ok(self.engine(tenant)?.activity_count()? >= demo.max_activities);
+        }
+        if is_company_subroute(path, "/api/companies/", "/contacts") {
+            let count = self.engine(tenant)?.contact_count()?;
+            return Ok(count >= demo.max_contacts);
+        }
+        Ok(false)
+    }
+
+    /// ログアウト。公開デモでは共有sessionを消さず（1人のログアウトで全員を締め出さない）、Cookieを消す応答だけを返す。
+    fn logout(&mut self, token: Option<&str>, identity: &Identity) -> HostedResult<HostedReply> {
+        if self.config.demo.is_none() {
+            self.store.logout(token.ok_or("sessionがありません。")?)?;
+            self.store.audit(
+                &identity.username,
+                Some(&identity.tenant),
+                "logout",
+                "success",
+            )?;
+        }
+        let mut reply: HostedReply = Reply::json(200, &json!({"ok":true})).into();
+        reply
+            .headers
+            .push(("Set-Cookie", self.config.cookie("", 0)));
+        reply
+            .headers
+            .push(("Clear-Site-Data", "\"cache\", \"storage\"".into()));
+        Ok(reply)
+    }
+
+    fn unauthenticated_root_redirect(&self, token: Option<&str>) -> HostedReply {
+        let mut reply = error(302, "ログインしてください。");
+        let location = if self.config.demo.is_some() && token.is_some_and(|v| !v.is_empty()) {
+            "/login?reset=1"
+        } else {
+            "/login"
+        };
+        reply.headers.push(("Location", location.into()));
+        reply
+    }
+
+    fn authenticated_asset(&self, path: &str) -> Option<Reply> {
+        if path == "/demo.css" && self.config.demo.is_some() {
+            return Some(super::assets::demo_css());
+        }
+        super::assets::asset(path)
     }
 
     fn public_intake(&mut self, input: &Input, at: i64) -> HostedResult<HostedReply> {
@@ -555,7 +756,7 @@ impl<S: HostedStorage> Hosted<S> {
         }
         if path == "/" && reply.status == 200 {
             let html = String::from_utf8(reply.body)?;
-            reply.body = super::assets::hosted_paths(&html)
+            let mut html = super::assets::hosted_paths(&html)
                 .replace(
                     "<script src=",
                     "<script type=\"application/x-meibo-gated\" data-meibo-src=",
@@ -564,8 +765,11 @@ impl<S: HostedStorage> Hosted<S> {
                 .replace(
                     "</body>",
                     "<script src=\"/login.js\" defer></script></body>",
-                )
-                .into_bytes();
+                );
+            if let Some(demo) = &self.config.demo {
+                html = super::public_entry::apply_demo_workspace(&html, demo);
+            }
+            reply.body = html.into_bytes();
         }
         Ok(reply.into())
     }
@@ -580,6 +784,43 @@ impl<S: HostedStorage> Hosted<S> {
         Ok(error(403, "この操作を行う権限がありません。"))
     }
 
+    fn demo_enter(&mut self, input: &Input, at: i64) -> HostedResult<HostedReply> {
+        let Some(demo) = self.config.demo.as_ref() else {
+            return Ok(error(404, "対象が見つかりません。"));
+        };
+        let Ok(Value::Object(map)) = serde_json::from_slice::<Value>(&input.body) else {
+            return Ok(error(400, "入力内容を確認してください。"));
+        };
+        if !map.is_empty() {
+            return Ok(error(400, "入力内容を確認してください。"));
+        }
+        let enter_per_minute = demo.enter_per_minute;
+        if !self.demo_enter.allow(at, enter_per_minute) {
+            return Ok(Reply::json(
+                429,
+                &json!({
+                    "error": "混み合っています。少し待ってからもう一度お試しください。",
+                    "code": "demo_busy"
+                }),
+            )
+            .into());
+        }
+        let token = match self.demo_session_token.as_deref() {
+            Some(token) => token.to_owned(),
+            None => super::auth::random_hex(32)?,
+        };
+        let outcome = self.store.open_demo_session(
+            super::demo::DEMO_TENANT,
+            super::demo::DEMO_USER,
+            &token,
+            at,
+        )?;
+        if matches!(outcome, LoginOutcome::Success(_)) && self.demo_session_token.is_none() {
+            self.demo_session_token = Some(token);
+        }
+        Ok(self.login_response(outcome))
+    }
+
     fn login(
         &mut self,
         input: &Input,
@@ -588,6 +829,12 @@ impl<S: HostedStorage> Hosted<S> {
     ) -> HostedResult<HostedReply> {
         #[cfg(not(feature = "cloud"))]
         let _ = access_user;
+        if self.config.demo.is_some() {
+            return Ok(error(
+                404,
+                "公開デモではパスワードログインは利用できません。",
+            ));
+        }
         let value: Value = match serde_json::from_slice(&input.body) {
             Ok(v) => v,
             Err(_) => return Ok(error(400, "入力内容を確認してください。")),
@@ -678,6 +925,12 @@ impl<S: HostedStorage> Hosted<S> {
     }
 
     pub(super) fn serve(mut self) -> HostedResult<()> {
+        if let Some(demo) = self.config.demo.clone() {
+            if self.store.remote() {
+                return Err("公開デモは遠隔保存では利用できません。".into());
+            }
+            return self.serve_demo(&demo);
+        }
         let server =
             Server::http(self.config.bind).map_err(|_| "hostedサーバーを起動できません。")?;
         println!(
@@ -721,6 +974,177 @@ impl<S: HostedStorage> Hosted<S> {
         }
         Ok(())
     }
+
+    fn handle_demo_request(&mut self, mut request: Request) -> HostedResult<()> {
+        let mut input = Input {
+            method: request.method().as_str().into(),
+            target: request.url().into(),
+            headers: request
+                .headers()
+                .iter()
+                .map(|h| (h.field.as_str().to_string(), h.value.to_string()))
+                .collect(),
+            body: Vec::new(),
+        };
+        // tiny_http 0.12 は Response::add_header の Connection ヘッダーを黙って捨て、
+        // 拒否した要求でも Request の破棄（EqualReader::Drop）で宣言長分の本文を読み捨てる。
+        // アプリ側から回避できないため、本文を受け切って宣言長と一致する要求だけを渡す前段が前提になる。
+        let reply = if let Some(reply) = self.boundary(&input) {
+            reply
+        } else if let Some((status, message)) = super::demo::check_post_preflight(
+            &input.method,
+            &input.headers,
+            request.body_length(),
+            self.body_limit(&input),
+        ) {
+            error(status, message)
+        } else if input.method == "POST"
+            && request
+                .as_reader()
+                .take((self.body_limit(&input) + 1) as u64)
+                .read_to_end(&mut input.body)
+                .is_err()
+        {
+            error(400, "送信内容を読み取れません。")
+        } else {
+            self.dispatch(&input, now()?)
+        };
+        send(request, reply);
+        Ok(())
+    }
+
+    fn serve_demo(mut self, demo: &super::demo::DemoConfig) -> HostedResult<()> {
+        use std::{sync::Arc, thread, time::Instant};
+
+        use super::demo_lifecycle::{
+            DEMO_RECV_TIMEOUT, DemoLifecycle, HEALTH_PROBE_FAILURE_THRESHOLD,
+            HEALTH_PROBE_INTERVAL, HEALTH_PROBE_TIMEOUT, ProcessExit, ResetReason,
+            STORAGE_FULL_GRACE, STORAGE_POLL_INTERVAL, StorageFullTracker, WATCHDOG_TICK_INTERVAL,
+            WatchdogState, elapsed_ms, loopback_probe_addr, probe_health,
+        };
+
+        let storage_root = self
+            .store
+            .storage_root()
+            .ok_or("公開デモの保存先を確認できません。")?
+            .to_path_buf();
+        let server =
+            Server::http(self.config.bind).map_err(|_| "hostedサーバーを起動できません。")?;
+        let bound_addr = server
+            .server_addr()
+            .to_ip()
+            .ok_or("待ち受けアドレスを取得できません。")?;
+        println!(
+            "hosted listening: {} (public origin: {})",
+            server.server_addr(),
+            self.config.origin
+        );
+        std::io::stdout().flush()?;
+
+        let started_at = Instant::now();
+        let lifecycle = Arc::new(DemoLifecycle::new(
+            demo.idle_timeout,
+            demo.max_uptime,
+            demo.stall_timeout,
+        ));
+        let mut storage_tracker = StorageFullTracker::new(
+            demo.max_storage_bytes,
+            STORAGE_POLL_INTERVAL,
+            STORAGE_FULL_GRACE,
+        );
+        let watchdog_lifecycle = Arc::clone(&lifecycle);
+        let probe_addr = loopback_probe_addr(bound_addr);
+        let probe_host = self.config.host.clone();
+        thread::Builder::new()
+            .name("demo-watchdog".into())
+            .spawn(move || {
+                let mut watchdog =
+                    WatchdogState::new(HEALTH_PROBE_INTERVAL, HEALTH_PROBE_FAILURE_THRESHOLD);
+                loop {
+                    thread::sleep(WATCHDOG_TICK_INTERVAL);
+                    let now_ms = elapsed_ms(&started_at);
+                    if watchdog
+                        .tick(
+                            &watchdog_lifecycle,
+                            now_ms,
+                            || probe_health(probe_addr, &probe_host, HEALTH_PROBE_TIMEOUT),
+                            &ProcessExit,
+                        )
+                        .is_some()
+                    {
+                        break;
+                    }
+                }
+            })
+            .map_err(|_| "公開デモの見張りスレッドを起動できません。")?;
+
+        loop {
+            match server.recv_timeout(DEMO_RECV_TIMEOUT) {
+                Ok(Some(request)) => {
+                    let is_health = request.method().as_str() == "GET"
+                        && request.url().split('?').next() == Some("/health");
+                    lifecycle.begin_request(elapsed_ms(&started_at), is_health);
+                    self.handle_demo_request(request)?;
+                    let finished_ms = elapsed_ms(&started_at);
+                    lifecycle.end_request(finished_ms, is_health);
+                    if let Some(reason) = lifecycle.check_main(finished_ms).or_else(|| {
+                        storage_tracker
+                            .check(finished_ms, || super::demo::storage_bytes(&storage_root))
+                    }) {
+                        lifecycle.trigger_exit(reason, &ProcessExit);
+                    }
+                }
+                Ok(None) => {
+                    let now_ms = elapsed_ms(&started_at);
+                    lifecycle.heartbeat(now_ms);
+                    if let Some(reason) = lifecycle.check_main(now_ms).or_else(|| {
+                        storage_tracker.check(now_ms, || super::demo::storage_bytes(&storage_root))
+                    }) {
+                        lifecycle.trigger_exit(reason, &ProcessExit);
+                    }
+                }
+                Err(_) => {
+                    lifecycle.trigger_exit(ResetReason::Stalled, &ProcessExit);
+                    return Err("公開デモの待ち受けが停止しました。".into());
+                }
+            }
+        }
+    }
+}
+
+fn demo_disabled_reply() -> HostedReply {
+    Reply::json(
+        403,
+        &json!({
+            "error": "公開デモでは使えません。",
+            "code": "demo_disabled"
+        }),
+    )
+    .into()
+}
+
+fn is_positive_id(value: &str) -> bool {
+    !value.is_empty()
+        && value.bytes().all(|b| b.is_ascii_digit())
+        && value.parse::<i64>().is_ok_and(|id| id > 0)
+}
+
+fn is_company_subroute(path: &str, prefix: &str, suffix: &str) -> bool {
+    path.strip_prefix(prefix)
+        .and_then(|rest| rest.strip_suffix(suffix))
+        .is_some_and(is_positive_id)
+}
+
+fn is_activity_cancel_route(path: &str) -> bool {
+    let Some(rest) = path.strip_prefix("/api/companies/") else {
+        return false;
+    };
+    let parts: Vec<&str> = rest.split('/').collect();
+    matches!(
+        parts.as_slice(),
+        [company, "activities", activity, "cancel"]
+            if is_positive_id(company) && is_positive_id(activity)
+    )
 }
 
 fn uncertain_error(error: &(dyn std::error::Error + 'static)) -> bool {

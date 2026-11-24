@@ -8,6 +8,8 @@ mod auth;
 mod backup;
 mod cli;
 mod control;
+mod demo;
+mod demo_lifecycle;
 mod http;
 mod public_entry;
 #[cfg(feature = "cloud")]

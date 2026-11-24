@@ -119,7 +119,7 @@ impl RemoteStore {
         tx.commit()?;
         let store = Self {
             endpoints,
-            control: ControlStore { conn },
+            control: ControlStore::new(conn),
             identity,
         };
         Ok(store)
@@ -134,7 +134,7 @@ impl RemoteStore {
         let identity = validate_control(&conn)?;
         let store = Self {
             endpoints,
-            control: ControlStore { conn },
+            control: ControlStore::new(conn),
             identity,
         };
         for (slug, identity) in store.registered_tenants()? {
