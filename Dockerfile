@@ -27,5 +27,13 @@ ENV MEIBO_ACTIVITY_SYNC_NODE=/usr/local/bin/node \
     MEIBO_SYNC_VAULT=/var/lib/meibo-activity
 USER 10001:10001
 
+# 公開デモ用（`docker build --target demo`）。起動のたびに新しい作業用ディレクトリで、
+# 合成データだけの使い捨てのデモを始める。MEIBO_DOMAIN（公開ドメイン）は必須、
+# PORT は実行先が決める（既定4317）、MEIBO_DEMO_CONTACT は入口に出す連絡先URL（任意）。
+FROM runtime AS demo
+ENV PORT=4317
+ENTRYPOINT ["/bin/sh", "-c", "exec /usr/local/bin/meibo hosted \"/tmp/meibo-demo-$(date +%s)-$$\" serve --public-demo --origin \"https://${MEIBO_DOMAIN:?MEIBO_DOMAIN is required}\" --bind \"0.0.0.0:${PORT}\" ${MEIBO_DEMO_CONTACT:+--demo-contact \"${MEIBO_DEMO_CONTACT}\"}"]
+CMD []
+
 # Keep the default build free of connector runtimes and external account configuration.
 FROM runtime AS default

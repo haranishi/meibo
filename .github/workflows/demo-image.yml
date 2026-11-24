@@ -1,0 +1,75 @@
+name: Public demo image
+
+# 公開デモのイメージを、公開と同じ起動引数・同じメモリ（256MiB）で起動し、実ブラウザ（幅390・768・1440px）と
+# HTTPの境界の検査を通す。検査のためのもので、イメージはレジストリへ置かない（配備は、検査済みの版のソースから行う）。
+on:
+  workflow_dispatch:
+  push:
+    tags: ["demo-v*"]
+  pull_request:
+    paths:
+      - ".github/workflows/demo-image.yml"
+      - "Dockerfile"
+      - "crates/**"
+      - "deploy/demo/**"
+
+permissions:
+  contents: read
+
+jobs:
+  demo:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build the public demo image (target demo)
+        run: docker build --target demo --tag meibo-demo:ci .
+      - name: Install checksummed Node and pinned npm
+        run: |
+          curl --fail --silent --show-error --location --max-time 120 \
+            https://nodejs.org/dist/v24.22.1/node-v24.22.1-linux-x64.tar.xz \
+            --output "$RUNNER_TEMP/meibo-node.tar.xz"
+          printf '%s  %s\n' \
+            6c172a9ab6718f7b801fb5a7bd486af2ee5e32758086a04b84fcce2aa77095e6 \
+            "$RUNNER_TEMP/meibo-node.tar.xz" | sha256sum --check
+          tar -xJf "$RUNNER_TEMP/meibo-node.tar.xz" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/node-v24.22.1-linux-x64/bin" >> "$GITHUB_PATH"
+      - name: Install locked browser tooling and Chromium headless shell
+        working-directory: deploy/demo/browser
+        run: |
+          npm install --global npm@12.2.1
+          npm ci --ignore-scripts
+          npx --no-install playwright install --with-deps chromium --only-shell
+      - name: Run the browser flows and the HTTP gate against the container (256 MiB, three widths)
+        working-directory: deploy/demo/browser
+        env:
+          TMPDIR: ${{ runner.temp }}
+        run: |
+          for width in 390 768 1440; do
+            echo "=== width ${width}px ==="
+            docker rm --force meibo-demo-ci >/dev/null 2>&1 || true
+            # 共有の1組織を状態として持つので、幅ごとに新しいコンテナで始める。
+            docker run --detach --name meibo-demo-ci --memory 256m \
+              --publish 127.0.0.1:4317:4317 --env MEIBO_DOMAIN=127.0.0.1:4442 meibo-demo:ci
+            MEIBO_DEMO_BACKEND_PORT=4317 MEIBO_DEMO_TEST_PORT=4442 MEIBO_DEMO_WIDTH="$width" \
+              MEIBO_DEMO_TEST_OUTPUT="$RUNNER_TEMP/meibo-demo-browser-results-$width" \
+              npx --no-install playwright test --config playwright.config.mjs
+          done
+      - name: Check the Cloudflare Worker and its container configuration
+        working-directory: deploy/demo/cloudflare
+        run: |
+          npm ci --ignore-scripts
+          npm run check
+      - name: Show the demo container log on failure
+        if: failure()
+        run: docker logs meibo-demo-ci || true
+      - name: Keep browser results on failure
+        if: failure()
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5
+        with:
+          name: demo-browser-results
+          path: ${{ runner.temp }}/meibo-demo-browser-results-*
+          if-no-files-found: ignore
+          retention-days: 7

@@ -363,6 +363,88 @@ fn access_login_screen_has_no_password_fields_and_default_password_mode_still_wo
     assert_eq!(result.reply.status, 200);
 }
 
+#[test]
+fn access_login_html_bytes_are_unchanged_after_demo_markers() {
+    let (_temp, mut app) = fixture();
+    let token = jwt("alice@example.invalid");
+    let page = app.dispatch(
+        &request("/login", "GET", Some(&token), None, &Value::Null),
+        proof::AT,
+    );
+    assert_eq!(page.reply.status, 200);
+    let html = String::from_utf8(page.reply.body).unwrap();
+    let canonical = "https://crm.example.test/login";
+    let image = "https://crm.example.test/public-entry.png";
+    let encoded_url = "https%3A%2F%2Fcrm.example.test%2Flogin";
+    let encoded_text = "meibo%20%C2%B7%20%E5%96%B6%E6%A5%AD%E3%83%AF%E3%83%BC%E3%82%AF%E3%82%B9%E3%83%9A%E3%83%BC%E3%82%B9";
+    let x_url =
+        format!("https://twitter.com/intent/tweet?url={encoded_url}&amp;text={encoded_text}");
+    let line_url = format!(
+        "https://social-plugins.line.me/lineit/share?url={encoded_url}&amp;text={encoded_text}"
+    );
+    let expected = format!(
+        r#"<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>ログイン · meibo</title>
+  <meta name="description" content="企業情報と営業活動を、チームのワークスペースで。">
+  <link rel="canonical" href="{canonical}">
+  <meta property="og:title" content="meibo · 営業ワークスペース">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="{canonical}">
+  <meta property="og:description" content="企業情報と営業活動を、チームのワークスペースで。">
+  <meta property="og:image" content="{image}">
+  <meta property="og:image:type" content="image/png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="meibo · 営業ワークスペース">
+  <meta name="twitter:card" content="summary_large_image">
+  <script src="/public-entry.js" defer></script>
+  <link rel="stylesheet" href="/login.css">
+  <script src="/login.js" defer></script>
+</head>
+<body class="login-page">
+  <main class="login-card">
+    <a class="login-brand" href="/login" aria-label="meibo ログイン">m<span>meibo</span></a>
+    <h1>営業ワークスペースへ</h1>
+    <p class="login-intro">Cloudflareで確認したアカウントを使います。招待された組織IDを入力してください。</p>
+    <form id="login-form" data-cloudflare-access>
+      <fieldset id="login-fields">
+        <div class="login-field"><label for="login-tenant">組織ID</label><input id="login-tenant" name="tenant" required maxlength="48" pattern="[a-z0-9][a-z0-9-]*" autocomplete="off" autocapitalize="none" spellcheck="false" aria-describedby="tenant-hint"><p id="tenant-hint">招待時に案内された組織IDを入力してください。</p></div>
+        
+        <div id="login-error" class="login-error" role="alert" hidden></div>
+        <button id="login-submit" type="submit">Cloudflareでログイン</button>
+      </fieldset>
+    </form>
+    <p class="login-help">アカウントや組織IDが分からない場合は、招待した管理者へお問い合わせください。</p>
+    
+    <footer id="public-entry-share" class="public-share" aria-labelledby="public-share-heading">
+      <h2 id="public-share-heading">ログインURLを共有</h2>
+      <p class="public-share-help">ログイン画面のURLを共有します。ご利用には管理者からの案内が必要です。</p>
+      <div class="public-share-actions">
+        <a id="public-share-x" href="{x_url}" target="_blank" rel="noopener noreferrer" aria-label="Xで共有（新しいタブ）">X</a>
+        <a id="public-share-line" href="{line_url}" target="_blank" rel="noopener noreferrer" aria-label="LINEで共有（新しいタブ）">LINE</a>
+        <button id="public-share-copy" type="button" disabled>リンクをコピー</button>
+        <button id="public-share-native" type="button" hidden>端末で共有</button>
+      </div>
+      <p id="public-share-status" class="public-share-status" role="status" aria-live="polite" aria-atomic="true"></p>
+      <div id="public-share-fallback" class="public-share-fallback" hidden>
+        <label for="public-share-url">ログインURL（選択してコピー）</label>
+        <input id="public-share-url" type="url" readonly value="{canonical}" autocomplete="off" spellcheck="false">
+      </div>
+    </footer>
+    
+  </main>
+</body>
+</html>
+"#
+    );
+    assert_eq!(html, expected);
+}
+
 /// Starts the real HTTP implementation with a synthetic authority for the
 /// operator-run browser suite. This helper is absent from the production binary.
 #[test]

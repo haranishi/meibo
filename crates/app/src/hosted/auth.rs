@@ -10,6 +10,7 @@ use super::{HostedResult, control::ControlStore, store};
 const ABSOLUTE: i64 = 8 * 3600;
 const IDLE: i64 = 30 * 60;
 const WINDOW: i64 = 15 * 60;
+const DEFAULT_MAX_SESSIONS: usize = 20;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum Role {
@@ -69,6 +70,13 @@ pub(super) fn random_hex(bytes: usize) -> HostedResult<String> {
 
 pub(super) fn digest(value: &[u8]) -> Vec<u8> {
     Sha256::digest(value).to_vec()
+}
+
+fn valid_token(token: &str) -> bool {
+    token.len() == 64
+        && token
+            .bytes()
+            .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
 }
 
 pub(super) fn hash_password(password: &str) -> HostedResult<String> {
@@ -190,6 +198,7 @@ impl ControlStore {
             identity,
             at,
             Some(&account),
+            DEFAULT_MAX_SESSIONS,
         )?))
     }
 
@@ -199,6 +208,52 @@ impl ControlStore {
         tenant: &str,
         name: &str,
         at: i64,
+    ) -> HostedResult<LoginOutcome> {
+        self.login_without_password(tenant, name, at, DEFAULT_MAX_SESSIONS)
+    }
+
+    /// 公開デモ用：共有sessionの要約を保存先へ1行だけ置き、期限と最終利用時刻を更新する。
+    /// 監査の記録や件数上限による追い出しは行わない。
+    pub(super) fn open_demo_session(
+        &self,
+        tenant: &str,
+        name: &str,
+        token: &str,
+        at: i64,
+    ) -> HostedResult<LoginOutcome> {
+        if tenant.len() > 48 || !valid_token(token) {
+            return Ok(LoginOutcome::Invalid);
+        }
+        let name = store::username(name)?;
+        let user: Option<(i64, String)> = self
+            .conn
+            .query_row(
+                "SELECT u.id,m.role FROM users u JOIN memberships m ON m.user_id=u.id WHERE u.username=?1 AND u.disabled=0 AND m.tenant=?2",
+                params![name, tenant],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()?;
+        let Some((id, role)) = user else {
+            return Ok(LoginOutcome::Invalid);
+        };
+        let identity = self.identity(id, name, tenant.into(), &role)?;
+        self.conn.execute(
+            "INSERT INTO sessions(digest,user_id,tenant,created_at,last_seen,expires_at) VALUES(?1,?2,?3,?4,?4,?5) ON CONFLICT(digest) DO UPDATE SET last_seen=excluded.last_seen, expires_at=excluded.expires_at",
+            params![digest(token.as_bytes()), id, tenant, at, at + ABSOLUTE],
+        )?;
+        Ok(LoginOutcome::Success(Login {
+            token: token.to_owned(),
+            identity,
+        }))
+    }
+
+    #[cfg(feature = "cloud")]
+    fn login_without_password(
+        &mut self,
+        tenant: &str,
+        name: &str,
+        at: i64,
+        max_sessions: usize,
     ) -> HostedResult<LoginOutcome> {
         if tenant.len() > 48 {
             return Ok(LoginOutcome::Invalid);
@@ -212,9 +267,12 @@ impl ControlStore {
             return Ok(LoginOutcome::Invalid);
         };
         let identity = self.identity(id, name, tenant.into(), &role)?;
-        Ok(LoginOutcome::Success(
-            self.issue_session(identity, at, None)?,
-        ))
+        Ok(LoginOutcome::Success(self.issue_session(
+            identity,
+            at,
+            None,
+            max_sessions,
+        )?))
     }
 
     fn issue_session(
@@ -222,15 +280,17 @@ impl ControlStore {
         identity: Identity,
         at: i64,
         account: Option<&str>,
+        max_sessions: usize,
     ) -> HostedResult<Login> {
         let id = identity.user_id;
         let tenant = &identity.tenant;
         let token = random_hex(32)?;
+        let keep = i64::try_from(max_sessions.max(1) - 1)?;
         self.conn.execute(
             "DELETE FROM sessions WHERE expires_at<=?1 OR last_seen<=?2",
             params![at, at - IDLE],
         )?;
-        self.conn.execute("DELETE FROM sessions WHERE digest IN (SELECT digest FROM sessions WHERE user_id=?1 ORDER BY created_at DESC LIMIT -1 OFFSET 19)",[id])?;
+        self.conn.execute("DELETE FROM sessions WHERE digest IN (SELECT digest FROM sessions WHERE user_id=?1 ORDER BY created_at DESC, rowid DESC LIMIT -1 OFFSET ?2)",params![id,keep])?;
         self.conn.execute("INSERT INTO sessions(digest,user_id,tenant,created_at,last_seen,expires_at) VALUES(?1,?2,?3,?4,?4,?5)",params![digest(token.as_bytes()),id,tenant,at,at+ABSOLUTE])?;
         if let Some(account) = account {
             self.conn
@@ -260,11 +320,7 @@ impl ControlStore {
         at: i64,
         expected: Option<&str>,
     ) -> HostedResult<Option<Identity>> {
-        if token.len() != 64
-            || !token
-                .bytes()
-                .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
-        {
+        if !valid_token(token) {
             return Ok(None);
         }
         let key = digest(token.as_bytes());

@@ -215,6 +215,18 @@ pub(crate) fn count(db: &Db, f: &Filters) -> Result<Counted, EngineError> {
     Ok(Counted { n, slow: plan.slow })
 }
 
+pub(crate) fn activity_count(db: &Db) -> Result<u64, EngineError> {
+    db.conn()
+        .query_row("SELECT count(*) FROM activities", [], unsigned)
+        .map_err(storage)
+}
+
+pub(crate) fn contact_count(db: &Db) -> Result<u64, EngineError> {
+    db.conn()
+        .query_row("SELECT count(*) FROM contacts", [], unsigned)
+        .map_err(storage)
+}
+
 pub(crate) fn select_ids_sql(f: &Filters, limit: u32) -> Result<(String, Vec<Value>), EngineError> {
     if !(1..=100_000).contains(&limit) {
         return Err(invalid("limit", "must be 1..=100000"));

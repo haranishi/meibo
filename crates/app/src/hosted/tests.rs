@@ -1,3 +1,4 @@
+mod demo;
 mod followups;
 use super::*;
 use meibo_core::{

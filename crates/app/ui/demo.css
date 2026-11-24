@@ -1,0 +1,75 @@
+/* 公開デモモード専用の常時注意書き帯と、デモで使えない操作導線の非表示規則。 */
+.demo-banner {
+  position: sticky;
+  top: 0;
+  z-index: 90;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 4px 12px;
+  padding: 8px 16px;
+  background: #fff4d6;
+  border-bottom: 1px solid #d9b65c;
+  color: #3d2c00;
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.demo-banner a {
+  color: #0b4f8c;
+  font-weight: 600;
+  text-underline-offset: 2px;
+  white-space: nowrap;
+}
+.demo-banner a:focus-visible {
+  outline: 3px solid #0176d3;
+  outline-offset: 2px;
+}
+
+/* 公開デモで提供しない操作の導線を非表示にし、キーボード遷移の対象から外す。 */
+#import-csv,
+#csv-import-dialog,
+#sales-connections,
+#sales-tools,
+.lead-inbox-open,
+#lead-inbox-dialog,
+#activity-sync-root,
+dialog[aria-labelledby="activity-sync-title"] {
+  display: none !important;
+}
+
+/* CSV取り込みボタン非表示時の末尾角丸と、外部連携カード非表示時のホーム段組みを整える。 */
+#accounts-workspace .object-actions > #export {
+  border-radius: 0 4px 4px 0;
+}
+.home-sales-ops {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+@media (max-width: 700px) {
+  .demo-banner {
+    justify-content: flex-start;
+    padding: 7px 12px;
+    font-size: 11px;
+  }
+  #accounts-workspace .object-actions > #export {
+    border-radius: 4px;
+  }
+}
+@media (max-width: 480px) {
+  .global-header {
+    gap: 6px;
+    padding: 0 8px;
+  }
+  .global-search {
+    min-width: 64px;
+  }
+  .hosted-session span {
+    max-width: 56px;
+  }
+  .hosted-session button {
+    padding: 5px 6px;
+    font-size: 11px;
+  }
+}

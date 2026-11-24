@@ -113,6 +113,14 @@ fn configure(conn: &Connection) -> HostedResult<()> {
 
 impl Store {
     pub(super) fn initialize(root: &Path) -> HostedResult<Self> {
+        Self::initialize_with_audit(root, true)
+    }
+
+    pub(super) fn initialize_for_demo(root: &Path) -> HostedResult<Self> {
+        Self::initialize_with_audit(root, false)
+    }
+
+    fn initialize_with_audit(root: &Path, audit_enabled: bool) -> HostedResult<Self> {
         if root.symlink_metadata().is_ok() {
             directory(root)?;
             if fs::read_dir(root)?.next().is_some() {
@@ -145,9 +153,13 @@ impl Store {
             )?;
         }
         tx.commit()?;
+        let mut control = ControlStore::new(conn);
+        if !audit_enabled {
+            control.disable_audit();
+        }
         let store = Self {
             root: fs::canonicalize(root)?,
-            control: ControlStore { conn },
+            control,
         };
         let _guard = store.lock()?;
         store.audit("maintenance", None, "initialize", "success")?;
@@ -168,7 +180,7 @@ impl Store {
         configure(&conn)?;
         Ok(Self {
             root: fs::canonicalize(root)?,
-            control: ControlStore { conn },
+            control: ControlStore::new(conn),
         })
     }
 

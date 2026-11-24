@@ -35,11 +35,12 @@
     if (suspendedTitle !== null && document.title === "meibo") document.title = suspendedTitle;
     suspendedTitle = null;
   }
-  function leave() {
+  const isDemo = Boolean(document.querySelector(".demo-banner"));
+  function leave(reset = false) {
     if (leaving) return;
     leaving = true; hideBusiness(); cleanStorage(true);
     document.querySelectorAll("input, textarea").forEach((input) => { input.value = ""; });
-    window.location.replace("/login");
+    window.location.replace(reset === true ? "/login?reset=1" : "/login");
   }
   cleanStorage();
 
@@ -76,6 +77,110 @@
     return;
   }
 
+  const demoEnter = document.getElementById("demo-enter");
+  if (demoEnter) {
+    const notice = document.getElementById("demo-reset-notice");
+    const error = document.getElementById("login-error");
+    if (notice && new URLSearchParams(window.location.search).get("reset") === "1") {
+      notice.textContent = "デモが初期化されたか、しばらく操作がなかったため、入り直しが必要です。もう一度『デモを開く』を押してください。";
+      notice.hidden = false;
+    }
+    const busyMessage = "混み合っています。少し待ってからもう一度お試しください。";
+    const genericMessage = "入室できませんでした。時間を置いてもう一度お試しください。";
+    const maintenanceMessage = "メンテナンス中です。しばらくしてからお試しください。";
+    const startingText = "起動しています。数秒かかることがあります…";
+    const slowHintDelayMs = 1500;
+    const defaultRetrySeconds = 5;
+    // 起動待ちの案内は数秒のもの。長い Retry-After（メンテナンスなど）をそのまま待たない。
+    const maxRetrySeconds = 10;
+    const maxRetries = 4;
+    const idleText = demoEnter.textContent || "デモを開く";
+    const retryAfterMs = (response) => {
+      const raw = response.headers.get("Retry-After");
+      if (raw !== null) {
+        const trimmed = raw.trim();
+        if (/^\d+$/.test(trimmed)) {
+          const seconds = Number(trimmed);
+          if (Number.isSafeInteger(seconds) && seconds <= maxRetrySeconds) return seconds * 1000;
+        }
+      }
+      return defaultRetrySeconds * 1000;
+    };
+    const wait = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms));
+    let entering = false;
+    demoEnter.addEventListener("click", async () => {
+      if (entering) return;
+      entering = true;
+      if (error) { error.hidden = true; error.textContent = ""; }
+      demoEnter.disabled = true;
+      demoEnter.textContent = "開いています…";
+      let redirected = false;
+      let slowTimer = window.setTimeout(() => {
+        slowTimer = null;
+        if (entering && !redirected) demoEnter.textContent = startingText;
+      }, slowHintDelayMs);
+      const clearSlowTimer = () => {
+        if (slowTimer !== null) {
+          window.clearTimeout(slowTimer);
+          slowTimer = null;
+        }
+      };
+      try {
+        let response = null;
+        for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+          response = await nativeFetch("/demo/enter", {
+            method: "POST",
+            cache: "no-store",
+            credentials: "same-origin",
+            headers: {
+              "Accept": "application/json",
+              "Content-Type": "application/json",
+              "X-Meibo-Local": "1",
+              "X-Requested-With": "XMLHttpRequest",
+            },
+            body: "{}",
+          });
+          if (response.status === 503) {
+            let code = "";
+            try { code = String((await response.clone().json())?.code || ""); } catch (_) { code = ""; }
+            // 停止の切替（メンテナンス）は、待っても直らないので、すぐ案内する。
+            if (code === "maintenance") throw new Error(maintenanceMessage);
+            if (attempt < maxRetries) {
+              clearSlowTimer();
+              demoEnter.textContent = startingText;
+              await wait(retryAfterMs(response));
+              continue;
+            }
+          }
+          break;
+        }
+        clearSlowTimer();
+        if (!response.ok) throw new Error(response.status === 429 ? busyMessage : genericMessage);
+        await response.json();
+        cleanStorage(true);
+        signalChange();
+        redirected = true;
+        window.location.replace("/");
+      } catch (failure) {
+        clearSlowTimer();
+        if (error) {
+          const known = failure?.message === busyMessage || failure?.message === maintenanceMessage;
+          error.textContent = known ? failure.message : genericMessage;
+          error.hidden = false;
+        }
+      } finally {
+        clearSlowTimer();
+        if (!redirected) {
+          entering = false;
+          demoEnter.disabled = false;
+          demoEnter.textContent = idleText;
+          if (error && !error.hidden) demoEnter.focus();
+        }
+      }
+    });
+    return;
+  }
+
   hideBusiness();
   async function session() {
     const response = await nativeFetch("/auth/session", { cache: "no-store", credentials: "same-origin", headers: { "X-Requested-With": "XMLHttpRequest" } });
@@ -87,9 +192,9 @@
   async function verifyContext() {
     if (leaving || !scope) return false;
     try {
-      if ((await session()).storage_scope !== scope) { leave(); return false; }
+      if ((await session()).storage_scope !== scope) { leave(isDemo); return false; }
       return true;
-    } catch (_) { leave(); return false; }
+    } catch (_) { leave(isDemo); return false; }
   }
   async function revalidate() {
     const current = ++validation;
@@ -116,9 +221,9 @@
       const headers = new Headers(options.headers || (input instanceof Request ? input.headers : undefined));
       if (business) { headers.set("X-Meibo-Context", scope); headers.set("X-Requested-With", "XMLHttpRequest"); }
       const response = await nativeFetch(input, { ...options, headers });
-      if (business && response.status === 401) leave();
+      if (business && response.status === 401) leave(isDemo);
       if (business && response.status === 409) {
-        try { if ((await response.clone().json()).code === "context_changed") leave(); } catch (_) {}
+        try { if ((await response.clone().json()).code === "context_changed") leave(isDemo); } catch (_) {}
       }
       return response;
     };
@@ -133,6 +238,7 @@
     window.MeiboAppStart?.();
     const target = document.querySelector(".global-utilities");
     if (target) {
+      const badge = isDemo ? target.querySelector(".demo-badge") : null;
       const box = document.createElement("div"); box.className = "hosted-session";
       const label = document.createElement("span");
       label.textContent = `${identity.tenant} · ${{ viewer: "閲覧", editor: "編集", admin: "管理者" }[identity.role]}`;
@@ -142,13 +248,15 @@
         logout.disabled = true;
         try {
           const response = await window.fetch("/auth/logout", { method: "POST", headers: { "Content-Type": "application/json", "X-Meibo-Local": "1" }, body: "{}" });
-          if (response.ok) { signalChange(); leave(); }
+          if (response.ok) { signalChange(); leave(false); }
           else { logout.disabled = false; logout.textContent = "もう一度ログアウト"; }
         } catch (_) { logout.disabled = false; logout.textContent = "もう一度ログアウト"; }
       });
-      box.append(label, logout); target.replaceChildren(box);
+      box.append(label, logout);
+      if (badge) target.replaceChildren(badge, box);
+      else target.replaceChildren(box);
     }
     ready = true;
     await revalidate();
-  }).catch(leave);
+  }).catch(() => leave(isDemo));
 })();

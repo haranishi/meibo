@@ -249,6 +249,18 @@ impl Engine {
     pub fn count(&self, f: &Filters) -> Result<Counted, EngineError> {
         query::count(&self.db, f)
     }
+    /// 記録済みの活動行数を返す。
+    /// # Errors
+    /// `Storage`（集計の失敗）。
+    pub fn activity_count(&self) -> Result<u64, EngineError> {
+        query::activity_count(&self.db)
+    }
+    /// 記録済みの担当者行数を返す。
+    /// # Errors
+    /// `Storage`（集計の失敗）。
+    pub fn contact_count(&self) -> Result<u64, EngineError> {
+        query::contact_count(&self.db)
+    }
     /// 正規化した社名の部分一致を登録順で返し、指定時は先頭ページに件数を付ける。
     /// # Errors
     /// `InvalidSearchTerm`、`InvalidInput`（上限・カーソル）、`Corrupt`（件数不整合）、`Storage`。

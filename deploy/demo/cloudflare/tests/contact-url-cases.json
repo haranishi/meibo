@@ -1,0 +1,327 @@
+[
+  {
+    "url": "https://example.invalid",
+    "valid": true,
+    "note": "基本のhttps"
+  },
+  {
+    "url": "http://example.invalid",
+    "valid": true,
+    "note": "基本のhttp"
+  },
+  {
+    "url": "https://example.invalid/issues",
+    "valid": true,
+    "note": "パス付き"
+  },
+  {
+    "url": "https://example.invalid/issues?kind=demo&tab=1#top",
+    "valid": true,
+    "note": "クエリとフラグメント付き"
+  },
+  {
+    "url": "https://example.invalid?q=1",
+    "valid": true,
+    "note": "パスなしでクエリ開始"
+  },
+  {
+    "url": "https://example.invalid#top",
+    "valid": true,
+    "note": "パスなしでフラグメント開始"
+  },
+  {
+    "url": "https://example.invalid:443/contact",
+    "valid": true,
+    "note": "通常ポート付き"
+  },
+  {
+    "url": "http://example.invalid:1/min-port",
+    "valid": true,
+    "note": "最小ポート1"
+  },
+  {
+    "url": "https://example.invalid:65535/max-port",
+    "valid": true,
+    "note": "最大ポート65535"
+  },
+  {
+    "url": "https://Example.Invalid/MixedCase",
+    "valid": true,
+    "note": "大文字を含むホストとパス"
+  },
+  {
+    "url": "https://sub-1.demo-2.example.invalid/a-b_c~1.html",
+    "valid": true,
+    "note": "ハイフン付きラベルとパスの記号"
+  },
+  {
+    "url": "http://localhost:8080/contact",
+    "valid": true,
+    "note": "単一ラベルのホスト"
+  },
+  {
+    "url": "http://127.0.0.1:4317/contact",
+    "valid": true,
+    "note": "IPv4アドレス"
+  },
+  {
+    "url": "https://[::1]/contact",
+    "valid": true,
+    "note": "IPv6ループバック"
+  },
+  {
+    "url": "https://[::1]:8443/contact",
+    "valid": true,
+    "note": "ポート付きIPv6"
+  },
+  {
+    "url": "https://[2001:db8::1]/issues",
+    "valid": true,
+    "note": "省略形IPv6"
+  },
+  {
+    "url": "https://[2001:0db8:0000:0000:0000:0000:0000:0001]:443/x",
+    "valid": true,
+    "note": "完全展開IPv6"
+  },
+  {
+    "url": "https://[::ffff:192.0.2.1]/mapped",
+    "valid": true,
+    "note": "IPv4射影IPv6"
+  },
+  {
+    "url": "https://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "valid": true,
+    "note": "ホスト長ちょうど253文字"
+  },
+  {
+    "url": "https://a.example.invalid/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "valid": true,
+    "note": "全体長ちょうど2048文字"
+  },
+  {
+    "url": "",
+    "valid": false,
+    "note": "空文字"
+  },
+  {
+    "url": "HTTPS://example.invalid/contact",
+    "valid": false,
+    "note": "大文字スキーム"
+  },
+  {
+    "url": "Http://example.invalid/contact",
+    "valid": false,
+    "note": "混在スキーム"
+  },
+  {
+    "url": "javascript:alert(1)",
+    "valid": false,
+    "note": "javascriptスキーム"
+  },
+  {
+    "url": "ftp://example.invalid/contact",
+    "valid": false,
+    "note": "ftpスキーム"
+  },
+  {
+    "url": "mailto:demo@example.invalid",
+    "valid": false,
+    "note": "mailtoスキーム"
+  },
+  {
+    "url": "//example.invalid/contact",
+    "valid": false,
+    "note": "スキーム欠落"
+  },
+  {
+    "url": "https://",
+    "valid": false,
+    "note": "空authority"
+  },
+  {
+    "url": "https:///path",
+    "valid": false,
+    "note": "空ホストでパスあり"
+  },
+  {
+    "url": "https://?q=1",
+    "valid": false,
+    "note": "空ホストでクエリあり"
+  },
+  {
+    "url": "https://user@example.invalid/contact",
+    "valid": false,
+    "note": "@を含むauthority"
+  },
+  {
+    "url": "https://user:pass@example.invalid/contact",
+    "valid": false,
+    "note": "資格情報付きauthority"
+  },
+  {
+    "url": "https://bad_host.example.invalid/contact",
+    "valid": false,
+    "note": "下線を含むホスト"
+  },
+  {
+    "url": "https://example..invalid/contact",
+    "valid": false,
+    "note": "空ラベル"
+  },
+  {
+    "url": "https://.example.invalid/contact",
+    "valid": false,
+    "note": "先頭ドット"
+  },
+  {
+    "url": "https://example.invalid./contact",
+    "valid": false,
+    "note": "末尾ドット"
+  },
+  {
+    "url": "https://-bad.example.invalid/contact",
+    "valid": false,
+    "note": "ラベル先頭ハイフン"
+  },
+  {
+    "url": "https://bad-.example.invalid/contact",
+    "valid": false,
+    "note": "ラベル末尾ハイフン"
+  },
+  {
+    "url": "https://example.invalid:0/contact",
+    "valid": false,
+    "note": "ポート0"
+  },
+  {
+    "url": "https://example.invalid:65536/contact",
+    "valid": false,
+    "note": "ポート65536超過"
+  },
+  {
+    "url": "https://example.invalid:/contact",
+    "valid": false,
+    "note": "空ポート"
+  },
+  {
+    "url": "https://example.invalid:abc/contact",
+    "valid": false,
+    "note": "数字以外のポート"
+  },
+  {
+    "url": "https://example.invalid:80:90/contact",
+    "valid": false,
+    "note": "コロン複数"
+  },
+  {
+    "url": "https://[::1/contact",
+    "valid": false,
+    "note": "閉じ括弧なしIPv6"
+  },
+  {
+    "url": "https://[2001:db8:::1]/contact",
+    "valid": false,
+    "note": "不正なIPv6"
+  },
+  {
+    "url": "https://[1:2:3:4:5:6:7::8]/contact",
+    "valid": false,
+    "note": "省略0個のIPv6"
+  },
+  {
+    "url": "https://[2001:db8::1]extra/contact",
+    "valid": false,
+    "note": "IPv6閉じ括弧の後ろに余分な文字"
+  },
+  {
+    "url": "https://[::1]:0/contact",
+    "valid": false,
+    "note": "IPv6ポート0"
+  },
+  {
+    "url": "https://[::1]:65536/contact",
+    "valid": false,
+    "note": "IPv6ポート65536超過"
+  },
+  {
+    "url": "https://[192.0.2.1]/contact",
+    "valid": false,
+    "note": "括弧内にIPv4のみ"
+  },
+  {
+    "url": "https://[fe80::1%eth0]/contact",
+    "valid": false,
+    "note": "ゾーンID付きIPv6"
+  },
+  {
+    "url": "https://example.invalid/has space",
+    "valid": false,
+    "note": "空白を含む"
+  },
+  {
+    "url": " https://example.invalid/contact",
+    "valid": false,
+    "note": "先頭に空白"
+  },
+  {
+    "url": "https://example.invalid/\"quote",
+    "valid": false,
+    "note": "二重引用符"
+  },
+  {
+    "url": "https://example.invalid/'quote",
+    "valid": false,
+    "note": "単一引用符"
+  },
+  {
+    "url": "https://example.invalid/<tag>",
+    "valid": false,
+    "note": "山括弧"
+  },
+  {
+    "url": "https://example.invalid/`tick",
+    "valid": false,
+    "note": "バッククォート"
+  },
+  {
+    "url": "https://example.invalid/back\\slash",
+    "valid": false,
+    "note": "バックスラッシュ"
+  },
+  {
+    "url": "https://example.invalid/\tctrl",
+    "valid": false,
+    "note": "制御文字"
+  },
+  {
+    "url": "https://example.invalid/日本語",
+    "valid": false,
+    "note": "非ASCII文字"
+  },
+  {
+    "url": "https://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "valid": false,
+    "note": "ホスト長254文字超過"
+  },
+  {
+    "url": "https://a.example.invalid/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "valid": false,
+    "note": "全体長2049文字超過"
+  },
+  {
+    "url": "https://example.com:0080/contact",
+    "valid": true,
+    "note": "前ゼロのポート（80として有効）"
+  },
+  {
+    "url": "https://[::ffff:192.0.2.1]/contact",
+    "valid": true,
+    "note": "括弧の中のIPv6の末尾にIPv4（IPv4射影）"
+  },
+  {
+    "url": "https://[2001:DB8::1]/contact",
+    "valid": true,
+    "note": "大文字の16進のIPv6"
+  }
+]

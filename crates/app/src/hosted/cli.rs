@@ -23,7 +23,7 @@ Commands:
   sync-nta SLUG CATALOG [--limit COUNT]
   backup NEW_DIRECTORY
   restore SNAPSHOT_DIRECTORY
-  serve --origin https://domain [--bind 127.0.0.1:4317] [--access-config PRIVATE_JSON]
+  serve --origin https://domain [--bind 127.0.0.1:4317] [--access-config PRIVATE_JSON] [--public-demo] [--demo-contact URL] [--demo-idle-seconds N] [--demo-max-uptime-seconds N] [--demo-stall-seconds N]
 
 restore writes to ROOT, which must not exist. Passwords are read from stdin.
 HTTP is allowed only with --allow-http-loopback and loopback origin + bind.
@@ -73,7 +73,12 @@ pub(super) fn run(args: Vec<OsString>) -> HostedResult<()> {
     }
     if command == "serve" {
         let config = serve_config(&rest)?;
-        return Hosted::new(Store::open(&root)?, config).serve();
+        let store = if config.demo.is_some() {
+            super::demo::bootstrap(&root, super::now()?)?
+        } else {
+            Store::open(&root)?
+        };
+        return Hosted::new(store, config).serve();
     }
     let mut store = Store::open(&root)?;
     if command == "backup" && rest.len() == 1 {
@@ -196,6 +201,11 @@ pub(super) fn serve_config(rest: &[String]) -> HostedResult<HostedConfig> {
     let mut bind = "127.0.0.1:4317".to_owned();
     let mut development = false;
     let mut access_config = None;
+    let mut public_demo = false;
+    let mut demo_contact = None;
+    let mut demo_idle_seconds = None;
+    let mut demo_max_uptime_seconds = None;
+    let mut demo_stall_seconds = None;
     let mut i = 0;
     while i < rest.len() {
         match rest[i].as_str() {
@@ -214,17 +224,57 @@ pub(super) fn serve_config(rest: &[String]) -> HostedResult<HostedConfig> {
                     rest.get(i).ok_or("Access設定が必要です。")?,
                 ));
             }
+            "--public-demo" if !public_demo => public_demo = true,
+            "--demo-contact" if demo_contact.is_none() => {
+                i += 1;
+                demo_contact = Some(rest.get(i).ok_or("デモの連絡先URLが必要です。")?.clone());
+            }
+            "--demo-idle-seconds" if demo_idle_seconds.is_none() => {
+                i += 1;
+                demo_idle_seconds = Some(
+                    rest.get(i)
+                        .ok_or("--demo-idle-secondsの秒数が必要です。")?
+                        .clone(),
+                );
+            }
+            "--demo-max-uptime-seconds" if demo_max_uptime_seconds.is_none() => {
+                i += 1;
+                demo_max_uptime_seconds = Some(
+                    rest.get(i)
+                        .ok_or("--demo-max-uptime-secondsの秒数が必要です。")?
+                        .clone(),
+                );
+            }
+            "--demo-stall-seconds" if demo_stall_seconds.is_none() => {
+                i += 1;
+                demo_stall_seconds = Some(
+                    rest.get(i)
+                        .ok_or("--demo-stall-secondsの秒数が必要です。")?
+                        .clone(),
+                );
+            }
             _ => return Err("serveの引数を確認してください。".into()),
         }
         i += 1;
     }
-    let config = HostedConfig::parse(&origin.ok_or("--originが必要です。")?, &bind, development)?;
+    if public_demo && access_config.is_some() {
+        return Err("公開デモでは--access-configを併用できません。".into());
+    }
+    let demo = build_demo_config(
+        public_demo,
+        demo_contact,
+        demo_idle_seconds,
+        demo_max_uptime_seconds,
+        demo_stall_seconds,
+    )?;
+    let mut config =
+        HostedConfig::parse(&origin.ok_or("--originが必要です。")?, &bind, development)?;
+    config.demo = demo;
     match access_config {
         None => Ok(config),
         Some(path) => {
             #[cfg(feature = "cloud")]
             {
-                let mut config = config;
                 config.access = Some(super::access::Access::new(super::access::Config::load(
                     &path,
                 )?)?);
@@ -237,4 +287,52 @@ pub(super) fn serve_config(rest: &[String]) -> HostedResult<HostedConfig> {
             }
         }
     }
+}
+
+fn build_demo_config(
+    public_demo: bool,
+    contact: Option<String>,
+    idle_seconds: Option<String>,
+    max_uptime_seconds: Option<String>,
+    stall_seconds: Option<String>,
+) -> HostedResult<Option<super::demo::DemoConfig>> {
+    if !public_demo {
+        for (present, flag) in [
+            (contact.is_some(), "--demo-contact"),
+            (idle_seconds.is_some(), "--demo-idle-seconds"),
+            (max_uptime_seconds.is_some(), "--demo-max-uptime-seconds"),
+            (stall_seconds.is_some(), "--demo-stall-seconds"),
+        ] {
+            if present {
+                return Err(format!("{flag}は--public-demoと併用してください。").into());
+            }
+        }
+        return Ok(None);
+    }
+    let mut demo = super::demo::DemoConfig::new(contact)?;
+    if let Some(raw) = idle_seconds {
+        demo.idle_timeout = super::demo::parse_seconds(
+            &raw,
+            "--demo-idle-seconds",
+            super::demo::MIN_IDLE_SECONDS,
+            super::demo::MAX_IDLE_SECONDS,
+        )?;
+    }
+    if let Some(raw) = max_uptime_seconds {
+        demo.max_uptime = super::demo::parse_seconds(
+            &raw,
+            "--demo-max-uptime-seconds",
+            super::demo::MIN_MAX_UPTIME_SECONDS,
+            super::demo::MAX_MAX_UPTIME_SECONDS,
+        )?;
+    }
+    if let Some(raw) = stall_seconds {
+        demo.stall_timeout = super::demo::parse_seconds(
+            &raw,
+            "--demo-stall-seconds",
+            super::demo::MIN_STALL_SECONDS,
+            super::demo::MAX_STALL_SECONDS,
+        )?;
+    }
+    Ok(Some(demo))
 }

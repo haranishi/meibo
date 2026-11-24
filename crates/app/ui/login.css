@@ -14,9 +14,18 @@
 .login-field p{font-size:12px;margin:5px 0 0;color:#526579}
 .login-card button{width:100%;min-height:46px;border:1px solid #135d9f;border-radius:5px;background:#1863a8;color:#fff;font:inherit;font-weight:650;cursor:pointer}
 .login-card button:hover{background:#13558f}
+.login-card button:disabled{opacity:.7;cursor:default}
 .login-card button:focus-visible,.hosted-session button:focus-visible{outline:3px solid #9acdfb;outline-offset:3px}
 .login-card fieldset:disabled{opacity:.7}
 .login-error{margin-bottom:16px;padding:10px 12px;background:#fff3f1;border-left:3px solid #b84032;color:#9b2c22;font-size:14px}
+.login-error[hidden],.demo-reset-notice[hidden]{display:none}
+.demo-reset-notice{margin:16px 0 0;padding:10px 12px;background:#edf4fb;border-left:3px solid #1863a8;color:#203246;font-size:14px;line-height:1.6}
+.demo-enter-actions{margin-top:20px}
+.demo-notes{margin:20px 0 0;padding-left:20px;color:#344b62;font-size:13px;line-height:1.75}
+.demo-notes li+li{margin-top:6px}
+.demo-contact{margin:14px 0 0;font-size:13px}
+.demo-contact a{color:#1863a8;text-underline-offset:3px}
+.demo-contact a:focus-visible{outline:3px solid #9acdfb;outline-offset:3px}
 .login-help{margin:24px 0 0;font-size:12px}
 .public-share{margin-top:24px;padding-top:20px;border-top:1px solid #dbe2ea}
 .public-share h2{margin:0;color:#344b62;font-size:14px;font-weight:650}

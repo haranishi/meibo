@@ -12,6 +12,7 @@
     canonical = url.href;
   } catch (_) { return; }
 
+  const isDemo = Boolean(document.getElementById("demo-enter"));
   const copy = document.getElementById("public-share-copy");
   const native = document.getElementById("public-share-native");
   const status = document.getElementById("public-share-status");
@@ -35,7 +36,7 @@
         if (!document.execCommand("copy")) throw new Error("manual copy required");
       }
       fallback.hidden = true;
-      status.textContent = "ログインURLをコピーしました。";
+      status.textContent = isDemo ? "デモのURLをコピーしました。" : "ログインURLをコピーしました。";
     } catch (_) {
       selectLink();
       status.textContent = "コピーできませんでした。表示されたURLを選択してコピーしてください。";
@@ -45,7 +46,9 @@
     }
   });
 
-  const payload = { title: "meibo · 営業ワークスペース", text: "企業情報と営業活動を、チームのワークスペースで。", url: canonical };
+  const shareTitle = document.querySelector('meta[property="og:title"]')?.content || "meibo · 営業ワークスペース";
+  const shareText = document.querySelector('meta[name="description"]')?.content || "企業情報と営業活動を、チームのワークスペースで。";
+  const payload = { title: shareTitle, text: shareText, url: canonical };
   let supported = typeof navigator.share === "function";
   try { if (supported && typeof navigator.canShare === "function") supported = navigator.canShare(payload); }
   catch (_) { supported = false; }
