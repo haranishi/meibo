@@ -30,6 +30,8 @@ export default defineConfig({
     headless: true,
     ignoreHTTPSErrors: true,
     serviceWorkers: "block",
+    timezoneId: "Asia/Tokyo",
+    locale: "ja-JP",
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
     viewport: { width, height: 900 },

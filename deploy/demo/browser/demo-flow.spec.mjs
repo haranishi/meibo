@@ -37,7 +37,8 @@ test.describe.serial("公開デモ（実バイナリ・HTTPS前段）", () => {
   test.beforeAll(async ({ browser }, info) => {
     const { baseURL, viewport } = info.project.use;
     origin = new URL(baseURL).origin;
-    context = await browser.newContext({ baseURL, viewport, ignoreHTTPSErrors: true, serviceWorkers: "block" });
+    // 画面は日時をブラウザの時間帯で表示する。期待値は日本時間で作るので、実行環境の時間帯（CIはUTC）によらず日本時間にそろえる。
+    context = await browser.newContext({ baseURL, viewport, ignoreHTTPSErrors: true, serviceWorkers: "block", timezoneId: "Asia/Tokyo", locale: "ja-JP" });
     page = await context.newPage();
     page.on("pageerror", (error) => problems.push(`pageerror: ${error.message}`));
     page.on("requestfailed", (request) => problems.push(`requestfailed: ${request.url()} ${request.failure()?.errorText}`));
