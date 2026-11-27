@@ -1,5 +1,6 @@
-//! リポジトリの開発用点検(`cargo xtask`)。リンク検査、仕様と試験の対応、変異試験、速さの測定、PR前の一括検査。
+//! リポジトリの開発用点検(`cargo xtask`)。リンク検査、仕様と試験の対応、変異試験、速さの測定、PR前の一括検査、配備先の管理。
 pub mod bench;
+mod cloud_run;
 mod docs_check;
 mod links;
 mod mutate;
@@ -30,7 +31,7 @@ pub fn run(root: &Path, args: &[String]) -> Result<i32> {
 pub fn run_with_temp_dir(root: &Path, args: &[String], temp_dir: &Path) -> Result<i32> {
     let (command, rest) = args
         .split_first()
-        .ok_or("使い方: cargo xtask <check-links|check-spec-trace|mutate|bench|docs-check|docs-render|check-all|check-cloud>")?;
+        .ok_or("使い方: cargo xtask <check-links|check-spec-trace|mutate|bench|docs-check|docs-render|check-all|check-cloud|cloud-run-admin>")?;
     match command.as_str() {
         "check-links" => links::run(root),
         "check-spec-trace" => trace::run(root, rest.iter().any(|a| a == "--strict")),
@@ -45,6 +46,7 @@ pub fn run_with_temp_dir(root: &Path, args: &[String], temp_dir: &Path) -> Resul
             rest.first().is_some_and(|s| s == "--quick"),
         )),
         "check-cloud" if rest.is_empty() => Ok(pipeline::check_cloud(root)),
+        "cloud-run-admin" => cloud_run::run(root, rest, temp_dir),
         _ => Err(format!("不明なコマンド: {command}").into()),
     }
 }
