@@ -263,6 +263,12 @@ pub(super) struct Hosted<S = Store> {
     /// serve loop returns an error after that reply so the process restarts.
     #[cfg(feature = "cloud")]
     exit_after_reply: bool,
+    /// Usage counts of the remote service (usage-dashboard).
+    #[cfg(feature = "cloud")]
+    pub(super) usage: super::usage::UsageState,
+    /// Round trips of this request made before a usage flush (1.6).
+    #[cfg(feature = "cloud")]
+    usage_carry: meibo_db::RemoteUsage,
     demo_enter: super::demo::EnterRateLimit,
     demo_session_token: Option<String>,
 }
@@ -282,6 +288,10 @@ impl<S: HostedStorage> Hosted<S> {
             verified: VerifiedSessions::default(),
             #[cfg(feature = "cloud")]
             exit_after_reply: false,
+            #[cfg(feature = "cloud")]
+            usage: super::usage::UsageState::Off,
+            #[cfg(feature = "cloud")]
+            usage_carry: meibo_db::RemoteUsage::ZERO,
             demo_enter: super::demo::EnterRateLimit::default(),
             demo_session_token: None,
         }
@@ -358,7 +368,75 @@ impl<S: HostedStorage> Hosted<S> {
         found
     }
 
+    /// Read once at start whether the control database has the usage table.
+    /// Local storage never counts. A communication failure stops the start.
+    #[cfg(feature = "cloud")]
+    pub(super) fn start_usage(&mut self, cap_jpy: Option<u64>) -> HostedResult<()> {
+        use super::usage::{PRESENT, Usage, UsageState};
+        if !self.store.remote() {
+            self.usage = UsageState::Off;
+            return Ok(());
+        }
+        let present = self
+            .store
+            .conn
+            .query_row(PRESENT, [], |row| row.get::<_, bool>(0));
+        self.usage = match present {
+            Ok(true) => UsageState::On(Usage::new(cap_jpy)),
+            Ok(false) => UsageState::Missing,
+            Err(error) => {
+                let error: Box<dyn std::error::Error> = Box::new(error);
+                if self.store.poisoned() || uncertain_error(error.as_ref()) {
+                    return Err(error);
+                }
+                UsageState::Missing
+            }
+        };
+        Ok(())
+    }
+
     pub(super) fn dispatch(&mut self, input: &Input, at: i64) -> HostedReply {
+        #[cfg(feature = "cloud")]
+        if matches!(self.usage, super::usage::UsageState::On(_)) {
+            let started = std::time::Instant::now();
+            // Anything sent between requests belongs to no request.
+            let _ = meibo_db::RemoteUsage::take();
+            self.usage_carry = meibo_db::RemoteUsage::ZERO;
+            let reply = self.dispatch_counted(input, at);
+            let after = meibo_db::RemoteUsage::take();
+            let carry = std::mem::replace(&mut self.usage_carry, meibo_db::RemoteUsage::ZERO);
+            let db = meibo_db::RemoteUsage {
+                round_trips: carry.round_trips.saturating_add(after.round_trips),
+                rows_read: carry.rows_read.saturating_add(after.rows_read),
+                rows_written: carry.rows_written.saturating_add(after.rows_written),
+            };
+            let group = super::usage::classify(&input.method, path(input), reply.reply.status);
+            if let super::usage::UsageState::On(usage) = &mut self.usage {
+                usage.record(at, group, started.elapsed(), db);
+            }
+            return reply;
+        }
+        self.dispatch_counted(input, at)
+    }
+
+    /// Write pending usage on the serialized path only, at most once per
+    /// minute (1.3). Its own round trips are not counted (1.6). A failure
+    /// drops the counts; a lost reply poisons the connection and becomes the
+    /// existing unknown outcome through the caller's completion (1.4).
+    #[cfg(feature = "cloud")]
+    fn flush_usage(&mut self, at: i64) {
+        let super::usage::UsageState::On(usage) = &mut self.usage else {
+            return;
+        };
+        if self.fence.is_some() || !usage.due(at) {
+            return;
+        }
+        self.usage_carry = meibo_db::RemoteUsage::take();
+        let _ = usage.flush(&self.store.conn, at);
+        let _ = meibo_db::RemoteUsage::take();
+    }
+
+    fn dispatch_counted(&mut self, input: &Input, at: i64) -> HostedReply {
         if let Some(reply) = self.boundary(input) {
             return reply;
         }
@@ -415,6 +493,10 @@ impl<S: HostedStorage> Hosted<S> {
             }
         };
         let result = self.dispatch_checked(input, at, access_user.as_deref());
+        #[cfg(feature = "cloud")]
+        if result.is_ok() && !self.uncertain && !self.poisoned() {
+            self.flush_usage(at);
+        }
         let result = self
             .store
             .complete(guard, result, self.uncertain || self.poisoned());
@@ -576,7 +658,7 @@ impl<S: HostedStorage> Hosted<S> {
             self.verified.record(token, identity.is_some());
         }
         let Some(identity) = identity else {
-            if path == "/" {
+            if path == "/" || (self.store.remote() && path == "/usage") {
                 return Ok(self.unauthenticated_root_redirect(token));
             }
             return Ok(error(401, "ログインしてください。"));
@@ -600,6 +682,10 @@ impl<S: HostedStorage> Hosted<S> {
                 &json!({"items":self.store.audit_rows(Some(&identity.tenant),200)?}),
             )
             .into());
+        }
+        #[cfg(feature = "cloud")]
+        if self.store.remote() && super::usage::is_page(path) {
+            return self.usage_route(input, path, &identity, at);
         }
         if input.method == "POST"
             && ((identity.role == Role::Viewer && !read_only_post(input))
@@ -905,9 +991,50 @@ impl<S: HostedStorage> Hosted<S> {
             if let Some(demo) = &self.config.demo {
                 html = super::public_entry::apply_demo_workspace(&html, demo);
             }
+            #[cfg(feature = "cloud")]
+            if self.store.remote() && identity.role == Role::Admin {
+                html = super::usage::with_entry(&html);
+            }
             reply.body = html.into_bytes();
         }
         Ok(reply.into())
+    }
+
+    /// Admins get the page and data. Everyone else is denied and audited; a
+    /// browser opening `/usage` gets a page instead of JSON. The stylesheet
+    /// has no data, and the denied page uses it.
+    #[cfg(feature = "cloud")]
+    fn usage_route(
+        &self,
+        input: &Input,
+        path: &str,
+        identity: &Identity,
+        at: i64,
+    ) -> HostedResult<HostedReply> {
+        if input.method == "GET" && path == "/usage.css" {
+            return self.usage_reply(path, at);
+        }
+        if input.method != "GET" || identity.role != Role::Admin {
+            let mut reply = self.denied(identity)?;
+            if input.method == "GET" && path == "/usage" {
+                reply.reply = super::usage::denied_page();
+            }
+            return Ok(reply);
+        }
+        self.usage_reply(path, at)
+    }
+
+    /// The admin usage page and data (usage-dashboard 3.1-3.3). It only reads.
+    #[cfg(feature = "cloud")]
+    fn usage_reply(&self, path: &str, at: i64) -> HostedResult<HostedReply> {
+        if let Some(page) = super::usage::page(path) {
+            return Ok(page.into());
+        }
+        let value = match &self.usage {
+            super::usage::UsageState::On(usage) => usage.report(&self.store.conn, at)?,
+            _ => json!({"configured": false}),
+        };
+        Ok(Reply::json(200, &value).into())
     }
 
     fn denied(&self, identity: &Identity) -> HostedResult<HostedReply> {
@@ -1071,6 +1198,10 @@ impl<S: HostedStorage> Hosted<S> {
                 return Err("公開デモは遠隔保存では利用できません。".into());
             }
             return self.serve_demo(&demo);
+        }
+        #[cfg(feature = "cloud")]
+        if self.store.remote() {
+            self.start_usage(super::usage::cap_from_env()?)?;
         }
         let server =
             Server::http(self.config.bind).map_err(|_| "hostedサーバーを起動できません。")?;

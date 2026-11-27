@@ -72,6 +72,59 @@ const REUSE_IDLE: std::time::Duration = std::time::Duration::from_secs(4);
 
 thread_local! {
     static FENCE: FenceState = const { FenceState::new() };
+    static USAGE: Cell<RemoteUsage> = const { Cell::new(RemoteUsage::ZERO) };
+}
+
+/// Round trips sent from this thread and the row counts the provider reported
+/// for them (`rows_read`/`rows_written` of each statement result).
+///
+/// Counted per thread rather than per connection so that a connection opened
+/// and dropped inside one request is still included. A provider that omits the
+/// row counts contributes zero rows; the round trip is still counted.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct RemoteUsage {
+    /// Pipeline requests sent, including failed ones.
+    pub round_trips: u64,
+    /// Rows the provider reported as read.
+    pub rows_read: u64,
+    /// Rows the provider reported as written.
+    pub rows_written: u64,
+}
+
+impl RemoteUsage {
+    /// No usage.
+    pub const ZERO: Self = Self {
+        round_trips: 0,
+        rows_read: 0,
+        rows_written: 0,
+    };
+
+    /// Return this thread's usage since the last call and reset it to zero.
+    #[must_use]
+    pub fn take() -> Self {
+        USAGE.with(|usage| usage.replace(Self::ZERO))
+    }
+
+    fn add(response: Option<&PipelineRespBody>) {
+        let (mut read, mut written) = (0_u64, 0_u64);
+        for result in response.map_or(&[][..], |response| response.results.as_slice()) {
+            if let StreamResult::Ok {
+                response: StreamResponse::Execute(execute),
+            } = result
+            {
+                read = read.saturating_add(execute.result.rows_read);
+                written = written.saturating_add(execute.result.rows_written);
+            }
+        }
+        USAGE.with(|usage| {
+            let current = usage.get();
+            usage.set(Self {
+                round_trips: current.round_trips.saturating_add(1),
+                rows_read: current.rows_read.saturating_add(read),
+                rows_written: current.rows_written.saturating_add(written),
+            });
+        });
+    }
 }
 
 struct FenceState {
@@ -572,6 +625,7 @@ impl RemoteConnection {
         let reuse = reuse && ReadFence::active();
         let body = PipelineReqBody { baton, requests };
         let result = self.transport.pipeline(url, &body, closing, reuse);
+        RemoteUsage::add(result.as_ref().ok());
         if result.is_err() {
             self.poison();
         }

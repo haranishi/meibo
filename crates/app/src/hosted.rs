@@ -19,6 +19,10 @@ mod remote_backup;
 #[cfg(feature = "cloud")]
 mod remote_gate;
 mod store;
+#[cfg(feature = "cloud")]
+mod usage;
+#[cfg(all(test, feature = "integration-tests"))]
+mod usage_tests;
 
 #[cfg(test)]
 use auth::Login;

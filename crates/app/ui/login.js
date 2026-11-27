@@ -253,8 +253,11 @@
         } catch (_) { logout.disabled = false; logout.textContent = "もう一度ログアウト"; }
       });
       box.append(label, logout);
-      if (badge) target.replaceChildren(badge, box);
-      else target.replaceChildren(box);
+      // The server adds the usage entry for remote admins only.
+      const usage = target.querySelector("a.usage-entry[href='/usage']");
+      target.replaceChildren(...[badge, usage, box].filter(Boolean));
+      const menuLink = document.querySelector("#app-menu > a.usage-menu-link");
+      if (menuLink) menuLink.parentElement.append(menuLink);
     }
     ready = true;
     await revalidate();

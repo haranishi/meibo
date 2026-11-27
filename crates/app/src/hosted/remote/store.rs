@@ -97,6 +97,8 @@ impl RemoteStore {
         tx.execute_batch(DDL)?;
         tx.execute_batch(REMOTE_DDL)?;
         tx.execute_batch(crate::hosted::remote_gate::DDL)?;
+        // Usage counts are never backed up; a restore target starts empty.
+        tx.execute_batch(crate::hosted::usage::DDL)?;
         let identity = ServiceIdentity {
             database_id: auth::random_hex(16)?,
             instance: auth::random_hex(16)?,
@@ -141,6 +143,14 @@ impl RemoteStore {
             Engine::open_remote(store.endpoint(&slug)?, &identity, &engine_options())?;
         }
         Ok(store)
+    }
+
+    /// Create the usage table on an existing control database (2.2). The
+    /// caller holds the gate; running it again changes nothing.
+    pub(in crate::hosted) fn enable_usage(&self) -> HostedResult<()> {
+        self.check_ready()?;
+        self.conn.execute_batch(crate::hosted::usage::DDL)?;
+        self.audit("maintenance", None, "usage.enable", "success")
     }
 
     pub(in crate::hosted) fn database_id(&self) -> &str {

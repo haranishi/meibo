@@ -6,7 +6,8 @@ mod sqld;
 
 use meibo_db::{
     Error, ErrorCode, OptionalExtension, RemoteConnection, RemoteOptions,
-    RemoteTransportDiagnostic, RemoteTransportKind, RemoteTransportPhase, params, params_from_iter,
+    RemoteTransportDiagnostic, RemoteTransportKind, RemoteTransportPhase, RemoteUsage, params,
+    params_from_iter,
 };
 use response::{ResponseServer, response};
 use std::time::{Duration, Instant};
@@ -830,3 +831,66 @@ remote_test!(
         );
     }
 );
+
+remote_test!(usage_counts_round_trips_and_reported_rows_then_resets, {
+    let _ = RemoteUsage::take();
+    let execute = serde_json::json!({"baton":null,"base_url":null,"results":[
+        {"type":"ok","response":{"type":"execute","result":{
+            "cols":[{"name":"n","decltype":null}],
+            "rows":[[{"type":"integer","value":"1"}]],
+            "affected_row_count":0,"last_insert_rowid":null,
+            "rows_read":7,"rows_written":2
+        }}},
+        {"type":"ok","response":{"type":"close"}}
+    ]});
+    let server = ResponseServer::script(
+        vec![
+            json_response(&described_body(true)),
+            json_response(&execute),
+        ],
+        Duration::ZERO,
+        false,
+    );
+    let connection = connect(&server.endpoint());
+    let value: i64 = connection
+        .query_row("SELECT 1", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(value, 1);
+    assert_eq!(
+        RemoteUsage::take(),
+        RemoteUsage {
+            round_trips: 2,
+            rows_read: 7,
+            rows_written: 2
+        }
+    );
+    assert_eq!(RemoteUsage::take(), RemoteUsage::ZERO);
+    // A failed round trip is still counted and reports no rows.
+    assert!(connection.query_row("SELECT 2", [], |_| Ok(())).is_err());
+    assert_eq!(RemoteUsage::take().rows_read, 0);
+    assert_eq!(RemoteUsage::take(), RemoteUsage::ZERO);
+
+    let sqld = sqld::Sqld::start().unwrap();
+    let connection = connect(&sqld.endpoint());
+    connection
+        .execute_batch("CREATE TABLE synthetic(id INTEGER PRIMARY KEY)")
+        .unwrap();
+    let _ = RemoteUsage::take();
+    for id in 1..=3 {
+        connection
+            .execute("INSERT INTO synthetic(id) VALUES(?1)", [id])
+            .unwrap();
+    }
+    let count: i64 = connection
+        .query_row("SELECT count(*) FROM synthetic", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(count, 3);
+    let usage = RemoteUsage::take();
+    assert!(usage.round_trips >= 4, "{usage:?}");
+    assert!(usage.rows_written >= 3, "{usage:?}");
+    assert!(usage.rows_read >= 1, "{usage:?}");
+    // Another thread has its own counters.
+    std::thread::spawn(|| assert_eq!(RemoteUsage::take(), RemoteUsage::ZERO))
+        .join()
+        .unwrap();
+});

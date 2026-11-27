@@ -1,0 +1,95 @@
+:root{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans JP",sans-serif;color:#203246;background:#f3f6fa;font-synthesis:none;line-height:1.6}
+*{box-sizing:border-box}
+body{margin:0;background:#f3f6fa}
+[hidden]{display:none!important}
+.usage-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.usage-header{display:flex;align-items:center;justify-content:space-between;gap:16px;min-height:58px;padding:0 24px;background:#fff;border-bottom:3px solid #0b5cab}
+.usage-brand{display:flex;align-items:center;gap:8px;color:#203246;font-weight:750;text-decoration:none}
+.usage-mark{display:grid;place-items:center;width:30px;height:30px;border-radius:7px;background:#1863a8;color:#fff;font-size:16px}
+.usage-back,.usage-button,.usage-range button{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:8px 14px;border:1px solid #aebccc;border-radius:5px;background:#fff;color:#244866;font:inherit;font-size:14px;font-weight:600;text-decoration:none;cursor:pointer}
+.usage-back:hover,.usage-button:hover,.usage-range button:hover{background:#edf4fb;border-color:#1863a8}
+.usage-back:focus-visible,.usage-button:focus-visible,.usage-range button:focus-visible,.usage-brand:focus-visible,.usage-table button:focus-visible{outline:3px solid #9acdfb;outline-offset:2px}
+.usage-button:disabled{opacity:.65;cursor:default}
+.usage-main{max-width:1080px;margin:0 auto;padding:24px 24px 48px}
+.usage-title-row{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.usage-title-row h1{margin:0;font-size:24px;line-height:1.4}
+.usage-status{margin:8px 0 16px;color:#526579;font-size:14px}
+.usage-status.is-error{padding:10px 12px;background:#fff3f1;border-left:3px solid #b84032;color:#9b2c22}
+.usage-card{margin-top:16px;padding:20px 22px;background:#fff;border:1px solid #dbe2ea;border-radius:10px}
+.usage-card h2{margin:0 0 8px;font-size:17px;line-height:1.45}
+.usage-card-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.usage-card-heading h2{margin:0}
+.usage-muted{color:#526579;font-weight:400}
+.usage-small{font-size:13px;margin:6px 0 0}
+.usage-big{margin:4px 0;font-size:40px;font-weight:750;line-height:1.2;font-variant-numeric:tabular-nums}
+.usage-month p{margin:4px 0}
+.usage-note{font-size:13px;color:#344b62;padding:8px 10px;background:#edf4fb;border-radius:5px;margin-top:12px!important}
+.usage-meter{position:relative;height:10px;background:#e7edf3;border-radius:5px;overflow:hidden}
+.usage-meter span{position:absolute;inset:0 auto 0 0;width:0;background:#1863a8;border-radius:5px}
+.usage-meter.is-warn span{background:#b84032}
+.usage-cap{margin-top:12px}
+.usage-cap p{font-size:14px}
+.usage-meters{list-style:none;margin:8px 0 0;padding:0;display:grid;gap:14px}
+.usage-meters li{display:grid;gap:4px}
+.usage-meter-head{display:flex;justify-content:space-between;gap:12px;font-size:14px}
+.usage-meter-head span:last-child{font-variant-numeric:tabular-nums;text-align:right}
+.usage-warn{color:#9b2c22;font-weight:650;font-size:13px}
+.usage-range{display:flex;gap:0}
+.usage-range button{border-radius:0;min-width:88px}
+.usage-range button:first-child{border-radius:5px 0 0 5px}
+.usage-range button:last-child{border-radius:0 5px 5px 0;border-left:0}
+.usage-range button[aria-pressed="true"]{background:#1863a8;border-color:#135d9f;color:#fff}
+.usage-table-wrap{margin-top:10px}
+.usage-table{width:100%;border-collapse:collapse;font-size:14px}
+.usage-table th,.usage-table td{padding:10px 8px;border-bottom:1px solid #e3e9ef;text-align:left;vertical-align:middle}
+.usage-table thead th{font-size:12px;color:#526579;font-weight:650;border-bottom:1px solid #c9d4df}
+.usage-table .num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.usage-table button{padding:4px 8px;border:1px solid #bac7d6;border-radius:4px;background:#fff;color:#244866;font:inherit;font-size:12px;cursor:pointer}
+.usage-detail-row td{background:#f7f9fc;padding:8px 12px}
+.usage-detail-row dl{display:grid;grid-template-columns:auto auto;gap:4px 16px;margin:0;font-size:13px}
+.usage-detail-row dt{color:#526579}
+.usage-detail-row dd{margin:0;text-align:right;font-variant-numeric:tabular-nums}
+.usage-days{list-style:none;display:grid;grid-template-columns:repeat(31,minmax(0,1fr));gap:2px;align-items:end;height:160px;margin:12px 0 0;padding:0 0 4px;border-bottom:1px solid #c9d4df}
+.usage-days li{height:100%;display:flex;align-items:flex-end}
+.usage-days .usage-day-bar{display:block;width:100%;min-height:2px;background:#5b93cc;border-radius:2px 2px 0 0}
+.usage-days .usage-day-bar.is-today{background:#1863a8}
+.usage-day-labels{display:flex;justify-content:space-between;font-size:12px;color:#526579;margin-top:4px}
+.usage-day-table{margin-top:12px}
+.usage-notes ul{margin:0;padding-left:20px;font-size:14px;color:#344b62}
+.usage-notes li+li{margin-top:6px}
+code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.92em;background:#eef2f6;padding:1px 5px;border-radius:4px}
+@media(max-width:760px){
+  .usage-table .wide{display:none}
+}
+@media(min-width:761px){.usage-detail-row{display:none!important}}
+@media(max-width:600px){
+  .usage-header{padding:0 16px;min-height:54px}
+  .usage-main{padding:16px 16px 40px}
+  .usage-title-row h1{font-size:21px}
+  .usage-card{padding:16px}
+  .usage-big{font-size:34px}
+  .usage-days{height:120px;gap:1px}
+  .usage-range{width:100%}
+  .usage-range button{flex:1}
+}
+.usage-verdict{margin:6px 0 2px!important;font-size:16px;font-weight:650;color:#203246;word-break:auto-phrase}
+.usage-verdict.is-warn{color:#9b2c22}
+.usage-gross{margin-top:14px;padding-top:12px;border-top:1px solid #e3e9ef}
+.usage-gross h3{margin:0;font-size:13px;font-weight:650;color:#526579}
+.usage-gross p{margin:2px 0}
+.usage-gross strong{font-size:18px;font-variant-numeric:tabular-nums}
+.usage-meter-head strong{font-variant-numeric:tabular-nums;font-size:15px}
+.usage-meter-sub{font-size:12px;color:#526579;font-variant-numeric:tabular-nums}
+.usage-table .toggle-col{width:56px;text-align:right;padding-right:0}
+.usage-table td.toggle-col button{display:inline-flex;align-items:center;justify-content:center;margin:0;min-width:48px;min-height:44px}
+.usage-days{padding-top:22px!important;height:182px!important}
+.usage-days li{position:relative}
+.usage-day-value{position:absolute;font-size:11px;font-weight:650;color:#203246;white-space:nowrap;line-height:1.2;transform:translateX(-50%);left:50%}
+.usage-day-value.at-start{left:0;transform:none}
+.usage-day-value.at-end{left:auto;right:0;transform:none}
+.usage-more{margin-top:10px}
+.usage-primary{background:#1863a8;border-color:#135d9f;color:#fff}
+.usage-primary:hover{background:#13558f;color:#fff}
+.usage-denied h1{margin:0 0 8px;font-size:21px}
+@media(min-width:761px){.usage-table .toggle-col{display:none}}
+@media(max-width:600px){.usage-days{height:142px!important}}
