@@ -18,6 +18,7 @@ use libsql_hrana::proto::{
 use reqwest::{Url, header::HeaderValue};
 use std::{
     cell::{Cell, RefCell},
+    collections::HashMap,
     fmt,
     io::Write,
     sync::Mutex,
@@ -35,10 +36,112 @@ pub struct RemoteConnection {
     poisoned: Cell<bool>,
     last_insert_rowid: Cell<i64>,
     active: RefCell<Option<state::Stream>>,
+    described: RefCell<HashMap<String, Described>>,
+}
+
+/// One step of [`RemoteConnection::read_batch`].
+#[derive(Clone, Debug)]
+pub enum ReadStep<'sql> {
+    /// Return every row of one read-only SELECT.
+    Query(&'sql str, Vec<Value>),
+    /// Confirm that the SQL still compiles against the current schema.
+    Check(&'sql str),
+}
+
+/// Successful Describe facts. They are scoped to this connection and cleared
+/// before any statement that may change the schema.
+#[derive(Clone, Copy)]
+struct Described {
+    parameters: usize,
+    columns: usize,
+    read_only: bool,
+}
+
+/// Bound on remembered statements; the application uses far fewer.
+const DESCRIBED_LIMIT: usize = 256;
+
+/// Whether read-only round trips inside a [`ReadFence`] may reuse an idle
+/// HTTPS connection. Outside a fence every round trip uses a new one.
+///
+/// Requirement 6 of remote-performance: enable only after the keep-alive
+/// fault tests prove that the database receives each round trip at most once.
+/// Writes, transaction stages and gate changes always use a new connection.
+pub const REUSE_READ_CONNECTIONS: bool = true;
+/// Idle lifetime of the single reusable read connection (requirement 6.5).
+const REUSE_IDLE: std::time::Duration = std::time::Duration::from_secs(4);
+
+thread_local! {
+    static FENCE: FenceState = const { FenceState::new() };
+}
+
+struct FenceState {
+    depth: Cell<usize>,
+    tripped: Cell<bool>,
+}
+
+impl FenceState {
+    const fn new() -> Self {
+        Self {
+            depth: Cell::new(0),
+            tripped: Cell::new(false),
+        }
+    }
+}
+
+/// While held, every remote connection used on this thread, including one
+/// opened after the fence began, refuses a statement that may write before
+/// anything is sent.
+///
+/// A refusal never poisons the connection and never uses an uncertain-outcome
+/// classification. [`ReadFence::tripped`] reports whether anything was
+/// refused, so the caller can discard the reply and use the serialized path.
+/// Dropping the value always restores writes (RAII).
+#[must_use = "the fence is active only while this value is held"]
+pub struct ReadFence {
+    // Thread-bound: the fence must end on the thread that began it.
+    _thread: std::marker::PhantomData<*const ()>,
+}
+
+impl ReadFence {
+    /// Begin refusing possible writes on this thread.
+    pub fn begin() -> Self {
+        FENCE.with(|fence| fence.depth.set(fence.depth.get() + 1));
+        Self {
+            _thread: std::marker::PhantomData,
+        }
+    }
+
+    /// Whether a possible write was refused since the outermost fence began.
+    #[must_use]
+    pub fn tripped(&self) -> bool {
+        FENCE.with(|fence| fence.tripped.get())
+    }
+}
+
+impl Drop for ReadFence {
+    fn drop(&mut self) {
+        FENCE.with(|fence| {
+            let depth = fence.depth.get().saturating_sub(1);
+            fence.depth.set(depth);
+            if depth == 0 {
+                fence.tripped.set(false);
+            }
+        });
+    }
+}
+
+impl fmt::Debug for ReadFence {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("ReadFence")
+            .field("tripped", &self.tripped())
+            .finish()
+    }
 }
 
 struct Transport {
     http: reqwest::Client,
+    reuse: Option<reqwest::Client>,
     pipeline: Url,
     authorization: HeaderValue,
     timeout: std::time::Duration,
@@ -58,24 +161,19 @@ impl RemoteConnection {
         let pipeline = endpoint
             .join("v2/pipeline")
             .map_err(|_| failure("invalid remote database configuration"))?;
-        let http = reqwest::Client::builder()
-            .http1_only()
-            .no_proxy()
-            .redirect(reqwest::redirect::Policy::none())
-            .retry(reqwest::retry::never())
-            // Hyper can retry a canceled checkout on a reused HTTP/1 socket
-            // independently of reqwest's policy. Disable idle socket reuse.
-            .pool_max_idle_per_host(0)
-            .timeout(timeout)
-            .tls_version_min(reqwest::tls::Version::TLS_1_2)
-            .tls_danger_accept_invalid_hostnames(false)
-            .tls_danger_accept_invalid_certs(false)
-            .connection_verbose(false)
-            .build()
-            .map_err(|_| failure("remote database client unavailable"))?;
+        // Hyper can retry a canceled checkout on a reused HTTP/1 socket
+        // independently of reqwest's policy. Data-changing round trips never
+        // use an idle socket; see `REUSE_READ_CONNECTIONS` for reads.
+        let http = client(timeout, 0, None)?;
+        let reuse = if REUSE_READ_CONNECTIONS {
+            Some(client(timeout, 1, Some(REUSE_IDLE))?)
+        } else {
+            None
+        };
         Ok(Self {
             transport: Transport {
                 http,
+                reuse,
                 pipeline,
                 authorization,
                 timeout,
@@ -85,7 +183,112 @@ impl RemoteConnection {
             poisoned: Cell::new(false),
             last_insert_rowid: Cell::new(0),
             active: RefCell::new(None),
+            described: RefCell::new(HashMap::new()),
         })
+    }
+
+    /// Reject a possible write inside a fence before anything is sent.
+    #[allow(clippy::unused_self)] // Scoped with the connection's other guards.
+    fn check_fence(&self, may_write: bool) -> Result<()> {
+        if may_write && FENCE.with(|fence| fence.depth.get() > 0) {
+            FENCE.with(|fence| fence.tripped.set(true));
+            return Err(RemoteErrorKind::Unsupported.error());
+        }
+        Ok(())
+    }
+
+    /// Run read-only steps in one closing round trip and return each result.
+    ///
+    /// Every [`ReadStep::Query`] must be one SELECT that the provider has
+    /// described as read-only on this connection (an uncached statement costs
+    /// one extra Describe round trip first). [`ReadStep::Check`] always sends a
+    /// fresh Describe and fails unless the SQL still compiles. The steps share
+    /// one deferred read transaction, so they observe one snapshot.
+    ///
+    /// # Errors
+    /// Returns the first failed step, a sanitized transport error, or
+    /// `Unsupported` inside a transaction or for a step that may write.
+    pub fn read_batch(&self, steps: &[ReadStep<'_>]) -> Result<Vec<Vec<Vec<Value>>>> {
+        self.ensure_usable()?;
+        if self.active.borrow().is_some() {
+            return Err(RemoteErrorKind::Unsupported.error());
+        }
+        let mut requests = vec![execute_sql("BEGIN DEFERRED", false)];
+        for step in steps {
+            match step {
+                ReadStep::Query(sql, values) => {
+                    let effects = sql::inspect(sql, false)?;
+                    let described = self.describe(sql)?;
+                    if !effects.single_select || !described.read_only {
+                        return Err(RemoteErrorKind::Unsupported.error());
+                    }
+                    crate::statement::check_parameters(values.len(), described.parameters)?;
+                    let mut stmt = Stmt::new(*sql, true);
+                    stmt.args = values.iter().cloned().map(encode_value).collect();
+                    requests.push(StreamRequest::Execute(ExecuteStreamReq { stmt }));
+                }
+                ReadStep::Check(sql) => {
+                    sql::inspect(sql, false)?;
+                    requests.push(StreamRequest::Describe(DescribeStreamReq {
+                        sql: Some((*sql).to_owned()),
+                        ..DescribeStreamReq::default()
+                    }));
+                }
+            }
+        }
+        requests.push(execute_sql("COMMIT", false));
+        requests.push(StreamRequest::Close(CloseStreamReq {}));
+        let response = self.pipeline_with(&self.transport.pipeline, None, requests, true, true)?;
+        let mut results = response.results.into_iter();
+        // The pipeline already checked one result per request.
+        let mut next = || results.next().unwrap_or(StreamResult::None);
+        let begun = expect_ok(next());
+        let mut outputs = Vec::with_capacity(steps.len());
+        let mut first_error = None;
+        for step in steps {
+            let result = expect_ok(next());
+            match (step, result) {
+                (ReadStep::Query(..), Ok(StreamResponse::Execute(response))) => {
+                    let width = response.result.cols.len();
+                    let mut rows = Vec::with_capacity(response.result.rows.len());
+                    for row in response.result.rows {
+                        if row.values.len() != width {
+                            return self.invalid_response();
+                        }
+                        rows.push(
+                            row.values
+                                .into_iter()
+                                .map(decode_value)
+                                .collect::<Result<Vec<_>>>()
+                                .or_else(|_| self.invalid_response())?,
+                        );
+                    }
+                    outputs.push(rows);
+                }
+                (ReadStep::Check(_), Ok(StreamResponse::Describe(_))) => outputs.push(Vec::new()),
+                (_, Ok(_)) => return self.invalid_response(),
+                (_, Err(error)) => {
+                    first_error.get_or_insert(error);
+                    outputs.push(Vec::new());
+                }
+            }
+        }
+        let committed = expect_ok(next());
+        if expect_ok(next()).is_err() {
+            return self.invalid_response();
+        }
+        begun?;
+        if let Some(error) = first_error {
+            return Err(error);
+        }
+        committed?;
+        Ok(outputs)
+    }
+
+    fn forget_described(&self, schema: bool) {
+        if schema {
+            self.described.borrow_mut().clear();
+        }
     }
 
     /// Whether a transport or protocol failure has invalidated this connection.
@@ -129,25 +332,48 @@ impl RemoteConnection {
     /// # Errors
     /// Returns sanitized SQL/transport errors or rejects an invalid connection.
     pub fn prepare(&self, sql: &str) -> Result<Statement<'_>> {
+        let described = self.describe(sql)?;
+        Ok(Statement::from_remote(
+            self,
+            sql.to_owned(),
+            described.parameters,
+            described.columns,
+            described.read_only,
+        ))
+    }
+
+    fn describe(&self, sql: &str) -> Result<Described> {
         self.ensure_usable()?;
-        sql::inspect(sql, self.active.borrow().is_some())?;
-        let response = self.request(
-            StreamRequest::Describe(DescribeStreamReq {
-                sql: Some(sql.to_owned()),
-                ..DescribeStreamReq::default()
-            }),
-            true,
-        )?;
-        match response {
-            StreamResponse::Describe(response) => Ok(Statement::from_remote(
-                self,
-                sql.to_owned(),
-                response.result.params.len(),
-                response.result.cols.len(),
-                response.result.is_readonly,
-            )),
-            _ => self.invalid_response(),
+        let in_transaction = self.active.borrow().is_some();
+        sql::inspect(sql, in_transaction)?;
+        if let Some(described) = self.described.borrow().get(sql) {
+            return Ok(*described);
         }
+        let request = StreamRequest::Describe(DescribeStreamReq {
+            sql: Some(sql.to_owned()),
+            ..DescribeStreamReq::default()
+        });
+        // Describe never executes SQL, so outside a transaction it needs no
+        // foreign-key setup and uses one closing round trip.
+        let response = if in_transaction {
+            self.request(request, true)?
+        } else {
+            self.request_read(request)?
+        };
+        let StreamResponse::Describe(response) = response else {
+            return self.invalid_response();
+        };
+        let described = Described {
+            parameters: response.result.params.len(),
+            columns: response.result.cols.len(),
+            read_only: response.result.is_readonly,
+        };
+        let mut cache = self.described.borrow_mut();
+        if cache.len() >= DESCRIBED_LIMIT {
+            cache.clear();
+        }
+        cache.insert(sql.to_owned(), described);
+        Ok(described)
     }
 
     /// Prepare reusable remote SQL. Its text is held by this statement only.
@@ -176,6 +402,8 @@ impl RemoteConnection {
     pub fn execute_batch(&self, sql: &str) -> Result<()> {
         self.ensure_usable()?;
         let effects = sql::inspect(sql, self.active.borrow().is_some())?;
+        self.check_fence(true)?;
+        self.forget_described(true);
         let (response, rowid) = self.request_with_rowid(
             StreamRequest::Sequence(SequenceStreamReq {
                 sql: Some(sql.to_owned()),
@@ -217,10 +445,21 @@ impl RemoteConnection {
         read_only: bool,
     ) -> Result<StmtResult> {
         self.ensure_usable()?;
-        let effects = sql::inspect(sql, self.active.borrow().is_some())?;
+        let in_transaction = self.active.borrow().is_some();
+        let effects = sql::inspect(sql, in_transaction)?;
+        self.check_fence(!read_only)?;
+        self.forget_described(effects.schema);
         let mut stmt = Stmt::new(sql, want_rows);
         stmt.args = values.into_iter().map(encode_value).collect();
-        match self.request(StreamRequest::Execute(ExecuteStreamReq { stmt }), read_only)? {
+        let request = StreamRequest::Execute(ExecuteStreamReq { stmt });
+        // Both the provider and the local inspection must agree that this is
+        // one read-only SELECT before it skips the write-side FK setup.
+        let response = if read_only && effects.single_select && !in_transaction {
+            self.request_read(request)?
+        } else {
+            self.request(request, read_only)?
+        };
+        match response {
             StreamResponse::Execute(response) => {
                 if response.result.rows.iter().any(|row| {
                     row.values.len() != response.result.cols.len()
@@ -259,9 +498,24 @@ impl RemoteConnection {
         requests: Vec<StreamRequest>,
         closing: bool,
     ) -> Result<PipelineRespBody> {
+        self.pipeline_with(url, baton, requests, closing, false)
+    }
+
+    /// `reuse` is true only for a closing round trip that cannot change data.
+    fn pipeline_with(
+        &self,
+        url: &Url,
+        baton: Option<String>,
+        requests: Vec<StreamRequest>,
+        closing: bool,
+        reuse: bool,
+    ) -> Result<PipelineRespBody> {
         self.ensure_usable()?;
+        // Requirement 6.1/6.2: only a gate-free read (inside a fence on this
+        // thread) may reuse a socket. Everything else uses a new connection.
+        let reuse = reuse && FENCE.with(|fence| fence.depth.get() > 0);
         let body = PipelineReqBody { baton, requests };
-        let result = self.transport.pipeline(url, &body, closing);
+        let result = self.transport.pipeline(url, &body, closing, reuse);
         if result.is_err() {
             self.poisoned.set(true);
         }
@@ -327,13 +581,18 @@ impl Transport {
         url: &Url,
         body: &PipelineReqBody,
         closing: bool,
+        reuse: bool,
     ) -> Result<PipelineRespBody> {
+        let http = match (&self.reuse, reuse) {
+            (Some(client), true) => client,
+            _ => &self.http,
+        };
         let mut encoded = BoundedWriter(Vec::new());
         serde_json::to_writer(&mut encoded, body)
             .map_err(|_| failure("remote database request exceeds limit"))?;
         let runtime =
             crate::runtime().map_err(|_| failure("remote database runtime unavailable"))?;
-        let run = || runtime.block_on(self.receive(url, encoded.0));
+        let run = || runtime.block_on(self.receive(http, url, encoded.0));
         // Synchronous domain calls can occur inside an async host. A separate
         // blocking thread avoids nesting block_on inside that host's runtime;
         // IO/timers still use the one process-wide database runtime.
@@ -395,13 +654,17 @@ impl Transport {
             .map_err(|_| self.invalid_response())
     }
 
-    async fn receive(&self, url: &Url, body: Vec<u8>) -> Result<PipelineRespBody> {
+    async fn receive(
+        &self,
+        http: &reqwest::Client,
+        url: &Url,
+        body: Vec<u8>,
+    ) -> Result<PipelineRespBody> {
         let started = std::time::Instant::now();
         let phase = Cell::new(RemoteTransportPhase::Request);
         // The outer deadline also covers processing between received chunks.
         tokio::time::timeout(self.timeout, async {
-            let mut response = self
-                .http
+            let mut response = http
                 .post(url.clone())
                 .header(reqwest::header::AUTHORIZATION, self.authorization.clone())
                 .header(reqwest::header::CONTENT_TYPE, "application/json")
@@ -473,6 +736,32 @@ impl fmt::Debug for RemoteConnection {
             .field("poisoned", &self.poisoned.get())
             .finish_non_exhaustive()
     }
+}
+
+/// Both clients share every TLS, redirect and retry restriction. Only the
+/// idle pool differs; `idle == 0` keeps the original fresh-connection client.
+fn client(
+    timeout: std::time::Duration,
+    idle: usize,
+    idle_timeout: Option<std::time::Duration>,
+) -> Result<reqwest::Client> {
+    let mut builder = reqwest::Client::builder()
+        .http1_only()
+        .no_proxy()
+        .redirect(reqwest::redirect::Policy::none())
+        .retry(reqwest::retry::never())
+        .pool_max_idle_per_host(idle);
+    if let Some(idle_timeout) = idle_timeout {
+        builder = builder.pool_idle_timeout(idle_timeout);
+    }
+    builder
+        .timeout(timeout)
+        .tls_version_min(reqwest::tls::Version::TLS_1_2)
+        .tls_danger_accept_invalid_hostnames(false)
+        .tls_danger_accept_invalid_certs(false)
+        .connection_verbose(false)
+        .build()
+        .map_err(|_| failure("remote database client unavailable"))
 }
 
 struct BoundedWriter(Vec<u8>);

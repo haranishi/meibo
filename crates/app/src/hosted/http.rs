@@ -120,6 +120,8 @@ impl HostedConfig {
 pub(super) struct HostedReply {
     pub(super) reply: Reply,
     headers: Vec<(&'static str, String)>,
+    /// `None` keeps the default `no-store`. Only fixed public parts set it.
+    cache: Option<&'static str>,
 }
 impl HostedReply {
     #[cfg(test)]
@@ -135,6 +137,7 @@ impl From<Reply> for HostedReply {
         Self {
             reply,
             headers: Vec::new(),
+            cache: None,
         }
     }
 }
@@ -187,6 +190,12 @@ pub(super) trait HostedStorage: std::ops::DerefMut<Target = ControlStore> {
     fn poisoned(&self) -> bool {
         false
     }
+    /// Confirm in one round trip that the gate is free and the control store
+    /// is ready with this process's identity. Only remote storage uses it.
+    #[cfg(feature = "cloud")]
+    fn read_ready(&self) -> HostedResult<bool> {
+        Ok(false)
+    }
 }
 impl HostedStorage for Store {
     type Guard = MaintenanceGuard;
@@ -234,6 +243,9 @@ impl HostedStorage for super::remote::store::RemoteStore {
     fn poisoned(&self) -> bool {
         self.conn.is_poisoned()
     }
+    fn read_ready(&self) -> HostedResult<bool> {
+        super::remote::store::RemoteStore::read_ready(self)
+    }
 }
 
 pub(super) struct Hosted<S = Store> {
@@ -241,6 +253,16 @@ pub(super) struct Hosted<S = Store> {
     config: HostedConfig,
     engines: VecDeque<(String, Engine)>,
     uncertain: bool,
+    /// Held only during a gate-free read; it fences every remote connection.
+    #[cfg(feature = "cloud")]
+    fence: Option<meibo_db::ReadFence>,
+    /// Requests without a session verified by this process (3.6).
+    anonymous: AnonymousLimit,
+    verified: VerifiedSessions,
+    /// Set after a gate-free read ended with an unknown outcome (4.4): the
+    /// serve loop returns an error after that reply so the process restarts.
+    #[cfg(feature = "cloud")]
+    exit_after_reply: bool,
     demo_enter: super::demo::EnterRateLimit,
     demo_session_token: Option<String>,
 }
@@ -254,6 +276,12 @@ impl<S: HostedStorage> Hosted<S> {
             config,
             engines: VecDeque::new(),
             uncertain: false,
+            #[cfg(feature = "cloud")]
+            fence: None,
+            anonymous: AnonymousLimit::default(),
+            verified: VerifiedSessions::default(),
+            #[cfg(feature = "cloud")]
+            exit_after_reply: false,
             demo_enter: super::demo::EnterRateLimit::default(),
             demo_session_token: None,
         }
@@ -334,6 +362,20 @@ impl<S: HostedStorage> Hosted<S> {
         if let Some(reply) = self.boundary(input) {
             return reply;
         }
+        // Before any storage or access check: a flood of requests without a
+        // session cookie cannot turn into provider requests (3.6).
+        if self.store.remote()
+            && path(input) != "/health"
+            && !self
+                .token(input)
+                .is_some_and(|token| self.verified.contains(token))
+            && !self.anonymous.allow(at)
+        {
+            return error(
+                429,
+                "アクセスが集中しています。しばらく待ってから操作してください。",
+            );
+        }
         #[cfg(feature = "cloud")]
         let access_user = match self.access_user(input, at) {
             Ok(user) => user,
@@ -343,6 +385,20 @@ impl<S: HostedStorage> Hosted<S> {
         let access_user: Option<String> = None;
         if self.store.remote() && (self.uncertain || self.poisoned()) {
             return unknown();
+        }
+        #[cfg(feature = "cloud")]
+        if self.store.remote() {
+            if let Some(reply) = self.fixed_reply(input) {
+                return reply;
+            }
+            if ((input.method == "GET"
+                && path(input) != "/health"
+                && !path(input).starts_with("/api/activity-sync"))
+                || read_only_post(input))
+                && let Some(reply) = self.fenced_read(input, at, access_user.as_deref())
+            {
+                return reply;
+            }
         }
         let guard = match self.store.acquire() {
             Ok(guard) => guard,
@@ -370,6 +426,81 @@ impl<S: HostedStorage> Hosted<S> {
                 "処理を完了できませんでした。時間を置いてもう一度操作してください。",
             ),
         }
+    }
+
+    /// Fixed public parts need no database and no gate (remote-performance
+    /// 3.1). The order mirrors `dispatch_checked`, and `/health` is excluded.
+    #[cfg(feature = "cloud")]
+    fn fixed_reply(&self, input: &Input) -> Option<HostedReply> {
+        if input.method != "GET" || self.config.demo.is_some() {
+            return None;
+        }
+        let path = path(input);
+        // The OAuth return page keeps no-store and no revalidation.
+        if let Some(reply) = crate::server::activity_sync::callback(path) {
+            return Some(reply.into());
+        }
+        let reply = if path.starts_with("/forms/") {
+            leads::public_asset(&input.target)?
+        } else if let Some(reply) = super::public_entry::asset(path) {
+            reply
+        } else if path == "/login" {
+            super::public_entry::login(&self.config)
+        } else {
+            return None;
+        };
+        Some(revalidated(input, reply))
+    }
+
+    /// Answer a read without the gate. The fence starts first, so the
+    /// readiness check and the whole read may reuse a socket and every
+    /// statement that may write is refused before it is sent. A refusal or
+    /// any failure not caused by communication returns `None`, and the
+    /// request is handled again on the serialized path.
+    #[cfg(feature = "cloud")]
+    fn fenced_read(
+        &mut self,
+        input: &Input,
+        at: i64,
+        access_user: Option<&str>,
+    ) -> Option<HostedReply> {
+        self.fence = Some(meibo_db::ReadFence::begin());
+        let result = match self.store.read_ready() {
+            Ok(true) => Ok(self.dispatch_checked(input, at, access_user)),
+            Ok(false) => Err(error(503, "保守処理中、または管理者の確認待ちです。")),
+            Err(cause) => Ok(Err(cause)),
+        };
+        // Dropping the fence restores writes and fresh sockets everywhere.
+        let tripped = self.fence.take().is_some_and(|fence| fence.tripped());
+        let result = match result {
+            Ok(result) => result,
+            Err(busy) => return Some(busy),
+        };
+        if self.poisoned()
+            || result
+                .as_ref()
+                .is_err_and(|cause| uncertain_error(cause.as_ref()))
+        {
+            return Some(self.stop_after_uncertain_read());
+        }
+        match result {
+            Ok(reply) if !tripped && reply.reply.status != 500 => Some(reply),
+            _ => None,
+        }
+    }
+
+    #[cfg(all(test, feature = "integration-tests"))]
+    pub(in crate::hosted) fn exit_requested(&self) -> bool {
+        self.exit_after_reply
+    }
+
+    /// An unknown outcome on the gate-free path (4.4): reply once, take no
+    /// gate, resend nothing, and end the process after this reply.
+    #[cfg(feature = "cloud")]
+    fn stop_after_uncertain_read(&mut self) -> HostedReply {
+        self.uncertain = true;
+        self.exit_after_reply = true;
+        unknown()
     }
 
     #[cfg(feature = "cloud")]
@@ -442,6 +573,9 @@ impl<S: HostedStorage> Hosted<S> {
             },
             None => None,
         };
+        if let Some(token) = token {
+            self.verified.record(token, identity.is_some());
+        }
         let Some(identity) = identity else {
             if path == "/" {
                 return Ok(self.unauthenticated_root_redirect(token));
@@ -627,6 +761,9 @@ impl<S: HostedStorage> Hosted<S> {
 
     /// ログアウト。公開デモでは共有sessionを消さず（1人のログアウトで全員を締め出さない）、Cookieを消す応答だけを返す。
     fn logout(&mut self, token: Option<&str>, identity: &Identity) -> HostedResult<HostedReply> {
+        if let Some(token) = token {
+            self.verified.record(token, false);
+        }
         if self.config.demo.is_none() {
             self.store.logout(token.ok_or("sessionがありません。")?)?;
             self.store.audit(
@@ -893,8 +1030,10 @@ impl<S: HostedStorage> Hosted<S> {
             self.engines.push_back(entry);
         } else {
             let opened = self.store.open_engine(tenant);
+            // While fenced, the serialized retry decides; poison still stops.
             #[cfg(feature = "cloud")]
             if self.store.remote()
+                && self.fence.is_none()
                 && opened.as_ref().is_err_and(|error| {
                     super::remote::operation::failed_construction(error.as_ref())
                 })
@@ -971,6 +1110,10 @@ impl<S: HostedStorage> Hosted<S> {
                 self.dispatch(&input, now()?)
             };
             send(request, reply);
+            #[cfg(feature = "cloud")]
+            if self.exit_after_reply {
+                return Err(super::remote::operation::UNKNOWN_MESSAGE.into());
+            }
         }
         Ok(())
     }
@@ -1159,6 +1302,84 @@ fn uncertain_error(error: &(dyn std::error::Error + 'static)) -> bool {
     }
 }
 
+/// One service-wide token bucket for requests without a session cookie:
+/// five per second, with at most 100 at once. `at` is the injected clock.
+struct AnonymousLimit {
+    tokens: i64,
+    at: i64,
+}
+impl AnonymousLimit {
+    const RATE: i64 = 5;
+    const BURST: i64 = 100;
+    fn allow(&mut self, at: i64) -> bool {
+        if at > self.at {
+            let refill = at.saturating_sub(self.at).saturating_mul(Self::RATE);
+            self.tokens = self.tokens.saturating_add(refill).min(Self::BURST);
+        }
+        // A clock that went back resets the base without refilling, so
+        // the bucket recovers from the new time instead of freezing.
+        self.at = at;
+        if self.tokens > 0 {
+            self.tokens -= 1;
+            true
+        } else {
+            false
+        }
+    }
+}
+/// Digests of sessions this process authenticated, newest last (3.6).
+/// Only these cookies skip the anonymous bucket; a failure removes one.
+#[derive(Default)]
+struct VerifiedSessions(VecDeque<Vec<u8>>);
+impl VerifiedSessions {
+    const LIMIT: usize = 64;
+    fn contains(&self, token: &str) -> bool {
+        let digest = super::auth::digest(token.as_bytes());
+        self.0.contains(&digest)
+    }
+    fn record(&mut self, token: &str, valid: bool) {
+        let digest = super::auth::digest(token.as_bytes());
+        self.0.retain(|known| *known != digest);
+        if valid {
+            if self.0.len() == Self::LIMIT {
+                self.0.pop_front();
+            }
+            self.0.push_back(digest);
+        }
+    }
+}
+
+impl Default for AnonymousLimit {
+    fn default() -> Self {
+        Self {
+            tokens: Self::BURST,
+            at: i64::MIN,
+        }
+    }
+}
+
+/// Let the browser reuse a fixed part after revalidation. The tag is the
+/// content hash, so a new deployment's different part is never reused.
+#[cfg(feature = "cloud")]
+fn revalidated(input: &Input, reply: Reply) -> HostedReply {
+    let digest = super::auth::digest(&reply.body);
+    let tag = format!("\"{}\"", super::auth::hex(&digest[..16]));
+    let mut reply: HostedReply = if input.single_header("If-None-Match") == Some(tag.as_str()) {
+        Reply {
+            status: 304,
+            mime: reply.mime,
+            body: Vec::new(),
+            attachment: false,
+        }
+        .into()
+    } else {
+        reply.into()
+    };
+    reply.cache = Some("no-cache");
+    reply.headers.push(("ETag", tag));
+    reply
+}
+
 fn unknown() -> HostedReply {
     Reply::json(503, &json!({"code":"outcome_unknown","error":"処理結果を確認できません。再送せず管理者へ連絡してください。"})).into()
 }
@@ -1172,7 +1393,7 @@ fn send(request: Request, reply: HostedReply) {
         Response::from_data(reply.reply.body).with_status_code(StatusCode(reply.reply.status));
     for (name, value) in [
         ("Content-Type", reply.reply.mime),
-        ("Cache-Control", "no-store"),
+        ("Cache-Control", reply.cache.unwrap_or("no-store")),
         ("X-Content-Type-Options", "nosniff"),
         ("X-Frame-Options", "DENY"),
         ("Referrer-Policy", "no-referrer"),
@@ -1200,4 +1421,26 @@ fn send(request: Request, reply: HostedReply) {
         );
     }
     let _ = request.respond(response);
+}
+
+#[cfg(test)]
+mod anonymous_limit_tests {
+    use super::AnonymousLimit;
+
+    #[test]
+    fn bursts_to_one_hundred_then_refills_five_per_second() {
+        let mut limit = AnonymousLimit::default();
+        let start = 1_900_000_000;
+        assert!((0..100).all(|_| limit.allow(start)));
+        assert!(!limit.allow(start));
+        assert!((0..5).all(|_| limit.allow(start + 1)));
+        assert!(!limit.allow(start + 1));
+        // A clock that goes back never refills, but recovers from then on.
+        assert!(!limit.allow(start - 600));
+        assert!((0..5).all(|_| limit.allow(start - 599)));
+        assert!(!limit.allow(start - 599));
+        // A long pause refills only up to the burst.
+        assert!((0..100).all(|_| limit.allow(start + 3600)));
+        assert!(!limit.allow(start + 3600));
+    }
 }

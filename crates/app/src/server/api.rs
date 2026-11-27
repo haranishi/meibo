@@ -19,45 +19,56 @@ use super::{MAX_EXPORT, Reply};
 
 pub(super) fn summary(engine: &Engine) -> Reply {
     let result = (|| {
-        let total = engine
-            .count(&Filters {
-                include_excluded: true,
-                ..Filters::default()
-            })?
-            .n;
-        let active = engine.count(&Filters::default())?.n;
-        let with_phone = engine
-            .count(&Filters {
-                has_phone: Some(true),
-                ..Filters::default()
-            })?
-            .n;
-        let status_counts = (0..=5)
-            .map(|code| {
-                engine
-                    .count(&Filters {
-                        status: vec![Status::from_code(code).expect("fixed status code")],
-                        include_excluded: true,
-                        ..Filters::default()
-                    })
-                    .map(|count| count.n)
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        let scheduled = engine
-            .count(&Filters {
-                next_action_before: Some(i64::MAX),
-                ..Filters::default()
-            })?
-            .n;
         let now = current_time().ok_or_else(|| {
             EngineError::Storage(Box::new(std::io::Error::other("system clock unavailable")))
         })?;
-        let due = engine
-            .count(&Filters {
+        let mut filters = vec![
+            Filters {
+                include_excluded: true,
+                ..Filters::default()
+            },
+            Filters::default(),
+            Filters {
+                has_phone: Some(true),
+                ..Filters::default()
+            },
+        ];
+        filters.extend((0..=5).map(|code| Filters {
+            status: vec![Status::from_code(code).expect("fixed status code")],
+            include_excluded: true,
+            ..Filters::default()
+        }));
+        filters.extend([
+            Filters {
+                next_action_before: Some(i64::MAX),
+                ..Filters::default()
+            },
+            Filters {
                 next_action_before: Some(now),
                 ..Filters::default()
-            })?
-            .n;
+            },
+        ]);
+        // One statement on remote storage; the same per-filter SQL locally.
+        let counts: Vec<u64> = engine
+            .count_many(&filters)?
+            .into_iter()
+            .map(|count| count.n)
+            .collect();
+        let [
+            total,
+            active,
+            with_phone,
+            s0,
+            s1,
+            s2,
+            s3,
+            s4,
+            s5,
+            scheduled,
+            due,
+        ] = <[u64; 11]>::try_from(counts)
+            .map_err(|_| EngineError::Storage(Box::new(std::io::Error::other("count mismatch"))))?;
+        let status_counts = vec![s0, s1, s2, s3, s4, s5];
         Ok::<_, EngineError>(
             json!({"total":total,"active":active,"with_phone":with_phone,"origin":if engine.origin()==DataOrigin::Real {"real"} else {"synthetic"},
                 "attribution":meibo_core::public_data::NTA_ATTRIBUTION,"modification_notice":meibo_core::public_data::NTA_MODIFICATION,

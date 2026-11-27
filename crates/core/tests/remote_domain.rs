@@ -680,3 +680,68 @@ fn sales_report_scans_beyond_one_remote_response_without_losing_a_yen() {
         assert_eq!(report.win_rate_percent(), None);
     });
 }
+
+#[test]
+// remote-performance 2.1: the single summary statement equals each count.
+fn combined_summary_counts_match_each_filter_on_mixed_synthetic_data() {
+    with_database(DataOrigin::Synthetic, |mut engine, conn, _| {
+        engine
+            .load_synthetic(meibo_core::synth::SynthConfig {
+                rows: 400,
+                seed: 27,
+                profile: meibo_core::synth::Profile::Dense,
+            })
+            .unwrap();
+        // A pivot between scheduled actions gives past, future and none.
+        let pivot = scalar(
+            conn,
+            "SELECT next_action_at FROM companies WHERE next_action_at IS NOT NULL ORDER BY next_action_at LIMIT 1 OFFSET (SELECT count(*)/2 FROM companies WHERE next_action_at IS NOT NULL)",
+        );
+        for sql in [
+            "SELECT count(*) FROM companies WHERE next_action_at IS NULL",
+            &format!("SELECT count(*) FROM companies WHERE next_action_at < {pivot}"),
+            &format!("SELECT count(*) FROM companies WHERE next_action_at >= {pivot}"),
+            "SELECT count(*) FROM companies WHERE has_phone=1",
+            "SELECT count(*) FROM companies WHERE has_phone=0",
+            "SELECT count(*) FROM companies WHERE status=5",
+        ] {
+            assert!(scalar(conn, sql) > 0, "fixture lacks: {sql}");
+        }
+        assert!(scalar(conn, "SELECT count(DISTINCT status) FROM companies") >= 5);
+        let mut filters = vec![
+            Filters {
+                include_excluded: true,
+                ..Filters::default()
+            },
+            Filters::default(),
+            Filters {
+                has_phone: Some(true),
+                ..Filters::default()
+            },
+        ];
+        filters.extend((0..=5).map(|code| Filters {
+            status: vec![Status::from_code(code).unwrap()],
+            include_excluded: true,
+            ..Filters::default()
+        }));
+        filters.extend([i64::MAX, pivot].map(|before| Filters {
+            next_action_before: Some(before),
+            ..Filters::default()
+        }));
+        let combined = engine.count_many(&filters).unwrap();
+        let separate = filters
+            .iter()
+            .map(|filter| engine.count(filter).unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(combined, separate);
+        assert_eq!(
+            combined[0].n,
+            u64::try_from(scalar(conn, "SELECT count(*) FROM companies")).unwrap()
+        );
+        assert!(
+            combined[1].n < combined[0].n,
+            "excluded companies are mixed in"
+        );
+        assert!(combined[10].n > 0 && combined[10].n < combined[9].n);
+    });
+}

@@ -191,12 +191,69 @@ fn failed_engine_constructor_does_not_treat_an_absent_engine_as_healthy() {
     let proxy = proxy::FaultProxy::start(fixture.tenant.address()).unwrap();
     let mut web = Fixture::service(&fixture.control.endpoint(), &proxy.endpoint());
     proxy.arm(proxy::Fault::LoseCommitResponse);
+    assert!(!web.exit_requested());
     unknown(&web.dispatch(&fixture.request("GET", "/api/summary", &Value::Null), AT));
     assert_eq!(proxy.triggered(), 1);
     let sent = proxy.requests();
-    assert!(fixture.store().gate_status().unwrap().is_some());
+    // remote-performance 4.4: the gate-free read takes no gate, and the
+    // serve loop ends the process after this reply.
+    assert!(fixture.store().gate_status().unwrap().is_none());
+    assert!(web.exit_requested());
     unknown(&web.dispatch(&fixture.request("GET", "/api/summary", &Value::Null), AT));
     assert_eq!(proxy.requests(), sent);
+}
+
+#[test]
+fn tenant_identity_mismatch_on_a_gate_free_read_matches_the_serialized_reply() {
+    let _serial = FIXTURES
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let fixture = Fixture::new();
+    let raw = fixture.raw_tenant();
+    let original: String = raw
+        .query_row("SELECT value FROM meta WHERE key='database_id'", [], |r| {
+            r.get(0)
+        })
+        .unwrap();
+    let mut web = Fixture::service(&fixture.control.endpoint(), &fixture.tenant.endpoint());
+    raw.execute(
+        "UPDATE meta SET value='ffffffffffffffffffffffffffffffff' WHERE key='database_id'",
+        [],
+    )
+    .unwrap();
+    let summary = fixture.request("GET", "/api/summary", &Value::Null);
+    // POST is never gate-free, so it shows the serialized path's reply.
+    let serialized = web
+        .dispatch(
+            &fixture.request(
+                "POST",
+                "/api/companies",
+                &json!({"name":"合成の確認企業","prefecture":13}),
+            ),
+            AT,
+        )
+        .reply
+        .status;
+    let read = web.dispatch(&summary, AT).reply.status;
+    assert_eq!(read, serialized);
+    assert_ne!(
+        read, 503,
+        "a non-communication failure does not freeze the process"
+    );
+    assert!(!web.exit_requested());
+    let gates: i64 = Connection::open_remote(
+        RemoteOptions::new(fixture.control.endpoint(), TOKEN).allow_loopback_http_for_tests(),
+    )
+    .unwrap()
+    .query_row("SELECT count(*) FROM remote_gate", [], |r| r.get(0))
+    .unwrap();
+    assert_eq!(gates, 0);
+    raw.execute(
+        "UPDATE meta SET value=?1 WHERE key='database_id'",
+        [original],
+    )
+    .unwrap();
+    assert_eq!(web.dispatch(&summary, AT).reply.status, 200);
 }
 
 #[test]

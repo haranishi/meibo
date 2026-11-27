@@ -22,6 +22,7 @@ impl RemoteConnection {
                 Some("remote database transaction already active".into()),
             ));
         }
+        self.check_fence(!matches!(behavior, TransactionBehavior::Deferred))?;
         let sql = match behavior {
             TransactionBehavior::Deferred => "BEGIN DEFERRED",
             TransactionBehavior::Immediate => "BEGIN IMMEDIATE",
@@ -62,6 +63,29 @@ impl RemoteConnection {
             return Err(RemoteErrorKind::OutcomeUnknown.error());
         }
         self.close(&mut stream)?;
+        result
+    }
+
+    /// Send one request that cannot change data on its own closing stream.
+    ///
+    /// There is no foreign-key setup: callers use it only for Describe and for
+    /// a SELECT that both the provider and the local inspection call read-only.
+    /// Failures are returned as-is and still poison the connection; nothing
+    /// is resent.
+    pub(super) fn request_read(&self, request: StreamRequest) -> Result<StreamResponse> {
+        self.ensure_usable()?;
+        let response = self.pipeline_with(
+            &self.transport.pipeline,
+            None,
+            vec![request, StreamRequest::Close(CloseStreamReq {})],
+            true,
+            true,
+        )?;
+        let mut results = response.results.into_iter();
+        let result = expect_ok(results.next().unwrap());
+        if expect_ok(results.next().unwrap()).is_err() {
+            return self.invalid_response();
+        }
         result
     }
 

@@ -189,6 +189,54 @@ pub(crate) fn cursor_after_offset(
 }
 
 pub(crate) fn count(db: &Db, f: &Filters) -> Result<Counted, EngineError> {
+    let (sql, args, slow) = count_sql(f)?;
+    let n = db
+        .conn()
+        .query_row(&sql, params_from_iter(args), unsigned)
+        .map_err(storage)?;
+    Ok(Counted { n, slow })
+}
+
+/// Return the same counts as calling [`count`] for each filter in order.
+///
+/// A remote database receives one SELECT whose columns are exactly the
+/// individual count statements as scalar subqueries; a local file keeps the
+/// original statement per filter.
+pub(crate) fn count_many(db: &Db, filters: &[Filters]) -> Result<Vec<Counted>, EngineError> {
+    #[cfg(feature = "cloud")]
+    if db.conn().is_remote() && !filters.is_empty() {
+        let mut columns = Vec::with_capacity(filters.len());
+        let mut args = Vec::new();
+        let mut slow = Vec::with_capacity(filters.len());
+        for f in filters {
+            let (sql, values, is_slow) = count_sql(f)?;
+            columns.push(format!("({sql})"));
+            args.extend(values);
+            slow.push(is_slow);
+        }
+        let sql = format!("SELECT {}", columns.join(","));
+        let counts = db
+            .conn()
+            .query_row(&sql, params_from_iter(args), |row| {
+                (0..filters.len())
+                    .map(|index| {
+                        let n: i64 = row.get(index)?;
+                        u64::try_from(n)
+                            .map_err(|_| crate::sql::Error::IntegralValueOutOfRange(index, n))
+                    })
+                    .collect::<crate::sql::Result<Vec<_>>>()
+            })
+            .map_err(storage)?;
+        return Ok(counts
+            .into_iter()
+            .zip(slow)
+            .map(|(n, slow)| Counted { n, slow })
+            .collect());
+    }
+    filters.iter().map(|f| count(db, f)).collect()
+}
+
+fn count_sql(f: &Filters) -> Result<(String, Vec<Value>, bool), EngineError> {
     let plan = Plan::new(f, filter_sort(f))?;
     let quick = matches!(plan.number, 16 | 17 | 18 | 22);
     let (sql, args) = if quick {
@@ -208,11 +256,7 @@ pub(crate) fn count(db: &Db, f: &Filters) -> Result<Counted, EngineError> {
             plan.args.clone(),
         )
     };
-    let n = db
-        .conn()
-        .query_row(&sql, params_from_iter(args), unsigned)
-        .map_err(storage)?;
-    Ok(Counted { n, slow: plan.slow })
+    Ok((sql, args, plan.slow))
 }
 
 pub(crate) fn activity_count(db: &Db) -> Result<u64, EngineError> {
