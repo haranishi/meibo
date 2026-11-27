@@ -85,4 +85,6 @@
 パスは `crates/` 基準。準備確認・session 認証・組織DB照合・通常の画面と検索の読み取り SQL はソース上で単独の SELECT と確認した。取引開始時の外部キー設定は従来どおり新しい接続で行う。
 試験ファイルは `db/tests/remote_keepalive.rs`、`db/tests/remote_transactions.rs`、`app/src/hosted/remote/runtime_tests.rs`、`app/tests/remote_hosted.rs`、`core/tests/remote_domain.rs`。DB と HTTP の単体試験は実装ファイル内に置いた。`core/src/engine.rs` の公開 API の説明にも500件の区切りを記載した。
 
-9の初回 Describe は合意どおり維持した。変更した Rust ファイルの `rustfmt --check` と `git diff --check` は成功。今回のビルドと試験は呼び出し側で実行する。上の測定値と合格件数は前回の記録。
+9の初回 Describe は合意どおり維持した（起動後の1回だけ）。修正後の `check-cloud` は607件成功・失敗0・無視4、`check-all` は412件成功・失敗0・無視3。1・2・3・7・8の修正を一時的に外すと対応する試験が落ちることを確かめた。上の応答時間は修正前の版の記録。
+
+CIの公開デモ検査（幅1440px）が一度、入室ボタンの後に画面が移らず失敗した。今回の修正は遠隔保存の経路で、公開デモは手元の保存を使う。手元で15回は再現せず原因は未特定。次に起きたとき分かるよう、失敗の説明に入室の応答と画面の案内を残すようにした。

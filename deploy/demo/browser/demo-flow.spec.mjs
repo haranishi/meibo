@@ -197,8 +197,20 @@ test.describe.serial("公開デモ（実バイナリ・HTTPS前段）", () => {
   });
 
   test("入室：ボタン1つで入れ、常時の注意書きと、使えない導線の非表示が効く", async () => {
+    // CIで一度、押しても画面が移らず原因が残らなかったので、失敗したときは入室の応答と画面の案内を残す。
+    const replies = [];
+    const note = (response) => { if (response.url() === `${origin}/demo/enter`) replies.push(response.status()); };
+    page.on("response", note);
     await page.getByRole("button", { name: "デモを開く" }).click();
-    await expect(page).toHaveURL(`${origin}/`);
+    try {
+      await expect(page).toHaveURL(`${origin}/`);
+    } catch (error) {
+      const text = (selector) => page.locator(selector).textContent({ timeout: 1000 }).catch(() => "なし");
+      error.message += `\n入室の応答: [${replies.join(", ")}]\nボタン: ${await text("#demo-enter")}\n案内: ${await text("#login-error")}\nこれまでの問題: ${problems.join(" / ") || "なし"}`;
+      throw error;
+    } finally {
+      page.off("response", note);
+    }
     const banner = page.locator(".demo-banner");
     await expect(banner).toBeVisible();
     for (const text of ["公開デモ", "データはすべて合成です", "15分操作がないと初期化されます", "個人情報を入力しないでください"]) {
