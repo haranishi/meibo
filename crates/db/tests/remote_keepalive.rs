@@ -8,8 +8,8 @@
 mod support;
 
 use meibo_db::{
-    Connection, REUSE_READ_CONNECTIONS, ReadFence, RemoteOptions, TransactionBehavior,
-    remote_error_kind,
+    Connection, REUSE_READ_CONNECTIONS, ReadFence, ReadStep, RemoteErrorKind, RemoteOptions,
+    TransactionBehavior, remote_error_kind,
 };
 use std::{collections::BTreeMap, time::Duration};
 use support::{
@@ -279,3 +279,57 @@ keepalive_test!(
         );
     }
 );
+
+keepalive_test!(fence_checks_sql_before_sending, {
+    let server = database();
+    let proxy = FaultProxy::start(server.address()).unwrap();
+    let connection = connect(&proxy.endpoint());
+    let mut cached = connection.prepare("VALUES(1)").unwrap();
+    let sent = proxy.requests();
+
+    for sql in [
+        "UPDATE synthetic SET value=0",
+        "PRAGMA user_version",
+        "SELECT 1; SELECT 2",
+        "COMMIT",
+    ] {
+        let fence = ReadFence::begin();
+        let error = connection.prepare(sql).err().expect("refused Describe");
+        assert_eq!(
+            remote_error_kind(&error),
+            Some(RemoteErrorKind::Unsupported)
+        );
+        assert!(fence.tripped());
+        assert!(!fence.failed());
+        assert_eq!(proxy.requests(), sent);
+    }
+    for step in [
+        ReadStep::Check("PRAGMA foreign_keys"),
+        ReadStep::Check("UPDATE synthetic SET value=0"),
+        ReadStep::Query("VALUES(1)", Vec::new()),
+    ] {
+        let fence = ReadFence::begin();
+        let error = connection
+            .read_batch(&[ReadStep::Query("SELECT 1", Vec::new()), step])
+            .unwrap_err();
+        assert_eq!(
+            remote_error_kind(&error),
+            Some(RemoteErrorKind::Unsupported)
+        );
+        assert!(fence.tripped());
+        assert!(!fence.failed());
+        assert_eq!(proxy.requests(), sent);
+    }
+    let fence = ReadFence::begin();
+    let error = cached
+        .query_row([], |row| row.get::<_, i64>(0))
+        .unwrap_err();
+    assert_eq!(
+        remote_error_kind(&error),
+        Some(RemoteErrorKind::Unsupported)
+    );
+    assert!(fence.tripped());
+    assert!(!fence.failed());
+    assert!(!connection.is_poisoned());
+    assert_eq!(proxy.requests(), sent);
+});

@@ -878,18 +878,20 @@ fn gate_free_reads_write_nothing_and_fall_back_for_writes() {
             .status,
         503
     );
-    let login = raw_get(&web, "/login", "");
+    // The deployment probe requires no-store on the login HTML, even with a validator.
+    let login = raw_get(&web, "/login", "If-None-Match: *\r\n");
     assert!(login.starts_with("HTTP/1.1 200"));
-    assert!(login.contains("Cache-Control: no-cache"));
-    let tag = login
+    assert!(login.contains("Cache-Control: no-store") && !login.contains("ETag:"));
+    let css = raw_get(&web, "/login.css", "");
+    assert!(css.starts_with("HTTP/1.1 200") && css.contains("Cache-Control: no-cache"));
+    let tag = css
         .lines()
         .find_map(|line| line.strip_prefix("ETag: "))
-        .unwrap()
-        .to_owned();
+        .unwrap();
     let callback = raw_get(&web, "/oauth/activity-return", "");
     assert!(callback.starts_with("HTTP/1.1 200"));
     assert!(callback.contains("Cache-Control: no-store") && !callback.contains("ETag"));
-    let revalidated = raw_get(&web, "/login", &format!("If-None-Match: {tag}\r\n"));
+    let revalidated = raw_get(&web, "/login.css", &format!("If-None-Match: {tag}\r\n"));
     assert!(revalidated.starts_with("HTTP/1.1 304"));
     assert_eq!(
         web.request("GET", "/health", None, &Value::Null).status,
@@ -927,8 +929,6 @@ fn unverified_cookies_are_limited_and_verified_sessions_are_not() {
     fixture.setup();
     let web = Web::start(&fixture);
     let alpha = web.login("alpha", "admin", PASSWORD);
-    // The first signed-in request verifies the session in this process.
-    total(&web, &alpha, 2);
     let forged = Auth {
         cookie: format!("__Host-meibo-session={}", "a".repeat(64)),
         scope: alpha.scope.clone(),
@@ -946,7 +946,7 @@ fn unverified_cookies_are_limited_and_verified_sessions_are_not() {
     }
     assert!(limited, "a forged cookie must use the anonymous bucket");
     assert_eq!(web.request("GET", "/login", None, &Value::Null).status, 429);
-    // The bucket is empty, yet the verified session still works.
+    // Login already verified this session, even on its first signed-in request.
     total(&web, &alpha, 2);
     assert_eq!(
         web.request("GET", "/health", None, &Value::Null).status,

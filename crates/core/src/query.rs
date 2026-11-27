@@ -199,39 +199,36 @@ pub(crate) fn count(db: &Db, f: &Filters) -> Result<Counted, EngineError> {
 
 /// Return the same counts as calling [`count`] for each filter in order.
 ///
-/// A remote database receives one SELECT whose columns are exactly the
-/// individual count statements as scalar subqueries; a local file keeps the
-/// original statement per filter.
+/// A remote SELECT includes up to 500 scalar subqueries to stay within
+/// SQLite's column limit. A local file keeps the original statement per filter.
 pub(crate) fn count_many(db: &Db, filters: &[Filters]) -> Result<Vec<Counted>, EngineError> {
     #[cfg(feature = "cloud")]
-    if db.conn().is_remote() && !filters.is_empty() {
-        let mut columns = Vec::with_capacity(filters.len());
-        let mut args = Vec::new();
-        let mut slow = Vec::with_capacity(filters.len());
-        for f in filters {
-            let (sql, values, is_slow) = count_sql(f)?;
-            columns.push(format!("({sql})"));
-            args.extend(values);
-            slow.push(is_slow);
-        }
-        let sql = format!("SELECT {}", columns.join(","));
-        let counts = db
-            .conn()
-            .query_row(&sql, params_from_iter(args), |row| {
-                (0..filters.len())
-                    .map(|index| {
+    if db.conn().is_remote() {
+        let mut counts = Vec::with_capacity(filters.len());
+        for chunk in filters.chunks(500) {
+            let mut columns = Vec::with_capacity(chunk.len());
+            let mut args = Vec::new();
+            let mut slow = Vec::with_capacity(chunk.len());
+            for f in chunk {
+                let (sql, values, is_slow) = count_sql(f)?;
+                columns.push(format!("({sql})"));
+                args.extend(values);
+                slow.push(is_slow);
+            }
+            let sql = format!("SELECT {}", columns.join(","));
+            db.conn()
+                .query_row(&sql, params_from_iter(args), |row| {
+                    for (index, slow) in slow.into_iter().enumerate() {
                         let n: i64 = row.get(index)?;
-                        u64::try_from(n)
-                            .map_err(|_| crate::sql::Error::IntegralValueOutOfRange(index, n))
-                    })
-                    .collect::<crate::sql::Result<Vec<_>>>()
-            })
-            .map_err(storage)?;
-        return Ok(counts
-            .into_iter()
-            .zip(slow)
-            .map(|(n, slow)| Counted { n, slow })
-            .collect());
+                        let n = u64::try_from(n)
+                            .map_err(|_| crate::sql::Error::IntegralValueOutOfRange(index, n))?;
+                        counts.push(Counted { n, slow });
+                    }
+                    Ok(())
+                })
+                .map_err(storage)?;
+        }
+        return Ok(counts);
     }
     filters.iter().map(|f| count(db, f)).collect()
 }

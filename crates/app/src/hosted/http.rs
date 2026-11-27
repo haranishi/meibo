@@ -256,7 +256,7 @@ pub(super) struct Hosted<S = Store> {
     /// Held only during a gate-free read; it fences every remote connection.
     #[cfg(feature = "cloud")]
     fence: Option<meibo_db::ReadFence>,
-    /// Requests without a session verified by this process (3.6).
+    /// Quota for anonymous requests, public forms and login (3.6).
     anonymous: AnonymousLimit,
     verified: VerifiedSessions,
     /// Set after a gate-free read ended with an unknown outcome (4.4): the
@@ -362,19 +362,25 @@ impl<S: HostedStorage> Hosted<S> {
         if let Some(reply) = self.boundary(input) {
             return reply;
         }
-        // Before any storage or access check: a flood of requests without a
-        // session cookie cannot turn into provider requests (3.6).
-        if self.store.remote()
-            && path(input) != "/health"
-            && !self
-                .token(input)
-                .is_some_and(|token| self.verified.contains(token))
-            && !self.anonymous.allow(at)
-        {
-            return error(
-                429,
-                "アクセスが集中しています。しばらく待ってから操作してください。",
-            );
+        if self.store.remote() {
+            if self.uncertain || self.poisoned() {
+                return unknown();
+            }
+            // Public forms and login use storage without authenticating the cookie.
+            let path = path(input);
+            if path != "/health"
+                && (path == "/auth/login"
+                    || leads::form_path(&input.target).is_some()
+                    || !self
+                        .token(input)
+                        .is_some_and(|token| self.verified.contains(token)))
+                && !self.anonymous.allow(at)
+            {
+                return error(
+                    429,
+                    "アクセスが集中しています。しばらく待ってから操作してください。",
+                );
+            }
         }
         #[cfg(feature = "cloud")]
         let access_user = match self.access_user(input, at) {
@@ -383,9 +389,6 @@ impl<S: HostedStorage> Hosted<S> {
         };
         #[cfg(not(feature = "cloud"))]
         let access_user: Option<String> = None;
-        if self.store.remote() && (self.uncertain || self.poisoned()) {
-            return unknown();
-        }
         #[cfg(feature = "cloud")]
         if self.store.remote() {
             if let Some(reply) = self.fixed_reply(input) {
@@ -436,18 +439,17 @@ impl<S: HostedStorage> Hosted<S> {
             return None;
         }
         let path = path(input);
+        if path == "/login" {
+            return Some(super::public_entry::login(&self.config).into());
+        }
         // The OAuth return page keeps no-store and no revalidation.
         if let Some(reply) = crate::server::activity_sync::callback(path) {
             return Some(reply.into());
         }
         let reply = if path.starts_with("/forms/") {
             leads::public_asset(&input.target)?
-        } else if let Some(reply) = super::public_entry::asset(path) {
-            reply
-        } else if path == "/login" {
-            super::public_entry::login(&self.config)
         } else {
-            return None;
+            super::public_entry::asset(path)?
         };
         Some(revalidated(input, reply))
     }
@@ -466,17 +468,13 @@ impl<S: HostedStorage> Hosted<S> {
     ) -> Option<HostedReply> {
         self.fence = Some(meibo_db::ReadFence::begin());
         let result = match self.store.read_ready() {
-            Ok(true) => Ok(self.dispatch_checked(input, at, access_user)),
-            Ok(false) => Err(error(503, "保守処理中、または管理者の確認待ちです。")),
-            Err(cause) => Ok(Err(cause)),
+            Ok(true) => self.dispatch_checked(input, at, access_user).map(Some),
+            Ok(false) => Ok(None),
+            Err(cause) => Err(cause),
         };
-        // Dropping the fence restores writes and fresh sockets everywhere.
-        let tripped = self.fence.take().is_some_and(|fence| fence.tripped());
-        let result = match result {
-            Ok(result) => result,
-            Err(busy) => return Some(busy),
-        };
-        if self.poisoned()
+        let fence = self.fence.take().expect("active read fence");
+        if fence.failed()
+            || self.poisoned()
             || result
                 .as_ref()
                 .is_err_and(|cause| uncertain_error(cause.as_ref()))
@@ -484,7 +482,8 @@ impl<S: HostedStorage> Hosted<S> {
             return Some(self.stop_after_uncertain_read());
         }
         match result {
-            Ok(reply) if !tripped && reply.reply.status != 500 => Some(reply),
+            Ok(None) => Some(error(503, "保守処理中、または管理者の確認待ちです。")),
+            Ok(Some(reply)) if !fence.tripped() && reply.reply.status != 500 => Some(reply),
             _ => None,
         }
     }
@@ -1003,7 +1002,7 @@ impl<S: HostedStorage> Hosted<S> {
         Ok(self.login_response(outcome))
     }
 
-    fn login_response(&self, outcome: LoginOutcome) -> HostedReply {
+    fn login_response(&mut self, outcome: LoginOutcome) -> HostedReply {
         match outcome {
             LoginOutcome::Invalid if self.config.access_mode() => {
                 error(403, "このアカウントは指定の組織で利用できません。")
@@ -1014,6 +1013,9 @@ impl<S: HostedStorage> Hosted<S> {
                 "ログイン試行の上限です。15分後にもう一度操作してください。",
             ),
             LoginOutcome::Success(login) => {
+                if self.store.remote() {
+                    self.verified.record(&login.token, true);
+                }
                 let mut reply: HostedReply =
                     Reply::json(200, &identity_json(&login.identity)).into();
                 reply
@@ -1302,7 +1304,7 @@ fn uncertain_error(error: &(dyn std::error::Error + 'static)) -> bool {
     }
 }
 
-/// One service-wide token bucket for requests without a session cookie:
+/// One service-wide token bucket for requests without a verified session:
 /// five per second, with at most 100 at once. `at` is the injected clock.
 struct AnonymousLimit {
     tokens: i64,
@@ -1364,7 +1366,14 @@ impl Default for AnonymousLimit {
 fn revalidated(input: &Input, reply: Reply) -> HostedReply {
     let digest = super::auth::digest(&reply.body);
     let tag = format!("\"{}\"", super::auth::hex(&digest[..16]));
-    let mut reply: HostedReply = if input.single_header("If-None-Match") == Some(tag.as_str()) {
+    let matches = input.single_header("If-None-Match").is_some_and(|value| {
+        value.trim() == "*"
+            || value
+                .split(',')
+                .map(str::trim)
+                .any(|candidate| candidate.strip_prefix("W/").unwrap_or(candidate) == tag)
+    });
+    let mut reply: HostedReply = if matches {
         Reply {
             status: 304,
             mime: reply.mime,
@@ -1442,5 +1451,39 @@ mod anonymous_limit_tests {
         // A long pause refills only up to the burst.
         assert!((0..100).all(|_| limit.allow(start + 3600)));
         assert!(!limit.allow(start + 3600));
+    }
+}
+
+#[cfg(all(test, feature = "cloud"))]
+mod cache_tests {
+    use super::{Input, Reply, revalidated};
+
+    #[test]
+    fn if_none_match_uses_weak_comparison() {
+        let mut input = Input {
+            method: "GET".into(),
+            target: "/login.css".into(),
+            headers: Vec::new(),
+            body: Vec::new(),
+        };
+        let part = || Reply::text("text/css", "body{}");
+        let first = revalidated(&input, part());
+        let tag = first.header("ETag").unwrap();
+        assert_eq!(first.reply.status, 200);
+        for (value, expected) in [
+            ("*".to_owned(), 304),
+            (format!("W/{tag}"), 304),
+            (format!("\"other\", {tag}"), 304),
+            (format!("\"other,part\",\tW/{tag}, \"last\""), 304),
+            ("\"other\", W/\"old\"".to_owned(), 200),
+            ("\"with,*,commas\"".to_owned(), 200),
+        ] {
+            input.headers = vec![("If-None-Match".into(), value)];
+            let response = revalidated(&input, part());
+            assert_eq!(response.reply.status, expected);
+            assert_eq!(response.reply.body.is_empty(), expected == 304);
+            assert_eq!(response.header("ETag"), Some(tag));
+            assert_eq!(response.cache, Some("no-cache"));
+        }
     }
 }

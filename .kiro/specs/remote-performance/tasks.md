@@ -66,3 +66,23 @@
 
 - 配備直後の最初の1回はログイン2.4秒・画面の本体1.9秒（組織DBを初めて開くため）。停止状態からの起動直後は未測定。
 - 保存の目標（0.3〜0.4秒）には届かなかった。書き込みは往復ごとに新しい接続を使う今の形（要件6.2）のためとみられる。
+
+### 2026-11-27 追加レビューの修正
+
+| 番号 | 修正箇所と判定 | 追加・更新した回帰試験 |
+|---|---|---|
+| 1 | `db/src/remote.rs` と `app/src/hosted/http.rs`。接続の破棄中に応答を失っても fence に記録し、排他取得前に停止する | `failure_lasts_until_outer_fence_ends`、`lost_rollback_stops_without_gate` |
+| 2 | `db/src/remote.rs`。単独の SELECT だけを Describe とまとめ読みの Check に送る。実行時は readonly も確認する | `fence_checks_sql_before_sending` |
+| 3 | `app/src/hosted/http.rs`。公開フォームの GET・POST とログインには匿名枠を適用する | `public_routes_use_anonymous_quota` |
+| 4 | 同ファイル。配備時のログイン検査に合わせて `/login` を no-store に戻し、304の確認には固定部品 `/login.css` を使う | `gate_free_reads_write_nothing_and_fall_back_for_writes`（更新） |
+| 5 | 同ファイル。ログイン成功時に session を記録し、直後の認証要求を匿名枠から免除する | `new_cookie_skips_empty_bucket`、`unverified_cookies_are_limited_and_verified_sessions_are_not`（更新） |
+| 6 | 同ファイル。結果不明と接続失効を429の前に判定する | `lost_rollback_stops_without_gate`、`poison_precedes_quota` |
+| 7 | `db/src/remote/state.rs`。範囲外で始めた取引と範囲外の操作を挟んだ取引は、fence 中の確定時に1回だけ取り消す | `fenced_commit_rolls_back_prior_writes` |
+| 8 | `db/src/remote.rs` と `db/src/remote/state.rs`。取引中に DDL を実行したら、終了まで列構成の保持を休止する | `ddl_describes_expire_on_rollback` |
+| 10 | `core/src/query.rs`。件数を500条件ずつ集計する。試験は2001条件の順序と、準備済みの500条件が1往復で済むことを照合する | `counts_chunk_at_500` |
+| 11 | `app/src/hosted/http.rs`。固定部品は `If-None-Match` のワイルドカード、一覧、弱いタグに対応する | `if_none_match_uses_weak_comparison` |
+
+パスは `crates/` 基準。準備確認・session 認証・組織DB照合・通常の画面と検索の読み取り SQL はソース上で単独の SELECT と確認した。取引開始時の外部キー設定は従来どおり新しい接続で行う。
+試験ファイルは `db/tests/remote_keepalive.rs`、`db/tests/remote_transactions.rs`、`app/src/hosted/remote/runtime_tests.rs`、`app/tests/remote_hosted.rs`、`core/tests/remote_domain.rs`。DB と HTTP の単体試験は実装ファイル内に置いた。`core/src/engine.rs` の公開 API の説明にも500件の区切りを記載した。
+
+9の初回 Describe は合意どおり維持した。変更した Rust ファイルの `rustfmt --check` と `git diff --check` は成功。今回のビルドと試験は呼び出し側で実行する。上の測定値と合格件数は前回の記録。

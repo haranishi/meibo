@@ -77,6 +77,7 @@ thread_local! {
 struct FenceState {
     depth: Cell<usize>,
     tripped: Cell<bool>,
+    failed: Cell<bool>,
 }
 
 impl FenceState {
@@ -84,6 +85,7 @@ impl FenceState {
         Self {
             depth: Cell::new(0),
             tripped: Cell::new(false),
+            failed: Cell::new(false),
         }
     }
 }
@@ -94,8 +96,9 @@ impl FenceState {
 ///
 /// A refusal never poisons the connection and never uses an uncertain-outcome
 /// classification. [`ReadFence::tripped`] reports whether anything was
-/// refused, so the caller can discard the reply and use the serialized path.
-/// Dropping the value always restores writes (RAII).
+/// refused. Before retrying a refusal on the serialized path, the caller
+/// must check [`ReadFence::failed`], including failures during cleanup.
+/// Dropping the last fence restores writes and clears both flags.
 #[must_use = "the fence is active only while this value is held"]
 pub struct ReadFence {
     // Thread-bound: the fence must end on the thread that began it.
@@ -103,6 +106,10 @@ pub struct ReadFence {
 }
 
 impl ReadFence {
+    fn active() -> bool {
+        FENCE.with(|fence| fence.depth.get() > 0)
+    }
+
     /// Begin refusing possible writes on this thread.
     pub fn begin() -> Self {
         FENCE.with(|fence| fence.depth.set(fence.depth.get() + 1));
@@ -116,6 +123,13 @@ impl ReadFence {
     pub fn tripped(&self) -> bool {
         FENCE.with(|fence| fence.tripped.get())
     }
+
+    /// Whether a transport or protocol failure invalidated a connection since
+    /// the outermost fence began. The flag survives dropping that connection.
+    #[must_use]
+    pub fn failed(&self) -> bool {
+        FENCE.with(|fence| fence.failed.get())
+    }
 }
 
 impl Drop for ReadFence {
@@ -125,6 +139,7 @@ impl Drop for ReadFence {
             fence.depth.set(depth);
             if depth == 0 {
                 fence.tripped.set(false);
+                fence.failed.set(false);
             }
         });
     }
@@ -135,6 +150,7 @@ impl fmt::Debug for ReadFence {
         formatter
             .debug_struct("ReadFence")
             .field("tripped", &self.tripped())
+            .field("failed", &self.failed())
             .finish()
     }
 }
@@ -190,11 +206,20 @@ impl RemoteConnection {
     /// Reject a possible write inside a fence before anything is sent.
     #[allow(clippy::unused_self)] // Scoped with the connection's other guards.
     fn check_fence(&self, may_write: bool) -> Result<()> {
-        if may_write && FENCE.with(|fence| fence.depth.get() > 0) {
+        if may_write && ReadFence::active() {
             FENCE.with(|fence| fence.tripped.set(true));
             return Err(RemoteErrorKind::Unsupported.error());
         }
         Ok(())
+    }
+
+    fn inspect_sql(&self, sql: &str, in_transaction: bool) -> Result<sql::Effects> {
+        let effects = sql::inspect(sql, in_transaction);
+        if effects.is_err() {
+            // Locally rejected transaction-control SQL also trips a read fence.
+            self.check_fence(true)?;
+        }
+        effects
     }
 
     /// Run read-only steps in one closing round trip and return each result.
@@ -213,13 +238,22 @@ impl RemoteConnection {
         if self.active.borrow().is_some() {
             return Err(RemoteErrorKind::Unsupported.error());
         }
+        // Validate the whole batch before the first uncached Query sends a Describe.
+        for step in steps {
+            let (ReadStep::Query(sql, _) | ReadStep::Check(sql)) = step;
+            let effects = self.inspect_sql(sql, false)?;
+            self.check_fence(!effects.single_select)?;
+            if matches!(step, ReadStep::Query(..)) && !effects.single_select {
+                return Err(RemoteErrorKind::Unsupported.error());
+            }
+        }
         let mut requests = vec![execute_sql("BEGIN DEFERRED", false)];
         for step in steps {
             match step {
                 ReadStep::Query(sql, values) => {
-                    let effects = sql::inspect(sql, false)?;
                     let described = self.describe(sql)?;
-                    if !effects.single_select || !described.read_only {
+                    if !described.read_only {
+                        self.check_fence(true)?;
                         return Err(RemoteErrorKind::Unsupported.error());
                     }
                     crate::statement::check_parameters(values.len(), described.parameters)?;
@@ -228,7 +262,6 @@ impl RemoteConnection {
                     requests.push(StreamRequest::Execute(ExecuteStreamReq { stmt }));
                 }
                 ReadStep::Check(sql) => {
-                    sql::inspect(sql, false)?;
                     requests.push(StreamRequest::Describe(DescribeStreamReq {
                         sql: Some((*sql).to_owned()),
                         ..DescribeStreamReq::default()
@@ -285,10 +318,20 @@ impl RemoteConnection {
         Ok(outputs)
     }
 
-    fn forget_described(&self, schema: bool) {
-        if schema {
-            self.described.borrow_mut().clear();
+    fn invalidate_described(&self, schema_change: bool) {
+        self.described.borrow_mut().clear();
+        if schema_change && let Some(stream) = self.active.borrow_mut().as_mut() {
+            stream.schema_changed = true;
         }
+    }
+
+    fn poison(&self) {
+        self.poisoned.set(true);
+        FENCE.with(|fence| {
+            if fence.depth.get() > 0 {
+                fence.failed.set(true);
+            }
+        });
     }
 
     /// Whether a transport or protocol failure has invalidated this connection.
@@ -345,10 +388,11 @@ impl RemoteConnection {
     fn describe(&self, sql: &str) -> Result<Described> {
         self.ensure_usable()?;
         let in_transaction = self.active.borrow().is_some();
-        sql::inspect(sql, in_transaction)?;
+        let effects = self.inspect_sql(sql, in_transaction)?;
         if let Some(described) = self.described.borrow().get(sql) {
             return Ok(*described);
         }
+        self.check_fence(!effects.single_select)?;
         let request = StreamRequest::Describe(DescribeStreamReq {
             sql: Some(sql.to_owned()),
             ..DescribeStreamReq::default()
@@ -368,6 +412,15 @@ impl RemoteConnection {
             columns: response.result.cols.len(),
             read_only: response.result.is_readonly,
         };
+        // This schema may disappear on rollback (including to a savepoint).
+        if self
+            .active
+            .borrow()
+            .as_ref()
+            .is_some_and(|stream| stream.schema_changed)
+        {
+            return Ok(described);
+        }
         let mut cache = self.described.borrow_mut();
         if cache.len() >= DESCRIBED_LIMIT {
             cache.clear();
@@ -401,9 +454,9 @@ impl RemoteConnection {
     /// one script; its statements are never split on semicolons.
     pub fn execute_batch(&self, sql: &str) -> Result<()> {
         self.ensure_usable()?;
-        let effects = sql::inspect(sql, self.active.borrow().is_some())?;
         self.check_fence(true)?;
-        self.forget_described(true);
+        let effects = sql::inspect(sql, self.active.borrow().is_some())?;
+        self.invalidate_described(effects.schema);
         let (response, rowid) = self.request_with_rowid(
             StreamRequest::Sequence(SequenceStreamReq {
                 sql: Some(sql.to_owned()),
@@ -446,15 +499,18 @@ impl RemoteConnection {
     ) -> Result<StmtResult> {
         self.ensure_usable()?;
         let in_transaction = self.active.borrow().is_some();
-        let effects = sql::inspect(sql, in_transaction)?;
-        self.check_fence(!read_only)?;
-        self.forget_described(effects.schema);
+        let effects = self.inspect_sql(sql, in_transaction)?;
+        let read_select = read_only && effects.single_select;
+        self.check_fence(!read_select)?;
+        if effects.schema {
+            self.invalidate_described(true);
+        }
         let mut stmt = Stmt::new(sql, want_rows);
         stmt.args = values.into_iter().map(encode_value).collect();
         let request = StreamRequest::Execute(ExecuteStreamReq { stmt });
         // Both the provider and the local inspection must agree that this is
         // one read-only SELECT before it skips the write-side FK setup.
-        let response = if read_only && effects.single_select && !in_transaction {
+        let response = if read_select && !in_transaction {
             self.request_read(request)?
         } else {
             self.request(request, read_only)?
@@ -487,7 +543,7 @@ impl RemoteConnection {
             RemoteTransportPhase::ResponseDecode,
             RemoteTransportKind::Invalid,
         );
-        self.poisoned.set(true);
+        self.poison();
         Err(RemoteErrorKind::OutcomeUnknown.error())
     }
 
@@ -513,11 +569,11 @@ impl RemoteConnection {
         self.ensure_usable()?;
         // Requirement 6.1/6.2: only a gate-free read (inside a fence on this
         // thread) may reuse a socket. Everything else uses a new connection.
-        let reuse = reuse && FENCE.with(|fence| fence.depth.get() > 0);
+        let reuse = reuse && ReadFence::active();
         let body = PipelineReqBody { baton, requests };
         let result = self.transport.pipeline(url, &body, closing, reuse);
         if result.is_err() {
-            self.poisoned.set(true);
+            self.poison();
         }
         result
     }
@@ -884,15 +940,35 @@ fn sql_failure(code: &str) -> Error {
 
 #[cfg(test)]
 mod tests {
-    use super::{RemoteConnection, RemoteOptions};
+    use super::{ReadFence, RemoteConnection, RemoteOptions};
 
-    #[test]
-    fn same_origin_base_url_preserves_its_path_prefix() {
-        let connection = RemoteConnection::connect(RemoteOptions::new(
+    fn connection() -> RemoteConnection {
+        RemoteConnection::connect(RemoteOptions::new(
             "https://synthetic.invalid",
             "synthetic-token",
         ))
-        .unwrap();
+        .unwrap()
+    }
+
+    #[test]
+    fn failure_lasts_until_outer_fence_ends() {
+        let outer = ReadFence::begin();
+        {
+            let inner = ReadFence::begin();
+            assert!(!inner.failed());
+            // The failing connection is dropped before the fence is inspected.
+            assert!(connection().invalid_response::<()>().is_err());
+            assert!(inner.failed());
+            assert!(!inner.tripped());
+        }
+        assert!(outer.failed());
+        drop(outer);
+        assert!(!ReadFence::begin().failed());
+    }
+
+    #[test]
+    fn same_origin_base_url_preserves_its_path_prefix() {
+        let connection = connection();
         for base in [
             "https://synthetic.invalid/route",
             "https://synthetic.invalid/route/",

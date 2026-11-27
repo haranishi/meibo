@@ -54,6 +54,12 @@ fn identity() -> RemoteIdentity {
     RemoteIdentity::new("tenant-alpha", "crm").unwrap()
 }
 
+fn open_through_proxy(proxy: &proxy::FaultProxy) -> Engine {
+    let remote = RemoteOptions::new(proxy.endpoint(), "synthetic-domain-token")
+        .allow_loopback_http_for_tests();
+    Engine::open_remote(remote, &identity(), &options()).unwrap()
+}
+
 fn with_database(origin: DataOrigin, run: impl FnOnce(Engine, &Connection, &sqld::Sqld)) {
     let _guard = FIXTURES
         .lock()
@@ -630,9 +636,7 @@ fn lost_commit_response_preserves_unknown_outcome_and_poison_without_cleanup_or_
     with_database(DataOrigin::Synthetic, |engine, conn, server| {
         drop(engine);
         let proxy = proxy::FaultProxy::start(server.address()).unwrap();
-        let remote = RemoteOptions::new(proxy.endpoint(), "synthetic-domain-token")
-            .allow_loopback_http_for_tests();
-        let mut engine = Engine::open_remote(remote, &identity(), &options()).unwrap();
+        let mut engine = open_through_proxy(&proxy);
         let commits = proxy.commits();
         let rollbacks = proxy.rollbacks();
         proxy.arm(proxy::Fault::LoseCommitResponse);
@@ -743,5 +747,44 @@ fn combined_summary_counts_match_each_filter_on_mixed_synthetic_data() {
             "excluded companies are mixed in"
         );
         assert!(combined[10].n > 0 && combined[10].n < combined[9].n);
+    });
+}
+
+#[test]
+fn counts_chunk_at_500() {
+    with_database(DataOrigin::Synthetic, |mut engine, _, server| {
+        engine.register_company(&support::company()).unwrap();
+        let cases = [
+            Filters::default(),
+            Filters {
+                has_phone: Some(false),
+                ..Filters::default()
+            },
+            Filters {
+                has_phone: Some(true),
+                ..Filters::default()
+            },
+        ];
+        let answers = cases.each_ref().map(|f| engine.count(f).unwrap());
+        assert_ne!(answers[0].n, answers[1].n);
+        let filters: Vec<_> = cases.iter().cycle().take(2001).cloned().collect();
+        let expected: Vec<_> = answers
+            .iter()
+            .cycle()
+            .take(filters.len())
+            .cloned()
+            .collect();
+        let proxy = proxy::FaultProxy::start(server.address()).unwrap();
+        let reader = open_through_proxy(&proxy);
+        assert_eq!(reader.count_many(&filters).unwrap(), expected);
+        // After Describe is warm, each group of up to 500 counts costs one request.
+        for (length, requests) in [(0, 0), (500, 1), (2001, 5)] {
+            let before = proxy.requests();
+            assert_eq!(
+                reader.count_many(&filters[..length]).unwrap(),
+                expected[..length]
+            );
+            assert_eq!(proxy.requests() - before, requests);
+        }
     });
 }

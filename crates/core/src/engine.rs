@@ -250,7 +250,7 @@ impl Engine {
         query::count(&self.db, f)
     }
     /// 各条件の件数を順に返す。値は条件ごとに[`Self::count`]を呼んだ結果と同じ。
-    /// 遠隔保存では1文にまとめ、手元のファイルでは条件ごとの文を使う。
+    /// 遠隔保存では最大500条件を1文にまとめ、手元のファイルでは条件ごとの文を使う。
     /// # Errors
     /// `InvalidInput`（条件）、`Storage`（集計の失敗）。
     pub fn count_many(&self, filters: &[Filters]) -> Result<Vec<Counted>, EngineError> {
