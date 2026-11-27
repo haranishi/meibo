@@ -1,7 +1,7 @@
 use std::{
-    collections::BTreeSet,
+    collections::{BTreeMap, BTreeSet},
     fs::{self, File},
-    io::Read,
+    io::{ErrorKind, Read},
     path::Path,
 };
 
@@ -14,6 +14,8 @@ use super::{
     HostedResult, Store, auth,
     store::{directory, engine_options, private_mode, regular_file, valid_slug},
 };
+
+const MAX_MANIFEST_BYTES: usize = 64 * 1024;
 
 fn file_hash(path: &Path) -> HostedResult<String> {
     regular_file(path)?;
@@ -59,7 +61,7 @@ fn verify_tenant(path: &Path) -> HostedResult<()> {
     Ok(())
 }
 
-pub(super) fn create(store: &Store, destination: &Path) -> HostedResult<()> {
+pub(super) fn create(store: &Store, destination: &Path) -> HostedResult<String> {
     let _guard = store.lock()?;
     if destination.symlink_metadata().is_ok() {
         return Err("backup先は未存在のディレクトリを指定してください。".into());
@@ -94,7 +96,7 @@ pub(super) fn create(store: &Store, destination: &Path) -> HostedResult<()> {
     }
     let manifest =
         serde_json::to_vec_pretty(&json!({"version":1,"tenants":tenants,"files":files}))?;
-    if manifest.len() > 65536 {
+    if manifest.len() > MAX_MANIFEST_BYTES {
         return Err("backup目録の上限を超えています。保存先は不完全です。".into());
     }
     let path = destination.join("manifest.json");
@@ -106,21 +108,48 @@ pub(super) fn create(store: &Store, destination: &Path) -> HostedResult<()> {
     std::io::Write::write_all(&mut output, &manifest)?;
     output.sync_all()?;
     store.audit("maintenance", None, "backup", "success")?;
+    Ok(auth::hex(&Sha256::digest(&manifest)))
+}
+
+fn require_new_root(destination: &Path) -> HostedResult<()> {
+    match destination.symlink_metadata() {
+        Err(error) if error.kind() == ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(error.into()),
+        Ok(_) => Err("restore先は未存在の専用ROOTを指定してください。".into()),
+    }
+}
+
+fn read_manifest(source: &Path, fingerprint: &str) -> HostedResult<Value> {
+    if fingerprint.len() != 64 || !fingerprint.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err("--manifest-sha256には64桁の16進数を指定してください。".into());
+    }
+    directory(source)?;
+    let path = source.join("manifest.json");
+    regular_file(&path)?;
+    let mut bytes = Vec::new();
+    File::open(path)?
+        .take(MAX_MANIFEST_BYTES as u64 + 1)
+        .read_to_end(&mut bytes)?;
+    if bytes.len() > MAX_MANIFEST_BYTES {
+        return Err("backup目録の上限を超えています。".into());
+    }
+    if !auth::hex(&Sha256::digest(&bytes)).eq_ignore_ascii_case(fingerprint) {
+        return Err("backup目録の指紋が一致しません。".into());
+    }
+    Ok(serde_json::from_slice(&bytes)?)
+}
+
+fn verify_file_hash(path: &Path, expected: &str) -> HostedResult<()> {
+    if file_hash(path)? != expected {
+        return Err("backupのhashが一致しません。".into());
+    }
     Ok(())
 }
 
-pub(super) fn restore(source: &Path, destination: &Path) -> HostedResult<()> {
-    if destination.symlink_metadata().is_ok() {
-        return Err("restore先は未存在の専用ROOTを指定してください。".into());
-    }
-    directory(source)?;
+pub(super) fn restore(source: &Path, destination: &Path, fingerprint: &str) -> HostedResult<()> {
+    require_new_root(destination)?;
+    let manifest = read_manifest(source, fingerprint)?;
     directory(&source.join("tenants"))?;
-    let path = source.join("manifest.json");
-    regular_file(&path)?;
-    if path.metadata()?.len() > 65536 {
-        return Err("backup目録の上限を超えています。".into());
-    }
-    let manifest: Value = serde_json::from_reader(File::open(path)?)?;
     if manifest.get("version").and_then(Value::as_u64) != Some(1) {
         return Err("backupの版を確認してください。".into());
     }
@@ -150,7 +179,7 @@ pub(super) fn restore(source: &Path, destination: &Path) -> HostedResult<()> {
     if entries.len() != names.len() {
         return Err("保存ファイルの目録が一致しません。".into());
     }
-    let mut checked = BTreeSet::new();
+    let mut hashes = BTreeMap::new();
     let mut bytes = 0_u64;
     for entry in entries {
         let name = entry
@@ -158,46 +187,109 @@ pub(super) fn restore(source: &Path, destination: &Path) -> HostedResult<()> {
             .and_then(Value::as_str)
             .filter(|n| names.contains(*n))
             .ok_or("保存ファイル名が正しくありません。")?;
-        if !checked.insert(name.to_owned()) {
+        let expected = entry
+            .get("sha256")
+            .and_then(Value::as_str)
+            .ok_or("保存ファイルのhashがありません。")?;
+        if hashes.insert(name, expected).is_some() {
             return Err("保存ファイルが重複しています。".into());
         }
         let path = source.join(name);
-        if entry.get("sha256").and_then(Value::as_str) != Some(file_hash(&path)?.as_str()) {
-            return Err("backupのhashが一致しません。".into());
-        }
+        verify_file_hash(&path, expected)?;
         bytes = bytes.saturating_add(path.metadata()?.len());
-    }
-    verify_control(&source.join("control.sqlite3"))?;
-    {
-        let conn = Connection::open_with_flags(
-            source.join("control.sqlite3"),
-            OpenFlags::SQLITE_OPEN_READ_ONLY,
-        )?;
-        if tenant_names(&conn)?.into_iter().collect::<BTreeSet<_>>() != slugs {
-            return Err("認証DBと組織目録が一致しません。".into());
-        }
     }
     let parent = destination
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
         .unwrap_or(Path::new("."));
+    if parent.canonicalize()?.starts_with(source.canonicalize()?) {
+        return Err("復元先は保存物の外に指定してください。".into());
+    }
     if fs4::available_space(parent)? < bytes.saturating_mul(2).saturating_add(32 * 1024 * 1024) {
         return Err("復旧先の空き容量が不足しています。".into());
     }
-    fs::create_dir(destination)?;
-    private_mode(destination, true)?;
-    fs::create_dir(destination.join("tenants"))?;
-    private_mode(&destination.join("tenants"), true)?;
-    for name in names {
-        fs::copy(source.join(&name), destination.join(&name))?;
-        private_mode(&destination.join(name), false)?;
+    let mut builder = tempfile::Builder::new();
+    builder.prefix(".meibo-restore-");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        builder.permissions(fs::Permissions::from_mode(0o700));
     }
-    let restored = Store::open(destination)?;
+    let staging = builder.tempdir_in(parent)?;
+    private_mode(staging.path(), true)?;
+    restore_databases(source, staging.path(), &hashes, &slugs)?;
+    // SQLite has closed its connections and checkpointed the final session and audit changes.
+    for name in hashes.keys() {
+        File::options()
+            .write(true)
+            .open(staging.path().join(name))?
+            .sync_all()?;
+    }
+    #[cfg(unix)]
+    {
+        File::open(staging.path().join("tenants"))?.sync_all()?;
+        File::open(staging.path())?.sync_all()?;
+    }
+    require_new_root(destination)?;
+    fs::rename(staging.path(), destination)?;
+    let _ = staging.keep();
+    #[cfg(unix)]
+    File::open(parent)?.sync_all()?;
+    Ok(())
+}
+
+fn restore_databases(
+    source: &Path,
+    staging: &Path,
+    hashes: &BTreeMap<&str, &str>,
+    slugs: &BTreeSet<String>,
+) -> HostedResult<()> {
+    let tenants = staging.join("tenants");
+    fs::create_dir(&tenants)?;
+    private_mode(&tenants, true)?;
+    for (&name, &expected) in hashes {
+        let from = source.join(name);
+        let to = staging.join(name);
+        regular_file(&from)?;
+        fs::copy(from, &to)?;
+        private_mode(&to, false)?;
+        verify_file_hash(&to, expected)?;
+    }
+    let control = staging.join("control.sqlite3");
+    verify_control(&control)?;
+    let restored = Store::open(staging)?;
+    let control_slugs: BTreeSet<_> = tenant_names(&restored.conn)?.into_iter().collect();
+    if &control_slugs != slugs {
+        return Err("認証DBと組織目録が一致しません。".into());
+    }
     restored.conn.execute("DELETE FROM sessions", [])?;
-    verify_control(&destination.join("control.sqlite3"))?;
     for slug in slugs {
-        verify_tenant(&restored.tenant_path(&slug)?)?;
+        verify_tenant(&restored.tenant_path(slug)?)?;
     }
     restored.audit("maintenance", None, "restore", "success")?;
-    Ok(())
+    verify_control(&control)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn staged_copy_must_match_the_hash_checked_before_copying() {
+        let source = tempfile::tempdir().unwrap();
+        let staging = tempfile::tempdir().unwrap();
+        let name = "control.sqlite3";
+        let path = source.path().join(name);
+        fs::write(&path, b"first fixture").unwrap();
+        let expected = file_hash(&path).unwrap();
+        fs::write(&path, b"replacement fixture").unwrap();
+        let hashes = BTreeMap::from([(name, expected.as_str())]);
+        let error = restore_databases(source.path(), staging.path(), &hashes, &BTreeSet::new())
+            .unwrap_err();
+        assert_eq!(error.to_string(), "backupのhashが一致しません。");
+        assert_eq!(
+            fs::read(staging.path().join(name)).unwrap(),
+            b"replacement fixture"
+        );
+    }
 }

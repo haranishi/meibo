@@ -13,7 +13,9 @@ passwordは12〜1024bytes。Argon2 0.5.3のArgon2id v19、m=19456KiB/t=2/p=1、O
 username不在時もdummy hash検証を行う。失敗応答は利用者/組織/停止/所属の有無を区別しない。
 sessionはgetrandomで32bytes生成しhex化、controlにはSHA-256 digestとuser/tenant/created/last_seen/expiresを保存する。
 認証の都度usersとmembershipsをJOINして再確認する。sessionが指すroleを永続化して権限変更を取り逃さない。
-失敗制限はaccount枠5回/15分と全体枠100回/15分。期限切れを削除し、追跡枠は4096件まで。
+SQLite版は正規化した利用者名ごとに失敗を数え、5回で最初の失敗から15分間ログインを止める。期限切れと旧全体枠を取り除く。新しい記録の空きは、失敗が少ない順、同数なら窓の開始が古い順に必要な件数だけ削除して作る（上限4096件）。
+SQLite版では、利用者名のhashと区別できる監査専用の行を `login_attempts` に置く。利用者4096名の集計と追い出しからこの行を除く。最初の失敗から15分間は100件まで `login` / `denied` を記録し、101件目だけ `login.audit.suppressed` / `denied` を残す。窓が切れた後の最初の失敗で記録を再開する。件数と監査行は同じトランザクションで更新する。
+SQLite版の通常運用では `/auth/login` に既存の `AnonymousLimit` を適用する。初期枠は100件、補充は毎秒5件で、枠が尽きると429を返す。公開デモの同じ経路は流量にかかわらずパスワードログインを404で拒否する。
 cookieは`__Host-meibo-session`、HttpOnly/Secure/SameSite=Strict/Path=/、絶対寿命8h、無操作30m。
 開発のHTTPはloopback bind/originを同時に要求し、`meibo-dev-session`へ分離する。
 
@@ -39,8 +41,10 @@ login.jsのsame-origin fetch adapterは業務APIへ`X-Meibo-Context: storage_sco
 init、tenant-add、user-add、password-set、user-disable、member-set、revoke、audit、backup、restore、serve。
 password操作は`--password-stdin`を必須にする。公開signup・email送信・課金は作らない。
 backup先は新規directoryのみ。共通lock中にcontrol/各tenantをSQLite online backupし、SHA-256 manifestと整合性を確認する。
-backup側のsessionを削除する。restoreも新規ROOTのみ、manifestは64KiB/tenant1000以内、導出したDB名だけ許す。
-全fileのsymlink/sha256/SQLite integrityとEngine整合性を確かめ、コピー後のcontrol sessionも空にする。
+backup側のsessionを削除し、書き込んだmanifestの指紋を `backed-up manifest-sha256=<hex>` の1行で返す。
+restoreは `--manifest-sha256` の64桁の16進数を受け取り、一度だけ読み込んだmanifestのバイト列を照合してから解析する。上限は64KiB、1000組織とし、導出したDB名だけ許す。
+復元先は保存物の外に限定し、その隣に専用の作業フォルダを作る。各DBは複写前後でhashを照合し、複写先でDBの整合性と組織一覧を確認してsessionを削除する。
+復元の監査を書いて接続を閉じ、全DBを同期する。Unixでは続けて `tenants`、作業フォルダの順に同期する。ROOTの未存在を再確認してrenameし、Unixでは親フォルダの同期を待って成功を返す。rename前のエラーでは作業フォルダを削除する。
 backup失敗で元ROOTを変更/削除せず、不完全な保存先は成功と扱わない。
 
 ## 5. 配備とUX

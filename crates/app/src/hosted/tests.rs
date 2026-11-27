@@ -1,5 +1,6 @@
 mod demo;
 mod followups;
+mod hardening;
 use super::*;
 use meibo_core::{
     Engine, OpenOptions,
@@ -283,9 +284,37 @@ fn backup_restore_preserves_both_tenants_and_rejects_tampering_and_overwrite() {
     let (temp, mut store) = fixture();
     let session = login(&mut store, "alpha");
     let snapshot = temp.path().join("snapshot");
-    backup::create(&store, &snapshot).unwrap();
+    let fingerprint = backup::create(&store, &snapshot).unwrap();
+    for nested in [snapshot.join("new-root"), snapshot.join("tenants/new-root")] {
+        let error = backup::restore(&snapshot, &nested, &fingerprint).unwrap_err();
+        assert_eq!(error.to_string(), "復元先は保存物の外に指定してください。");
+        assert!(!nested.exists());
+    }
     let recovered = temp.path().join("recovered");
-    backup::restore(&snapshot, &recovered).unwrap();
+    backup::restore(&snapshot, &recovered, &fingerprint).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{PermissionsExt, symlink};
+        for (name, expected) in [
+            ("", 0o700),
+            ("tenants", 0o700),
+            ("control.sqlite3", 0o600),
+            ("tenants/alpha.sqlite3", 0o600),
+            ("tenants/beta.sqlite3", 0o600),
+        ] {
+            let mode = recovered
+                .join(name)
+                .metadata()
+                .unwrap()
+                .permissions()
+                .mode();
+            assert_eq!(mode & 0o777, expected);
+        }
+        let existing = temp.path().join("dangling");
+        symlink("missing", &existing).unwrap();
+        assert!(backup::restore(&snapshot, &existing, &fingerprint).is_err());
+        assert!(existing.is_symlink());
+    }
     let mut restored = Store::open(&recovered).unwrap();
     assert!(restored.authenticate(&session.token, AT).unwrap().is_none());
     assert!(matches!(
@@ -302,10 +331,10 @@ fn backup_restore_preserves_both_tenants_and_rejects_tampering_and_overwrite() {
         let report = engine.verify().unwrap();
         assert!(report.integrity_ok && report.counts_match && report.folds_match);
     }
-    assert!(backup::restore(&snapshot, &recovered).is_err());
+    assert!(backup::restore(&snapshot, &recovered, &fingerprint).is_err());
     assert!(backup::create(&store, &snapshot).is_err());
     std::fs::write(snapshot.join("tenants/alpha.sqlite3"), b"tampered").unwrap();
-    assert!(backup::restore(&snapshot, &temp.path().join("tampered")).is_err());
+    assert!(backup::restore(&snapshot, &temp.path().join("tampered"), &fingerprint).is_err());
 }
 
 #[test]
@@ -559,9 +588,9 @@ fn calling_lists_follow_tenant_and_role_and_survive_backup() {
         );
     }
     let snapshot = dir.path().join("calling-backup");
-    backup::create(&app.store, &snapshot).unwrap();
+    let fingerprint = backup::create(&app.store, &snapshot).unwrap();
     let recovered = dir.path().join("calling-restore");
-    backup::restore(&snapshot, &recovered).unwrap();
+    backup::restore(&snapshot, &recovered, &fingerprint).unwrap();
     let mut restored = Hosted::new(Store::open(&recovered).unwrap(), config());
     let admin = login(&mut restored.store, "alpha");
     let other = login(&mut restored.store, "beta");

@@ -489,25 +489,27 @@ impl<S: HostedStorage> Hosted<S> {
 
     fn dispatch_counted(&mut self, input: &Input, time: RequestTime) -> HostedReply {
         let at = time.at;
-        if self.store.remote() {
-            if self.uncertain || self.poisoned() {
-                return unknown();
-            }
-            // Public forms and login use storage without authenticating the cookie.
-            let path = path(input);
-            if path != "/health"
-                && (path == "/auth/login"
+        let remote = self.store.remote();
+        if remote && (self.uncertain || self.poisoned()) {
+            return unknown();
+        }
+        let route = path(input);
+        // Login and remote public forms use storage without authenticating the cookie.
+        let limited = if remote {
+            route != "/health"
+                && (route == "/auth/login"
                     || leads::form_path(&input.target).is_some()
                     || !self
                         .token(input)
                         .is_some_and(|token| self.verified.contains(token)))
-                && !self.anonymous.allow(at)
-            {
-                return error(
-                    429,
-                    "アクセスが集中しています。しばらく待ってから操作してください。",
-                );
-            }
+        } else {
+            route == "/auth/login" && self.config.demo.is_none()
+        };
+        if limited && !self.anonymous.allow(at) {
+            return error(
+                429,
+                "アクセスが集中しています。しばらく待ってから操作してください。",
+            );
         }
         #[cfg(feature = "cloud")]
         let access_user = match self.access_user(input, at) {
