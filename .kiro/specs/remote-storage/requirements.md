@@ -26,9 +26,9 @@
 2.7 When 通信障害を切り分ける, the meibo shall 最初の失敗の処理段階と固定分類だけを接続内に保持し、管理用adapterから読めるようにする。元の例外や接続値を保持・自動出力せず、結果不明・接続失効・再送禁止を維持する。
 
 ### Requirement 3: 認証・組織分離と管理の排他を保つ
-3.1 Where 公開版を使う場合, the meibo shall 既存のパスワード保護、session期限・失効、3権限、監査、Host・Origin・CSRF・context検査を維持する。
+3.1 Where 公開版を使う場合, the meibo shall 既存のパスワード保護、session期限・失効、3権限、監査、Host・Origin・CSRF・context検査を維持する。（最終操作時刻の記録間隔は remote-performance 要件5）
 3.2 When 認証した利用者の業務DBを選ぶ, the meibo shall サーバーが登録した所属とDB識別の対応だけを使い、要求から接続先を選ばせない。
-3.3 When Web処理・管理CLI・保存・復旧を実行する, the meibo shall サービス全体で共通の排他を取り、別プロセスの操作も直列化する。
+3.3 When Web処理・管理CLI・保存・復旧を実行する, the meibo shall サービス全体で共通の排他を取り、別プロセスの操作も直列化する。（2026-11-27: 保存先を参照しない固定の応答と、何も書き込まない読み取りは remote-performance 要件3・4の条件で排他を取らない）
 3.4 If 保護対象操作が停止・通信断・結果不明のまま終わる, the meibo shall 排他を自動解除せず、管理者が以前の処理の終了を確認するまで取得を拒否する。
 3.5 When 管理者が排他を復旧する, the meibo shall 所有情報を照合し、以前の処理を終了した明示指定を要求して復旧結果を監査する。
 
