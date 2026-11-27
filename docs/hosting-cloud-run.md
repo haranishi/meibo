@@ -33,12 +33,13 @@ Secret Manager から取り出して `meibo hosted-remote` の子プロセスに
 cargo xtask cloud-run-admin --project PROJECT --region REGION --service SERVICE -- gate-status
 ```
 
-`serve` は使えない。実行する端末には、そのプロジェクトの秘密を読める `gcloud` が要る。
+`--service` は、最新の作成版が準備済みで通信の100%を受けているときに使う。切り戻し中や通信の分割中は `--service SERVICE --revision NAME` で対象の版を選ぶ。
+実行する端末には、対象プロジェクトの秘密を読める `gcloud` が要る。復旧先は `--target-describe FILE` で指定し、別プロジェクトなら `--target-project PROJECT` も渡す。`serve` は配備先で実行する。
 
 ## 初回の準備（サービスを作る前）
 
 サービスの代わりに、同じ形の記述ファイルを `--describe` で渡す。値を持つのは
-接続先URLだけで、鍵は参照（秘密の名前と版）を書く。ファイルはリポジトリの外に置く。
+接続先URLだけで、鍵は参照（秘密の名前と版）を書く。ファイルはリポジトリの外に置く。`status` を含む記述ファイルでは、配備済みサービスと同じ通信先の照合を行う。
 
 ```json
 {"spec":{"template":{"spec":{"containers":[{"env":[
@@ -66,6 +67,7 @@ ${=A} member-set NAME main admin
 ## 配備
 
 ```sh
+export CLOUDSDK_CORE_DISABLE_FILE_LOGGING=1 CLOUDSDK_CORE_LOG_HTTP=false CLOUDSDK_CORE_VERBOSITY=error
 gcloud run deploy SERVICE --image=IMAGE --region=REGION --project=PROJECT \
   --service-account=RUN_ACCOUNT --port=4317 --cpu=1 --memory=512Mi --concurrency=10 \
   --min-instances=0 --max-instances=1 --max=1 --cpu-throttling \

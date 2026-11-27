@@ -147,6 +147,7 @@ fn pending(web: &Hosted<RemoteStore>, group: Group) -> Counts {
         |mut total, (_, counts)| {
             total.requests += counts.requests;
             total.round_trips += counts.round_trips;
+            total.rows_written += counts.rows_written;
             total
         },
     )
@@ -175,12 +176,12 @@ fn counts_are_saved_only_on_the_serialized_path_once_a_minute() {
             "/api/companies?q=synthetic-secret-term",
             &Value::Null,
         ),
-        AT + 1,
+        AT + 10,
     );
     assert_eq!(reply.reply.status, 200);
     assert_eq!(pending(&web, Group::List).requests, 1);
     assert!(pending(&web, Group::List).round_trips > 0);
-    // Serialized, 59 s later: not due yet. It also refreshes last_seen.
+    // Serialized, 50 s later: not due yet. It also refreshes last_seen.
     let reply = web.dispatch(
         &request(Some(&admin), "POST", "/api/companies", &company),
         AT + 60,
@@ -344,7 +345,7 @@ fn only_admins_see_the_usage_page_and_data_and_denials_are_audited() {
 }
 
 #[test]
-fn a_missing_table_is_reported_and_usage_enable_creates_it_under_the_gate() {
+fn usage_enable_live() {
     let _serial = serial();
     let fixture = Fixture::new();
     fixture
@@ -353,7 +354,7 @@ fn a_missing_table_is_reported_and_usage_enable_creates_it_under_the_gate() {
         .unwrap();
     let admin = fixture.login(ADMIN);
     let mut web = fixture.service();
-    assert!(matches!(web.usage, UsageState::Missing));
+    assert!(matches!(web.usage, UsageState::Missing(Some(1000))));
     let reply = web.dispatch(
         &request(Some(&admin), "GET", "/api/admin/usage", &Value::Null),
         AT + 1,
@@ -379,15 +380,90 @@ fn a_missing_table_is_reported_and_usage_enable_creates_it_under_the_gate() {
     }
     assert!(store.gate_status().unwrap().is_none());
     assert_eq!(fixture.saved().len(), 0);
-    let mut web = fixture.service();
-    assert!(matches!(web.usage, UsageState::On(_)));
+    let viewer = fixture.login("synthetic-usage-viewer");
     assert_eq!(
-        body(&web.dispatch(
-            &request(Some(&admin), "GET", "/api/admin/usage", &Value::Null),
+        web.dispatch(
+            &request(Some(&viewer), "GET", "/api/admin/usage", &Value::Null),
             AT + 101
-        ))["configured"],
-        true
+        )
+        .reply
+        .status,
+        403
     );
+    assert!(matches!(web.usage, UsageState::Missing(_)));
+    let page = web.dispatch(
+        &request(Some(&admin), "GET", "/usage", &Value::Null),
+        AT + 101,
+    );
+    assert!(String::from_utf8_lossy(&page.reply.body).contains("「最新にする」"));
+    assert!(matches!(web.usage, UsageState::Missing(_)));
+    let report = body(&web.dispatch(
+        &request(Some(&admin), "GET", "/api/admin/usage", &Value::Null),
+        AT + 101,
+    ));
+    assert_eq!(report["configured"], true);
+    assert_eq!(report["cap_jpy"], 1000);
+    assert_eq!(pending(&web, Group::Admin).requests, 1);
+    assert_eq!(pending(&web, Group::Admin).rows_written, 0);
+    assert_eq!(fixture.saved().len(), 0);
+    let report = body(&web.dispatch(
+        &request(Some(&admin), "GET", "/api/admin/usage", &Value::Null),
+        AT + 102,
+    ));
+    assert_eq!(report["unsaved_requests"], 1);
+    assert!(matches!(fixture.service().usage, UsageState::On(_)));
+}
+
+#[test]
+fn received_once() {
+    use tiny_http::{Header, Method, TestRequest};
+
+    let _serial = serial();
+    let fixture = Fixture::new();
+    let mut web = fixture.service();
+    let valid =
+        || TestRequest::new().with_header(Header::from_bytes("Host", "crm.example.test").unwrap());
+    let post = || {
+        valid()
+            .with_method(Method::Post)
+            .with_header(Header::from_bytes("Origin", "https://crm.example.test").unwrap())
+            .with_header(Header::from_bytes("X-Meibo-Local", "1").unwrap())
+            .with_header(Header::from_bytes("Content-Type", "application/json").unwrap())
+            .with_path("/auth/login")
+    };
+    for (index, (request, status)) in [
+        (valid().with_method(Method::Head), 405),
+        (TestRequest::new(), 403),
+        (valid().with_path("//invalid"), 400),
+        (
+            post().with_header(Header::from_bytes("Content-Length", "8193").unwrap()),
+            413,
+        ),
+        (
+            post()
+                .with_header(Header::from_bytes("Transfer-Encoding", "chunked").unwrap())
+                .with_body("bad chunk\r\n"),
+            400,
+        ),
+        (valid().with_path("/login"), 200),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        assert_eq!(
+            web.receive(&mut request.into(), super::http::RequestTime::new(AT))
+                .reply
+                .status,
+            status
+        );
+        let UsageState::On(usage) = &web.usage else {
+            panic!("usage is on")
+        };
+        assert_eq!(usage.pending_requests(), u64::try_from(index + 1).unwrap());
+    }
+    assert_eq!(pending(&web, Group::Denied).requests, 5);
+    assert_eq!(pending(&web, Group::Denied).round_trips, 0);
+    assert_eq!(fixture.saved().len(), 0);
 }
 
 #[test]

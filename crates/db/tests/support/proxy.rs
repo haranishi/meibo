@@ -46,6 +46,7 @@ struct State {
     fault: Mutex<Option<Fault>>,
     triggered: AtomicUsize,
     requests: AtomicUsize,
+    requests_after_fault: AtomicUsize,
     commits: AtomicUsize,
     rollbacks: AtomicUsize,
     fresh_streams: AtomicUsize,
@@ -155,6 +156,11 @@ impl FaultProxy {
     }
 
     #[allow(dead_code)]
+    pub fn requests_after_fault(&self) -> usize {
+        self.state.requests_after_fault.load(Ordering::SeqCst)
+    }
+
+    #[allow(dead_code)]
     pub fn commits(&self) -> usize {
         self.state.commits.load(Ordering::SeqCst)
     }
@@ -201,6 +207,9 @@ async fn forward(
     client: &reqwest::Client,
 ) -> io::Result<()> {
     let mut request = read_request(&mut stream).await?;
+    if state.triggered.load(Ordering::SeqCst) != 0 {
+        state.requests_after_fault.fetch_add(1, Ordering::SeqCst);
+    }
     state.requests.fetch_add(1, Ordering::SeqCst);
     state.observe_stored_sql(&request.body);
     let commit = is_control(&request.body, "COMMIT");

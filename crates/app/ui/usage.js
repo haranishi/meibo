@@ -4,9 +4,11 @@
   const $ = (id) => document.getElementById(id);
   const status = $("usage-status");
   const refresh = $("usage-refresh");
+  const content = $("usage-content");
+  const emptyContent = content.cloneNode(true);
   let data = null;
   let range = "month";
-  let loading = false;
+  let generation = 0;
   let allDays = false;
 
   const integer = new Intl.NumberFormat("ja-JP", { maximumFractionDigits: 0 });
@@ -46,30 +48,50 @@
     return fetch(path, { cache: "no-store", credentials: "same-origin", headers: { "X-Requested-With": "XMLHttpRequest", ...headers } });
   }
 
+  function clearUsage() {
+    generation++;
+    refresh.disabled = false;
+    content.hidden = true;
+    $("usage-unconfigured").hidden = true;
+    data = null;
+    content.replaceChildren(...emptyContent.cloneNode(true).childNodes);
+    status.textContent = "";
+    status.hidden = true;
+  }
+
   async function load() {
-    if (loading) return;
-    loading = true;
+    clearUsage();
+    if (document.hidden) return;
+    const current = generation;
+    const active = () => current === generation && !document.hidden;
     refresh.disabled = true;
     status.classList.remove("is-error");
     status.textContent = "読み込んでいます…";
     status.hidden = false;
     try {
       const session = await request("/auth/session");
+      if (!active()) return;
       if (session.status === 401) { window.location.replace("/login"); return; }
       if (!session.ok) throw new Error("ログインの状態を確認できませんでした。");
       const identity = await session.json();
-      if (identity.role !== "admin") { showError("この画面は管理者だけが使えます。"); $("usage-content").hidden = true; return; }
-      const response = await request("/api/admin/usage", { "X-Meibo-Context": String(identity.storage_scope || "") });
+      if (!active()) return;
+      if (identity.role !== "admin") { showError("この画面は管理者だけが使えます。"); return; }
+      if (!identity.storage_scope) throw new Error("ログインの状態を確認できませんでした。");
+      const response = await request("/api/admin/usage", { "X-Meibo-Context": identity.storage_scope });
+      if (!active()) return;
       if (response.status === 401) { window.location.replace("/login"); return; }
       const body = await response.json().catch(() => ({}));
+      if (!active()) return;
       if (!response.ok) throw new Error(typeof body.error === "string" ? body.error : "利用量を読み込めませんでした。");
       data = body;
       render();
     } catch (failure) {
-      showError(failure.message || "接続できませんでした。もう一度お試しください。");
+      if (active()) {
+        clearUsage();
+        showError(failure.message || "接続できませんでした。もう一度お試しください。");
+      }
     } finally {
-      loading = false;
-      refresh.disabled = false;
+      if (active()) refresh.disabled = false;
     }
   }
 
@@ -82,7 +104,6 @@
       return;
     }
     $("usage-unconfigured").hidden = true;
-    $("usage-content").hidden = false;
     status.textContent = `${dayLabel(data.today)}時点の目安です。`;
     renderMonth();
     renderFree();
@@ -91,22 +112,23 @@
     const [checkedYear] = String(data.price_checked).split("-");
     $("price-note").textContent = `単価と無料枠は${checkedYear}年${dayLabel(data.price_checked)}に確認した値です（Cloud Run と Turso の無料プラン）。円は1ドル=${integer.format(data.jpy_per_usd)}円で換算しています。`;
     $("unsaved-note").textContent = `集計は約${integer.format(data.flush_seconds)}秒ごとに、書き込みを伴う操作のときにまとめて保存します。保存前の分は、サーバーが止まると失われることがあります。`;
+    content.hidden = false;
   }
 
   function verdict() {
-    const totals = data.totals;
+    const estimate = yen(data.totals.jpy_after_free);
     const free = data.free || [];
-    const over = free.filter((item) => number(item.ratio) > 1);
+    const over = free.filter((item) => item.exceeded);
     const near = free.filter((item) => number(item.ratio) >= 0.8);
     const [year, month, date] = String(data.today).split("-").map(Number);
     const daysInMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
     const pace = date > 0 ? daysInMonth / date : 1;
     const projected = free.filter((item) => number(item.ratio) * pace > 1);
     const names = (items) => items.map((item) => item.label).join("・");
-    if (over.length) return { warn: true, text: `無料枠を超えた項目があります（${names(over)}）。今月の請求の見込みは${yen(totals.jpy_after_free)}です。` };
-    if (near.length) return { warn: true, text: `無料枠の80%を超えた項目があります（${names(near)}）。今月の請求の見込みは今のところ0円です。` };
-    if (projected.length) return { warn: true, text: `無料枠の内側ですが、このペースだと月末に超える見込みです（${names(projected)}）。今月の請求の見込みは今のところ0円です。` };
-    return { warn: false, text: "無料枠の内側です。今月の請求の見込みは0円です。" };
+    if (over.length) return { warn: true, text: `無料枠を超えた項目があります（${names(over)}）。今月の請求の見込みは${estimate}です。` };
+    if (near.length) return { warn: true, text: `無料枠の80%を超えた項目があります（${names(near)}）。今月の請求の見込みは今のところ${estimate}です。` };
+    if (projected.length) return { warn: true, text: `無料枠の内側ですが、このペースだと月末に超える見込みです（${names(projected)}）。今月の請求の見込みは今のところ${estimate}です。` };
+    return { warn: false, text: `無料枠の内側です。今月の請求の見込みは${estimate}です。` };
   }
 
   function renderMonth() {
@@ -126,7 +148,7 @@
       const bar = $("cap-bar");
       bar.style.width = `${Math.min(100, ratio * 100)}%`;
       bar.parentElement.classList.toggle("is-warn", ratio >= 0.8);
-      $("cap-text").textContent = `月の上限 ${integer.format(data.cap_jpy)}円に対して、引く前の目安は ${percent.format(ratio)}${ratio > 1 ? "（上限を超えています）" : ratio >= 0.8 ? "（上限の80%を超えています）" : ""}`;
+      $("cap-text").textContent = `月の上限 ${integer.format(data.cap_jpy)}円に対して、引く前の目安は ${percent.format(ratio)}${totals.cap_exceeded ? "（上限を超えています）" : ratio >= 0.8 ? "（上限の80%を超えています）" : ""}`;
     } else {
       cap.hidden = true;
     }
@@ -152,13 +174,14 @@
       row.append(head, meter, element("span", "usage-meter-sub", `${count(item.used)} / ${count(item.limit)}`));
       if (ratio >= 0.8) {
         meter.classList.add("is-warn");
-        row.append(element("span", "usage-warn", ratio > 1 ? "無料枠を超えています。" : "無料枠の80%を超えています。"));
+        row.append(element("span", "usage-warn", item.exceeded ? "無料枠を超えています。" : "無料枠の80%を超えています。"));
       }
       list.append(row);
     }
   }
 
   function renderGroups() {
+    content.querySelectorAll(".usage-range button").forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.range === range)));
     const rows = $("group-rows");
     rows.replaceChildren();
     const items = (data.groups[range] || []).filter((item) => number(item.requests) > 0);
@@ -250,17 +273,22 @@
     more.textContent = allDays ? "直近7日だけ表示" : `すべて表示（${newest.length}日）`;
   }
 
-  $("day-all").addEventListener("click", () => {
-    allDays = !allDays;
-    if (data && data.configured) renderDayRows();
-  });
-  document.querySelectorAll(".usage-range button").forEach((button) => {
-    button.addEventListener("click", () => {
-      range = button.dataset.range === "recent" ? "recent" : "month";
-      document.querySelectorAll(".usage-range button").forEach((other) => other.setAttribute("aria-pressed", String(other === button)));
-      if (data && data.configured) renderGroups();
-    });
+  content.addEventListener("click", (event) => {
+    if (!data?.configured) return;
+    const button = event.target.closest("button");
+    if (button?.id === "day-all") {
+      allDays = !allDays;
+      renderDayRows();
+    } else if (button?.dataset.range) {
+      range = button.dataset.range;
+      renderGroups();
+    }
   });
   refresh.addEventListener("click", load);
+  window.addEventListener("pagehide", clearUsage);
+  window.addEventListener("pageshow", (event) => { if (event.persisted) load(); });
+  window.addEventListener("focus", load);
+  document.addEventListener("visibilitychange", () => { if (document.hidden) clearUsage(); else load(); });
+  window.addEventListener("storage", (event) => { if (event.key === "meibo-auth-change" || event.key === null) load(); });
   load();
 })();

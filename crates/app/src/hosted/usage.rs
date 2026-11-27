@@ -6,7 +6,7 @@ use std::{collections::BTreeMap, time::Duration};
 use meibo_db::{Connection, RemoteUsage, params_from_iter, types::Value as SqlValue};
 use serde_json::{Value, json};
 
-use super::HostedResult;
+use super::{HostedResult, http::RequestTime};
 
 /// Created by `init`, by the restore target and by `usage-enable`.
 pub(super) const DDL: &str = "CREATE TABLE IF NOT EXISTS usage_daily(
@@ -24,9 +24,8 @@ pub(super) const PRESENT: &str =
 const READ: &str = "SELECT day,route,requests,ms,round_trips,rows_read,rows_written
     FROM usage_daily WHERE day>=?1 ORDER BY day,route LIMIT 2000";
 /// Pending counts are written at most once per this many seconds (1.3).
-const FLUSH_SECONDS: i64 = 60;
-/// Rows per INSERT; one statement covers every pending row in normal use.
-const ROWS_PER_INSERT: usize = 64;
+const FLUSH_INTERVAL: Duration = Duration::from_secs(60);
+const RECENT_DAYS: i64 = 31;
 pub(super) const CAP_ENV: &str = "MEIBO_USAGE_CAP_JPY";
 
 /// Prices and free tiers in one place (3.5). Update `CHECKED` with them.
@@ -202,7 +201,7 @@ impl Counts {
             "round_trips": self.round_trips,
             "rows_read": self.rows_read,
             "rows_written": self.rows_written,
-            "jpy": round(self.usd() * prices::JPY_PER_USD, 2),
+            "jpy": self.usd() * prices::JPY_PER_USD,
         })
     }
 }
@@ -217,13 +216,13 @@ pub(super) enum UsageState {
     /// Local storage: the feature does not exist.
     Off,
     /// Remote storage whose control database has no table yet (2.2).
-    Missing,
+    Missing(Option<u64>),
     On(Usage),
 }
 
 pub(super) struct Usage {
     pub(super) pending: BTreeMap<(String, Group), Counts>,
-    last_flush: Option<i64>,
+    last_flush: Option<Duration>,
     cap_jpy: Option<u64>,
 }
 
@@ -236,13 +235,19 @@ impl Usage {
         }
     }
 
-    pub(super) fn record(&mut self, at: i64, group: Group, elapsed: Duration, db: RemoteUsage) {
+    pub(super) fn record(
+        &mut self,
+        time: RequestTime,
+        group: Group,
+        elapsed: Duration,
+        db: RemoteUsage,
+    ) {
         // The first request starts the 60-second window.
-        self.last_flush.get_or_insert(at);
-        let millis = u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX);
-        let billed = millis.div_ceil(100).max(1).saturating_mul(100);
+        self.last_flush.get_or_insert(time.start);
+        let units = elapsed.as_nanos().div_ceil(100_000_000).max(1);
+        let billed = u64::try_from(units * 100).unwrap_or(u64::MAX);
         self.pending
-            .entry((day(at), group))
+            .entry((day(time.at), group))
             .or_default()
             .add(Counts {
                 requests: 1,
@@ -251,49 +256,72 @@ impl Usage {
                 rows_read: db.rows_read,
                 rows_written: db.rows_written,
             });
+        self.retain_recent(
+            i64::try_from(time.start.saturating_add(elapsed).as_secs()).unwrap_or(i64::MAX),
+        );
     }
 
-    pub(super) fn due(&self, at: i64) -> bool {
+    fn retain_recent(&mut self, at: i64) {
+        let first = day(at - (RECENT_DAYS - 1) * 86_400);
+        let today = day(at);
+        while self
+            .pending
+            .first_key_value()
+            .is_some_and(|((d, _), _)| d < &first)
+        {
+            self.pending.pop_first();
+        }
+        while self
+            .pending
+            .last_key_value()
+            .is_some_and(|((d, _), _)| d > &today)
+        {
+            self.pending.pop_last();
+        }
+    }
+
+    pub(super) fn due(&self, at: Duration) -> bool {
         !self.pending.is_empty()
             && self
                 .last_flush
-                .is_some_and(|last| at < last || at - last >= FLUSH_SECONDS)
+                .is_some_and(|last| at.saturating_sub(last) >= FLUSH_INTERVAL)
     }
 
     /// Add the pending counts with one upsert. The pending counts are dropped
     /// whatever happens: a failure never changes the caller's result (1.4),
     /// and a lost reply is never resent.
-    pub(super) fn flush(&mut self, conn: &Connection, at: i64) -> meibo_db::Result<()> {
+    pub(super) fn flush(&mut self, conn: &Connection, time: RequestTime) -> meibo_db::Result<()> {
+        self.retain_recent(i64::try_from(time.current().as_secs()).unwrap_or(i64::MAX));
         let pending = std::mem::take(&mut self.pending);
-        self.last_flush = Some(at);
-        let rows = pending.into_iter().collect::<Vec<_>>();
-        for chunk in rows.chunks(ROWS_PER_INSERT) {
-            let values = vec!["(?,?,?,?,?,?,?)"; chunk.len()].join(",");
-            let sql = format!(
-                "INSERT INTO usage_daily(day,route,requests,ms,round_trips,rows_read,rows_written)
+        if pending.is_empty() {
+            return Ok(());
+        }
+        let values = vec!["(?,?,?,?,?,?,?)"; pending.len()].join(",");
+        let sql = format!(
+            "INSERT INTO usage_daily(day,route,requests,ms,round_trips,rows_read,rows_written)
                  VALUES {values} ON CONFLICT(day,route) DO UPDATE SET
                  requests=requests+excluded.requests,ms=ms+excluded.ms,
                  round_trips=round_trips+excluded.round_trips,
                  rows_read=rows_read+excluded.rows_read,
                  rows_written=rows_written+excluded.rows_written"
-            );
-            let mut params = Vec::with_capacity(chunk.len() * 7);
-            for ((day, group), counts) in chunk {
-                params.push(SqlValue::Text(day.clone()));
-                params.push(SqlValue::Text(group.key().into()));
-                for value in [
-                    counts.requests,
-                    counts.ms,
-                    counts.round_trips,
-                    counts.rows_read,
-                    counts.rows_written,
-                ] {
-                    params.push(SqlValue::Integer(i64::try_from(value).unwrap_or(i64::MAX)));
-                }
+        );
+        let mut params = Vec::with_capacity(pending.len() * 7);
+        for ((day, group), counts) in pending {
+            params.push(SqlValue::Text(day));
+            params.push(SqlValue::Text(group.key().into()));
+            for value in [
+                counts.requests,
+                counts.ms,
+                counts.round_trips,
+                counts.rows_read,
+                counts.rows_written,
+            ] {
+                params.push(SqlValue::Integer(i64::try_from(value).unwrap_or(i64::MAX)));
             }
-            conn.execute(&sql, params_from_iter(params))?;
         }
-        Ok(())
+        let result = conn.execute(&sql, params_from_iter(params));
+        self.last_flush = Some(time.current());
+        result.map(|_| ())
     }
 
     pub(super) fn pending_requests(&self) -> u64 {
@@ -302,10 +330,11 @@ impl Usage {
 
     /// Saved and pending counts for this month and the last 31 days (3.1).
     /// It only reads.
-    pub(super) fn report(&self, conn: &Connection, at: i64) -> HostedResult<Value> {
+    pub(super) fn report(&mut self, conn: &Connection, at: i64) -> HostedResult<Value> {
+        self.retain_recent(at);
         let today = day(at);
         let month = today[..7].to_owned();
-        let first_recent = day(at - 30 * 86_400);
+        let first_recent = day(at - (RECENT_DAYS - 1) * 86_400);
         let from = std::cmp::min(format!("{month}-01"), first_recent.clone());
         let mut merged: BTreeMap<(String, Group), Counts> = BTreeMap::new();
         let mut statement = conn.prepare(READ)?;
@@ -352,7 +381,7 @@ impl Usage {
                 days.entry(day.clone()).or_default().add(*counts);
             }
         }
-        let series = (0..31)
+        let series = (0..RECENT_DAYS)
             .rev()
             .map(|back| {
                 let key = day(at - back * 86_400);
@@ -363,11 +392,12 @@ impl Usage {
             .collect::<Vec<_>>();
         let jpy = total.usd() * prices::JPY_PER_USD;
         #[allow(clippy::cast_precision_loss)]
-        let cap_ratio = self.cap_jpy.map(|cap| round(jpy / cap as f64, 4));
+        let cap_ratio = self.cap_jpy.map(|cap| jpy / cap as f64);
         let free = free_meters(total);
         let mut totals = total.json();
-        totals["jpy_after_free"] = json!(round(total.usd_after_free() * prices::JPY_PER_USD, 2));
-        totals["cap_ratio"] = json!(cap_ratio);
+        totals["jpy_after_free"] = json!(total.usd_after_free() * prices::JPY_PER_USD);
+        totals["cap_ratio"] = json!(cap_ratio.map(|ratio| round(ratio, 4)));
+        totals["cap_exceeded"] = json!(cap_ratio.is_some_and(|ratio| ratio > 1.0));
         Ok(json!({
             "configured": true,
             "today": today,
@@ -376,7 +406,7 @@ impl Usage {
             "jpy_per_usd": prices::JPY_PER_USD,
             "cap_jpy": self.cap_jpy,
             "unsaved_requests": self.pending_requests(),
-            "flush_seconds": FLUSH_SECONDS,
+            "flush_seconds": FLUSH_INTERVAL.as_secs(),
             "totals": totals,
             "free": free,
             "groups": {"month": group_rows(month_groups), "recent": group_rows(recent_groups)},
@@ -401,7 +431,7 @@ fn group_rows(map: BTreeMap<Group, Counts>) -> Vec<Value> {
 
 #[allow(clippy::cast_precision_loss)] // Estimates; counts stay far below 2^52.
 fn free_meters(total: Counts) -> Vec<Value> {
-    let meter = |key: &str, label: &str, used: f64, limit: f64| json!({"key":key,"label":label,"used":round(used,1),"limit":limit,"ratio":round(used / limit, 4)});
+    let meter = |key: &str, label: &str, used: f64, limit: f64| json!({"key":key,"label":label,"used":round(used,1),"limit":limit,"ratio":round(used / limit, 4),"exceeded":used > limit});
     vec![
         meter(
             "vcpu_seconds",
@@ -438,21 +468,26 @@ fn free_meters(total: Counts) -> Vec<Value> {
 
 /// The optional monthly cap in yen, read once at start (3.6).
 pub(super) fn cap_from_env() -> HostedResult<Option<u64>> {
-    match std::env::var(CAP_ENV) {
-        Err(std::env::VarError::NotPresent) => Ok(None),
-        Ok(value) if !value.is_empty() => value
-            .parse::<u64>()
-            .ok()
+    let value = std::env::var_os(CAP_ENV);
+    parse_cap(value.as_deref())
+}
+
+fn parse_cap(value: Option<&std::ffi::OsStr>) -> HostedResult<Option<u64>> {
+    match value {
+        None => Ok(None),
+        Some(value) if value.is_empty() => Ok(None),
+        Some(value) => value
+            .to_str()
+            .and_then(|s| s.parse::<u64>().ok())
             .filter(|cap| (1..=1_000_000_000).contains(cap))
             .map(Some)
             .ok_or_else(|| format!("{CAP_ENV}は1以上の整数（円）で指定してください。").into()),
-        _ => Err(format!("{CAP_ENV}は1以上の整数（円）で指定してください。").into()),
     }
 }
 
 /// The calendar day in Japan (UTC+9), `YYYY-MM-DD`.
 pub(super) fn day(at: i64) -> String {
-    let days = (at + 9 * 3600).div_euclid(86_400);
+    let days = at.saturating_add(9 * 3600).div_euclid(86_400);
     // Howard Hinnant's civil_from_days.
     let z = days + 719_468;
     let era = z.div_euclid(146_097);
@@ -573,15 +608,21 @@ mod tests {
     fn records_round_up_to_billed_units_and_flush_once_a_minute() {
         let mut usage = Usage::new(None);
         let at = 1_795_705_199;
-        assert!(!usage.due(at));
+        let time = RequestTime::new(at);
+        assert!(!usage.due(time.start));
         let db = RemoteUsage {
             round_trips: 2,
             rows_read: 5,
             rows_written: 1,
         };
-        usage.record(at, Group::List, Duration::from_millis(1), db);
-        usage.record(at, Group::List, Duration::from_millis(101), db);
-        usage.record(at + 1, Group::List, Duration::ZERO, RemoteUsage::ZERO);
+        usage.record(time, Group::List, Duration::from_millis(1), db);
+        usage.record(time, Group::List, Duration::from_millis(101), db);
+        usage.record(
+            RequestTime::new(at + 1),
+            Group::List,
+            Duration::ZERO,
+            RemoteUsage::ZERO,
+        );
         assert_eq!(
             usage.pending[&("2026-11-26".into(), Group::List)],
             Counts {
@@ -593,9 +634,158 @@ mod tests {
             }
         );
         assert_eq!(usage.pending_requests(), 3);
-        assert!(!usage.due(at + 59));
-        assert!(usage.due(at + 60));
-        assert!(usage.due(at - 1), "a clock that goes back still flushes");
+        assert!(!usage.due(time.start + Duration::from_secs(59)));
+        assert!(usage.due(time.start + Duration::from_secs(60)));
+        assert!(
+            !usage.due(time.start.saturating_sub(Duration::from_secs(1))),
+            "a clock adjustment cannot shorten the interval"
+        );
+    }
+
+    #[test]
+    fn fractional_millis() {
+        for (nanos, ms) in [
+            (1, 100),
+            (100_000_000, 100),
+            (100_000_001, 200),
+            (100_500_000, 200),
+        ] {
+            let mut usage = Usage::new(None);
+            usage.record(
+                RequestTime::new(0),
+                Group::List,
+                Duration::from_nanos(nanos),
+                RemoteUsage::ZERO,
+            );
+            assert_eq!(usage.pending[&(day(0), Group::List)].ms, ms);
+        }
+    }
+
+    #[test]
+    fn flush_window() {
+        let conn = Connection::open(":memory:").unwrap();
+        conn.execute_batch(DDL).unwrap();
+        let mut usage = Usage::new(None);
+        usage.record(
+            RequestTime::new(0),
+            Group::List,
+            Duration::ZERO,
+            RemoteUsage::ZERO,
+        );
+        let mut time = RequestTime::new(10);
+        time.started -= Duration::from_secs(65);
+        assert!(usage.due(time.current()));
+        usage.flush(&conn, time).unwrap();
+        let saved_at = usage.last_flush.unwrap();
+        assert!(saved_at >= Duration::from_secs(75));
+        usage.record(time, Group::List, time.started.elapsed(), RemoteUsage::ZERO);
+        assert!(!usage.due((saved_at + FLUSH_INTERVAL).saturating_sub(Duration::from_nanos(1))));
+        assert!(usage.due(saved_at + FLUSH_INTERVAL));
+    }
+
+    #[test]
+    fn one_recent_insert() {
+        let conn = Connection::open(":memory:").unwrap();
+        conn.execute_batch(DDL).unwrap();
+        let mut usage = Usage::new(None);
+        let fill = |usage: &mut Usage| {
+            for day in 0..35 {
+                for (group, ..) in GROUPS {
+                    usage.record(
+                        RequestTime::new(day * 86_400),
+                        group,
+                        Duration::ZERO,
+                        RemoteUsage::ZERO,
+                    );
+                }
+            }
+        };
+        fill(&mut usage);
+        assert_eq!(usage.pending.len(), 31 * GROUPS.len());
+        let time = RequestTime::new(34 * 86_400);
+        // ABORT rolls back the whole INSERT. A previous chunk would still be visible.
+        conn.execute_batch("CREATE TRIGGER reject_late BEFORE INSERT ON usage_daily WHEN (SELECT count(*) FROM usage_daily)=64 BEGIN SELECT RAISE(ABORT,'fixture'); END").unwrap();
+        assert!(usage.flush(&conn, time).is_err());
+        let saved = || {
+            conn.query_row("SELECT count(*) FROM usage_daily", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .unwrap()
+        };
+        assert_eq!(saved(), 0);
+        assert!(usage.pending.is_empty());
+        conn.execute_batch("DROP TRIGGER reject_late").unwrap();
+        fill(&mut usage);
+        usage.flush(&conn, time).unwrap();
+        assert_eq!(saved(), 341);
+        fill(&mut usage);
+        let later = 70 * 86_400;
+        assert_eq!(usage.report(&conn, later).unwrap()["unsaved_requests"], 0);
+        fill(&mut usage);
+        usage.flush(&conn, RequestTime::new(later)).unwrap();
+        assert_eq!(
+            conn.query_row("SELECT sum(requests) FROM usage_daily", [], |row| row
+                .get::<_, i64>(0))
+                .unwrap(),
+            341
+        );
+    }
+
+    #[test]
+    fn empty_cap() {
+        assert_eq!(parse_cap(None).unwrap(), None);
+        assert_eq!(parse_cap(Some("".as_ref())).unwrap(), None);
+        assert_eq!(parse_cap(Some("9".as_ref())).unwrap(), Some(9));
+        for invalid in [" ", "0", "x", "1000000001"] {
+            assert!(parse_cap(Some(invalid.as_ref())).is_err());
+        }
+    }
+
+    #[test]
+    fn exact_overage() {
+        let conn = Connection::open(":memory:").unwrap();
+        conn.execute_batch(DDL).unwrap();
+        let mut usage = Usage::new(None);
+        for (ms, requests, exceeded, charged) in [
+            (180_000_000, 1, false, false),
+            (180_008_000, 1, true, true),
+            (180_000_100, 1, true, true),
+            (0, 2_000_001, false, true),
+        ] {
+            usage.pending.insert(
+                (day(0), Group::List),
+                Counts {
+                    requests,
+                    ms,
+                    ..Counts::default()
+                },
+            );
+            let report = usage.report(&conn, 0).unwrap();
+            let cpu = &report["free"][0];
+            assert_eq!(cpu["exceeded"], exceeded);
+            if exceeded {
+                assert_eq!(cpu["ratio"], json!(1.0));
+            }
+            let estimate = report["totals"]["jpy_after_free"].as_f64().unwrap();
+            assert_eq!(estimate > 0.0, charged);
+            assert!(estimate < 1.0);
+        }
+        let mut capped = Usage::new(Some(62));
+        capped.pending.insert(
+            (day(0), Group::List),
+            Counts {
+                requests: 1_000_001,
+                ..Counts::default()
+            },
+        );
+        let totals = &capped.report(&conn, 0).unwrap()["totals"];
+        assert_eq!(totals["cap_ratio"], json!(1.0));
+        assert_eq!(totals["cap_exceeded"], true);
+        let small = Counts {
+            requests: 1,
+            ..Counts::default()
+        };
+        assert!(small.json()["jpy"].as_f64().unwrap() > 0.0);
     }
 
     #[test]

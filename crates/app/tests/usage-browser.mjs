@@ -125,6 +125,98 @@ try {
       await page.screenshot({ path: join(output, `${name}.png`), fullPage: true });
       report.shots.push(`${name}.png`);
     }
+    async function tabRevalidation() {
+      const { context, page } = await session("owner", 390);
+      const other = await context.newPage();
+      await other.goto(`${origin}/login`);
+      await page.bringToFront();
+      await page.goto(`${origin}/usage`);
+      const content = page.locator("#usage-content");
+      await content.waitFor({ state: "visible" });
+      async function cleared() {
+        assert.ok(await content.isHidden());
+        assert.ok(await page.locator("#usage-unconfigured").isHidden());
+        await page.locator('[data-range="recent"]').evaluate((button) => button.click());
+        assert.equal(await page.locator("#month-name").textContent(), "");
+        assert.equal(await page.locator("#cap-text").textContent(), "");
+        assert.equal(await page.locator("#free-list li, #group-rows tr, #day-rows tr, #day-chart li").count(), 0);
+      }
+      async function recheck(trigger) {
+        const checked = page.waitForResponse((reply) => reply.url() === `${origin}/auth/session`);
+        await trigger();
+        assert.equal((await checked).status(), 200);
+        await content.waitFor({ state: "visible" });
+      }
+      await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent("pagehide", { persisted: true })));
+      await cleared();
+      await recheck(() => page.evaluate(() => window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true }))));
+      await page.evaluate(() => {
+        Object.defineProperty(document, "hidden", { configurable: true, value: true });
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+      await cleared();
+      await recheck(() => page.evaluate(() => {
+        Object.defineProperty(document, "hidden", { configurable: true, value: false });
+        document.dispatchEvent(new Event("visibilitychange"));
+      }));
+      await recheck(() => page.evaluate(() => window.dispatchEvent(new Event("focus"))));
+      // Hold a real admin response after its body arrived. Deliver it after the next login.
+      await page.evaluate(() => {
+        const fetch = window.fetch.bind(window);
+        window.fetch = async (...args) => {
+          const response = await fetch(...args);
+          if (args[0] === "/api/admin/usage") {
+            window.fetch = fetch;
+            const json = response.json.bind(response);
+            response.json = async () => {
+              const value = await json();
+              await new Promise((resolve) => { window.releaseUsage = resolve; });
+              return value;
+            };
+          }
+          return response;
+        };
+      });
+      await page.locator("#usage-refresh").click();
+      await page.waitForFunction(() => typeof window.releaseUsage === "function");
+      await cleared();
+      const changed = page.waitForResponse((reply) => reply.url() === `${origin}/auth/session`);
+      await other.evaluate((password) => {
+        document.querySelector("#login-tenant").value = "alpha";
+        document.querySelector("#login-username").value = "viewer";
+        document.querySelector("#login-password").value = password;
+        document.querySelector("#login-form").requestSubmit();
+      }, password);
+      await other.waitForURL(`${origin}/`);
+      assert.equal((await (await changed).json()).role, "viewer");
+      await page.getByText("この画面は管理者だけが使えます。", { exact: true }).waitFor();
+      await page.evaluate(async () => {
+        window.releaseUsage();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      await cleared();
+      await page.getByText("この画面は管理者だけが使えます。", { exact: true }).waitFor();
+      await context.close();
+      report.steps.push("tabRevalidation");
+    }
+
+    async function fractionalYen() {
+      const { context, page } = await session("owner", 390);
+      await page.route("**/api/admin/usage", async (route) => {
+        const response = await route.fetch();
+        const data = await response.json();
+        data.free = [{ key: "vcpu_seconds", label: "CPU（vCPU秒）", used: 180008, limit: 180000, ratio: 1, exceeded: true }];
+        data.totals.jpy_after_free = 0.02976;
+        await route.fulfill({ response, json: data });
+      });
+      await page.goto(`${origin}/usage`);
+      await page.locator("#usage-content").waitFor({ state: "visible" });
+      assert.match(await page.locator("#month-verdict").textContent(), /無料枠を超えた項目があります.*見込みは1円未満です/);
+      assert.equal(await page.locator("#month-after-free").textContent(), "1円未満");
+      assert.match(await page.locator("#free-list").textContent(), /無料枠を超えています/);
+      await context.close();
+      report.steps.push("fractionalYen");
+    }
     const searchWidth = (page) => page.locator("#global-search-form").evaluate((form) => form.getBoundingClientRect().width);
     for (const width of [1280, 390]) {
       const { context, page } = await session("owner", width);
@@ -199,6 +291,8 @@ try {
       await page.screenshot({ path: join(output, `usage-denied-${user}-390.png`) });
       await context.close();
     }
+    await tabRevalidation();
+    await fractionalYen();
     // Synthetic heavy months: one free tier at 80% or more, then over 100%.
     const add = (requests, ms) => sql(control, [["INSERT INTO usage_daily(day,route,requests,ms,round_trips,rows_read,rows_written) VALUES(?1,'list',?2,?3,0,0,0) ON CONFLICT(day,route) DO UPDATE SET requests=requests+excluded.requests,ms=ms+excluded.ms", [japanDay(0), requests, ms]]]);
     await add(1650000, 100000000);
