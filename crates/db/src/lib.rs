@@ -14,7 +14,8 @@ pub use local::Connection;
 pub use params::{Params, ParamsFromIter, params_from_iter};
 pub use remote::{
     REUSE_READ_CONNECTIONS, ReadFence, ReadStep, RemoteConnection, RemoteErrorKind, RemoteOptions,
-    RemoteTransportDiagnostic, RemoteTransportKind, RemoteTransportPhase, remote_error_kind,
+    RemoteTransportDiagnostic, RemoteTransportKind, RemoteTransportPhase, RemoteUsage,
+    remote_error_kind,
 };
 pub use row::{Row, RowIndex};
 pub use rows::{MappedRows, Rows};

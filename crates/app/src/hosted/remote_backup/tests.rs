@@ -284,4 +284,4 @@ fn snapshot_files_reject_missing_extra_overwrite_and_symlinks() {
 }
 
 #[cfg(feature = "integration-tests")]
-mod integration;
+pub(in crate::hosted) mod integration;

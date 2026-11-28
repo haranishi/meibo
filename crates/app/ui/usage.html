@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <meta name="robots" content="noindex">
+  <title>利用量と費用の目安 | meibo</title>
+  <link rel="stylesheet" href="/usage.css">
+  <script src="/usage.js" defer></script>
+</head>
+<body class="usage-page">
+  <header class="usage-header">
+    <a class="usage-brand" href="/" aria-label="meibo 業務画面へ戻る"><span class="usage-mark" aria-hidden="true">m</span><span>meibo</span></a>
+    <a class="usage-back" href="/">業務画面へ戻る</a>
+  </header>
+  <main id="usage-main" class="usage-main" aria-labelledby="usage-title">
+    <div class="usage-title-row">
+      <h1 id="usage-title">利用量と費用の目安</h1>
+      <button id="usage-refresh" class="usage-button" type="button">最新にする</button>
+    </div>
+    <p id="usage-status" class="usage-status" role="status">読み込んでいます…</p>
+
+    <section id="usage-unconfigured" class="usage-card" hidden aria-labelledby="unconfigured-title">
+      <h2 id="unconfigured-title">利用量の記録は未設定です</h2>
+      <p>この保存先には利用量の表がまだありません。業務の操作には影響しません。管理者が管理CLIで <code>usage-enable</code> を実行し、「最新にする」を押すと記録が始まります。</p>
+    </section>
+
+    <div id="usage-content" hidden>
+      <section class="usage-card usage-month" aria-labelledby="month-title">
+        <h2 id="month-title">今月の請求の見込み <span id="month-name" class="usage-muted"></span></h2>
+        <p id="month-verdict" class="usage-verdict"></p>
+        <p class="usage-big"><span id="month-after-free">—</span></p>
+        <p class="usage-small usage-muted">無料枠を引いた後の見込みです。無料枠をこのサービスだけで使った場合の値です。</p>
+        <div class="usage-gross">
+          <h3>無料枠を引く前の目安</h3>
+          <p><strong id="month-jpy">—</strong></p>
+          <p id="month-detail" class="usage-muted usage-small"></p>
+        </div>
+        <div id="cap" class="usage-cap" hidden>
+          <div class="usage-meter" aria-hidden="true"><span id="cap-bar"></span></div>
+          <p id="cap-text"></p>
+        </div>
+        <p id="unsaved" class="usage-note"></p>
+      </section>
+
+      <section class="usage-card" aria-labelledby="free-title">
+        <h2 id="free-title">無料枠の使用率（今月）</h2>
+        <ul id="free-list" class="usage-meters"></ul>
+      </section>
+
+      <section class="usage-card" aria-labelledby="group-title">
+        <div class="usage-card-heading">
+          <h2 id="group-title">機能別</h2>
+          <div class="usage-range" role="group" aria-label="集計の期間">
+            <button type="button" data-range="month" aria-pressed="true">今月</button>
+            <button type="button" data-range="recent" aria-pressed="false">直近31日</button>
+          </div>
+        </div>
+        <p class="usage-muted usage-small">無料枠を引く前の目安額が多い順です。要求が0件の機能は省いています。「往復」は保存先（Turso）との通信回数です。</p>
+        <div class="usage-table-wrap">
+          <table class="usage-table">
+            <caption class="usage-sr">機能の群ごとの要求数、処理時間、保存先との往復、読み取り行、書き込み行、目安額</caption>
+            <thead><tr>
+              <th scope="col">機能</th>
+              <th scope="col" class="num">要求</th>
+              <th scope="col" class="num wide">処理（秒）</th>
+              <th scope="col" class="num wide">往復</th>
+              <th scope="col" class="num wide">読み取り行</th>
+              <th scope="col" class="num wide">書き込み行</th>
+              <th scope="col" class="num">目安額</th>
+              <th scope="col" class="toggle-col"><span class="usage-sr">詳細</span></th>
+            </tr></thead>
+            <tbody id="group-rows"></tbody>
+          </table>
+        </div>
+        <p id="group-empty" class="usage-muted" hidden>この期間の記録はまだありません。</p>
+      </section>
+
+      <section class="usage-card" aria-labelledby="day-title">
+        <h2 id="day-title">日ごとの推移（直近31日・引く前の目安額）</h2>
+        <ol id="day-chart" class="usage-days" aria-hidden="true"></ol>
+        <div class="usage-day-labels" aria-hidden="true"><span id="day-first"></span><span id="day-last"></span></div>
+        <p id="day-summary" class="usage-muted usage-small"></p>
+        <table class="usage-table usage-day-table">
+          <caption class="usage-sr">日ごとの要求数と目安額（新しい順）</caption>
+          <thead><tr><th scope="col">日</th><th scope="col" class="num">要求</th><th scope="col" class="num wide">処理（秒）</th><th scope="col" class="num">目安額</th></tr></thead>
+          <tbody id="day-rows"></tbody>
+        </table>
+        <button id="day-all" class="usage-button usage-more" type="button" aria-expanded="false" aria-controls="day-rows">すべて表示（31日）</button>
+      </section>
+
+      <section class="usage-card usage-notes" aria-labelledby="notes-title">
+        <h2 id="notes-title">この数字の見方</h2>
+        <ul>
+          <li>目安額は処理時間から計算した目安で、請求額ではありません。通信量、起動にかかる時間、同じ請求先の他の利用は含みません。</li>
+          <li>処理時間は、要求ごとに100ミリ秒単位へ切り上げて合計しています。1要求ごとにCPU 1つとメモリ0.5GiBを使うとみなしています。</li>
+          <li id="price-note"></li>
+          <li>無料枠は請求先ごとの枠です。同じ請求先で他の利用があれば、残りはこれより少なくなります。</li>
+          <li>保存先の読み取り行と書き込み行は、保存先が返した数です。保存先が返さない場合は0になります。</li>
+          <li id="unsaved-note"></li>
+        </ul>
+      </section>
+    </div>
+  </main>
+</body>
+</html>

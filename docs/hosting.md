@@ -65,3 +65,6 @@ HTTPS到達、未認証APIの拒否、2組織/3権限、同一browserの利用�
 Cloudflare向けの準備と公開ゲートは[配備手順](hosting-cloudflare.md)を参照してください。
 
 [Cloudflareアカウントでログインする手順](hosting-cloudflare-access.md)。
+
+自分用に Cloud Run と Turso で公開する場合は[配備と管理の道具](hosting-cloud-run.md)と
+[運用と緊急時の手順](cloud-run-operations.md)を参照してください。

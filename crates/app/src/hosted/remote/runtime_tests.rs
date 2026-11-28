@@ -419,6 +419,60 @@ fn acquisition_and_control_audit_response_loss_are_uncertain() {
 }
 
 #[test]
+fn saved_reply_survives_usage_loss() {
+    let _serial = FIXTURES
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let fixture = Fixture::new();
+    let proxy = proxy::FaultProxy::start(fixture.control.address()).unwrap();
+    let mut web = Fixture::service(&proxy.endpoint(), &fixture.tenant.endpoint());
+    web.start_usage(None).unwrap();
+    assert_eq!(
+        web.dispatch(&fixture.request("GET", "/login", &Value::Null), AT)
+            .reply
+            .status,
+        200
+    );
+    proxy.arm(proxy::Fault::LoseMatchingWriteResponse(
+        "INSERT INTO usage_daily",
+    ));
+    let reply = web.dispatch(
+        &fixture.request(
+            "POST",
+            "/api/companies",
+            &json!({"name":"合成","prefecture":13}),
+        ),
+        AT + 61,
+    );
+    assert_eq!(reply.reply.status, 201);
+    let id = serde_json::from_slice::<Value>(&reply.reply.body).unwrap()["id"]
+        .as_i64()
+        .unwrap();
+    assert_eq!(
+        fixture
+            .raw_tenant()
+            .query_row("SELECT id FROM companies", [], |row| row.get::<_, i64>(0))
+            .unwrap(),
+        id
+    );
+    assert_eq!(proxy.triggered(), 1);
+    let store = fixture.store();
+    assert!(store.gate_status().unwrap().is_some());
+    assert_eq!(
+        store
+            .conn
+            .query_row("SELECT sum(requests) FROM usage_daily", [], |row| row
+                .get::<_, i64>(0))
+            .unwrap(),
+        1
+    );
+    assert!(web.exit_requested());
+    unknown(&web.dispatch(&fixture.request("GET", "/health", &Value::Null), AT + 62));
+    drop(web);
+    assert_eq!(proxy.requests_after_fault(), 0, "no retry or gate release");
+}
+
+#[test]
 fn release_response_loss_does_not_claim_success_or_resend_delete() {
     let _serial = FIXTURES
         .lock()

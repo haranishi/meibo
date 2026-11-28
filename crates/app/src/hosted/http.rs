@@ -22,6 +22,43 @@ const MAX_JSON: usize = 1024 * 1024;
 const MAX_IMPORT: usize = 32 * 1024 * 1024;
 const COOKIE: &str = "__Host-meibo-session";
 
+#[derive(Clone, Copy)]
+pub(super) struct RequestTime {
+    pub(super) at: i64,
+    #[cfg(feature = "cloud")]
+    pub(super) start: std::time::Duration,
+    #[cfg(feature = "cloud")]
+    pub(super) started: std::time::Instant,
+}
+
+impl RequestTime {
+    pub(super) fn new(at: i64) -> Self {
+        Self {
+            at,
+            #[cfg(feature = "cloud")]
+            start: std::time::Duration::from_secs(at.try_into().unwrap_or(0)),
+            #[cfg(feature = "cloud")]
+            started: std::time::Instant::now(),
+        }
+    }
+
+    fn now() -> HostedResult<Self> {
+        let epoch = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?;
+        Ok(Self {
+            at: i64::try_from(epoch.as_secs())?,
+            #[cfg(feature = "cloud")]
+            start: epoch,
+            #[cfg(feature = "cloud")]
+            started: std::time::Instant::now(),
+        })
+    }
+
+    #[cfg(feature = "cloud")]
+    pub(super) fn current(self) -> std::time::Duration {
+        self.start.saturating_add(self.started.elapsed())
+    }
+}
+
 #[cfg(all(test, feature = "cloud"))]
 mod access_tests;
 
@@ -259,10 +296,15 @@ pub(super) struct Hosted<S = Store> {
     /// Quota for anonymous requests, public forms and login (3.6).
     anonymous: AnonymousLimit,
     verified: VerifiedSessions,
-    /// Set after a gate-free read ended with an unknown outcome (4.4): the
-    /// serve loop returns an error after that reply so the process restarts.
+    /// A gate-free read or a usage save lost its reply. Stop after responding.
     #[cfg(feature = "cloud")]
     exit_after_reply: bool,
+    /// Usage counts of the remote service (usage-dashboard).
+    #[cfg(feature = "cloud")]
+    pub(super) usage: super::usage::UsageState,
+    /// Round trips of this request made before a usage flush (1.6).
+    #[cfg(feature = "cloud")]
+    usage_carry: meibo_db::RemoteUsage,
     demo_enter: super::demo::EnterRateLimit,
     demo_session_token: Option<String>,
 }
@@ -282,6 +324,10 @@ impl<S: HostedStorage> Hosted<S> {
             verified: VerifiedSessions::default(),
             #[cfg(feature = "cloud")]
             exit_after_reply: false,
+            #[cfg(feature = "cloud")]
+            usage: super::usage::UsageState::Off,
+            #[cfg(feature = "cloud")]
+            usage_carry: meibo_db::RemoteUsage::ZERO,
             demo_enter: super::demo::EnterRateLimit::default(),
             demo_session_token: None,
         }
@@ -358,10 +404,91 @@ impl<S: HostedStorage> Hosted<S> {
         found
     }
 
-    pub(super) fn dispatch(&mut self, input: &Input, at: i64) -> HostedReply {
-        if let Some(reply) = self.boundary(input) {
-            return reply;
+    /// Probe at startup and when an admin opens the API after setup.
+    /// Local storage never counts. A communication failure stops the start.
+    #[cfg(feature = "cloud")]
+    pub(super) fn start_usage(&mut self, cap_jpy: Option<u64>) -> HostedResult<()> {
+        use super::usage::{PRESENT, Usage, UsageState};
+        if !self.store.remote() {
+            self.usage = UsageState::Off;
+            return Ok(());
         }
+        let present = self
+            .store
+            .conn
+            .query_row(PRESENT, [], |row| row.get::<_, bool>(0));
+        self.usage = match present {
+            Ok(true) => UsageState::On(Usage::new(cap_jpy)),
+            Ok(false) => UsageState::Missing(cap_jpy),
+            Err(error) => {
+                let error: Box<dyn std::error::Error> = Box::new(error);
+                if self.store.poisoned() || uncertain_error(error.as_ref()) {
+                    return Err(error);
+                }
+                UsageState::Missing(cap_jpy)
+            }
+        };
+        Ok(())
+    }
+
+    pub(super) fn dispatch(&mut self, input: &Input, at: i64) -> HostedReply {
+        let time = RequestTime::new(at);
+        self.respond(input, time, self.boundary(input))
+    }
+
+    fn respond(
+        &mut self,
+        input: &Input,
+        time: RequestTime,
+        early: Option<HostedReply>,
+    ) -> HostedReply {
+        #[cfg(feature = "cloud")]
+        if !matches!(self.usage, super::usage::UsageState::Off) {
+            // Anything sent between requests belongs to no request.
+            let _ = meibo_db::RemoteUsage::take();
+            self.usage_carry = meibo_db::RemoteUsage::ZERO;
+        }
+        #[cfg(feature = "cloud")]
+        let rejected_at_boundary = early.is_some();
+        let reply = early.unwrap_or_else(|| self.dispatch_counted(input, time));
+        #[cfg(feature = "cloud")]
+        if let super::usage::UsageState::On(usage) = &mut self.usage {
+            let after = meibo_db::RemoteUsage::take();
+            let carry = std::mem::replace(&mut self.usage_carry, meibo_db::RemoteUsage::ZERO);
+            let db = meibo_db::RemoteUsage {
+                round_trips: carry.round_trips.saturating_add(after.round_trips),
+                rows_read: carry.rows_read.saturating_add(after.rows_read),
+                rows_written: carry.rows_written.saturating_add(after.rows_written),
+            };
+            let group = if rejected_at_boundary {
+                super::usage::Group::Denied
+            } else {
+                super::usage::classify(&input.method, path(input), reply.reply.status)
+            };
+            usage.record(time, group, time.started.elapsed(), db);
+        }
+        reply
+    }
+
+    /// Write pending usage on the serialized path only, at most once per
+    /// minute (1.3). Its own round trips are not counted (1.6). A failure
+    /// drops the counts. Report uncertainty so the caller retains its gate.
+    #[cfg(feature = "cloud")]
+    fn usage_save_uncertain(&mut self, time: RequestTime) -> bool {
+        let super::usage::UsageState::On(usage) = &mut self.usage else {
+            return false;
+        };
+        if self.fence.is_some() || !usage.due(time.current()) {
+            return false;
+        }
+        self.usage_carry = meibo_db::RemoteUsage::take();
+        let result = usage.flush(&self.store.conn, time);
+        let _ = meibo_db::RemoteUsage::take();
+        self.store.poisoned() || result.is_err_and(|error| uncertain_error(&error))
+    }
+
+    fn dispatch_counted(&mut self, input: &Input, time: RequestTime) -> HostedReply {
+        let at = time.at;
         if self.store.remote() {
             if self.uncertain || self.poisoned() {
                 return unknown();
@@ -415,6 +542,16 @@ impl<S: HostedStorage> Hosted<S> {
             }
         };
         let result = self.dispatch_checked(input, at, access_user.as_deref());
+        #[cfg(feature = "cloud")]
+        let result = match result {
+            Ok(reply) if !self.uncertain && !self.poisoned() && self.usage_save_uncertain(time) => {
+                // The business reply is final. Dropping the remote guard sends no SQL.
+                self.uncertain = true;
+                self.exit_after_reply = true;
+                return reply;
+            }
+            result => result,
+        };
         let result = self
             .store
             .complete(guard, result, self.uncertain || self.poisoned());
@@ -576,7 +713,7 @@ impl<S: HostedStorage> Hosted<S> {
             self.verified.record(token, identity.is_some());
         }
         let Some(identity) = identity else {
-            if path == "/" {
+            if path == "/" || (self.store.remote() && path == "/usage") {
                 return Ok(self.unauthenticated_root_redirect(token));
             }
             return Ok(error(401, "ログインしてください。"));
@@ -600,6 +737,10 @@ impl<S: HostedStorage> Hosted<S> {
                 &json!({"items":self.store.audit_rows(Some(&identity.tenant),200)?}),
             )
             .into());
+        }
+        #[cfg(feature = "cloud")]
+        if self.store.remote() && super::usage::is_page(path) {
+            return self.usage_route(input, path, &identity, at);
         }
         if input.method == "POST"
             && ((identity.role == Role::Viewer && !read_only_post(input))
@@ -905,9 +1046,53 @@ impl<S: HostedStorage> Hosted<S> {
             if let Some(demo) = &self.config.demo {
                 html = super::public_entry::apply_demo_workspace(&html, demo);
             }
+            #[cfg(feature = "cloud")]
+            if self.store.remote() && identity.role == Role::Admin {
+                html = super::usage::with_entry(&html);
+            }
             reply.body = html.into_bytes();
         }
         Ok(reply.into())
+    }
+
+    /// Admins get the page and data. Everyone else is denied and audited; a
+    /// browser opening `/usage` gets a page instead of JSON. The stylesheet
+    /// has no data, and the denied page uses it.
+    #[cfg(feature = "cloud")]
+    fn usage_route(
+        &mut self,
+        input: &Input,
+        path: &str,
+        identity: &Identity,
+        at: i64,
+    ) -> HostedResult<HostedReply> {
+        if input.method == "GET" && path == "/usage.css" {
+            return self.usage_reply(path, at);
+        }
+        if input.method != "GET" || identity.role != Role::Admin {
+            let mut reply = self.denied(identity)?;
+            if input.method == "GET" && path == "/usage" {
+                reply.reply = super::usage::denied_page();
+            }
+            return Ok(reply);
+        }
+        self.usage_reply(path, at)
+    }
+
+    /// The admin usage page and data (usage-dashboard 3.1-3.3). It only reads.
+    #[cfg(feature = "cloud")]
+    fn usage_reply(&mut self, path: &str, at: i64) -> HostedResult<HostedReply> {
+        if let Some(page) = super::usage::page(path) {
+            return Ok(page.into());
+        }
+        if let super::usage::UsageState::Missing(cap_jpy) = self.usage {
+            self.start_usage(cap_jpy)?;
+        }
+        let value = match &mut self.usage {
+            super::usage::UsageState::On(usage) => usage.report(&self.store.conn, at)?,
+            _ => json!({"configured": false}),
+        };
+        Ok(Reply::json(200, &value).into())
     }
 
     fn denied(&self, identity: &Identity) -> HostedResult<HostedReply> {
@@ -1072,6 +1257,10 @@ impl<S: HostedStorage> Hosted<S> {
             }
             return self.serve_demo(&demo);
         }
+        #[cfg(feature = "cloud")]
+        if self.store.remote() {
+            self.start_usage(super::usage::cap_from_env()?)?;
+        }
         let server =
             Server::http(self.config.bind).map_err(|_| "hostedサーバーを起動できません。")?;
         println!(
@@ -1081,36 +1270,7 @@ impl<S: HostedStorage> Hosted<S> {
         );
         std::io::stdout().flush()?;
         for mut request in server.incoming_requests() {
-            let mut input = Input {
-                method: request.method().as_str().into(),
-                target: request.url().into(),
-                headers: request
-                    .headers()
-                    .iter()
-                    .map(|h| (h.field.as_str().to_string(), h.value.to_string()))
-                    .collect(),
-                body: Vec::new(),
-            };
-            let reply = if let Some(reply) = self.boundary(&input) {
-                reply
-            } else if request
-                .body_length()
-                .is_some_and(|size| size > limit(&input))
-            {
-                error(413, "送信内容が上限を超えています。")
-            } else {
-                if input.method == "POST"
-                    && request
-                        .as_reader()
-                        .take((limit(&input) + 1) as u64)
-                        .read_to_end(&mut input.body)
-                        .is_err()
-                {
-                    send(request, error(400, "送信内容を読み取れません。"));
-                    continue;
-                }
-                self.dispatch(&input, now()?)
-            };
+            let reply = self.receive(&mut request, RequestTime::now()?);
             send(request, reply);
             #[cfg(feature = "cloud")]
             if self.exit_after_reply {
@@ -1118,6 +1278,38 @@ impl<S: HostedStorage> Hosted<S> {
             }
         }
         Ok(())
+    }
+
+    pub(super) fn receive(&mut self, request: &mut Request, time: RequestTime) -> HostedReply {
+        let mut input = Input {
+            method: request.method().as_str().into(),
+            target: request.url().into(),
+            headers: request
+                .headers()
+                .iter()
+                .map(|h| (h.field.as_str().to_string(), h.value.to_string()))
+                .collect(),
+            body: Vec::new(),
+        };
+        let max = limit(&input);
+        let early = if let Some(reply) = self.boundary(&input) {
+            Some(reply)
+        } else if request.body_length().is_some_and(|size| size > max) {
+            Some(error(413, "送信内容が上限を超えています。"))
+        } else if input.method == "POST"
+            && request
+                .as_reader()
+                .take((max + 1) as u64)
+                .read_to_end(&mut input.body)
+                .is_err()
+        {
+            Some(error(400, "送信内容を読み取れません。"))
+        } else if input.body.len() > max {
+            Some(error(413, "送信内容が上限を超えています。"))
+        } else {
+            None
+        };
+        self.respond(&input, time, early)
     }
 
     fn handle_demo_request(&mut self, mut request: Request) -> HostedResult<()> {
