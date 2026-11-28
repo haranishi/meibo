@@ -1,0 +1,18 @@
+{
+  "feature_name": "usage-dashboard",
+  "created_at": "2026-11-27T03:01:00Z",
+  "updated_at": "2026-11-27T10:00:00Z",
+  "language": "ja",
+  "phase": "implementing",
+  "approvals": {
+    "requirements": { "generated": true, "approved": true },
+    "design": { "generated": true, "approved": true },
+    "tasks": { "generated": true, "approved": true }
+  },
+  "ready_for_implementation": true,
+  "execution_authorization": {
+    "basis": "運用者が、機能ごとの利用量と費用を見られるダッシュボードを希望し（2026-11-26）、操作の要らない作業を進めるよう指示した（2026-11-27）。仕様の全文は運用者が未読で、異議があれば要件の更新として扱う。同日、レビューで問題がなければPRを作り、確認用へ配備することを承認した。",
+    "scope": "admin_usage_estimates",
+    "pull_request_approved": true
+  }
+}

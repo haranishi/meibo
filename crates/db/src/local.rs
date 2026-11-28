@@ -1,8 +1,8 @@
 use std::{path::Path, time::Duration};
 
 use crate::{
-    OpenFlags, Params, RemoteConnection, RemoteErrorKind, RemoteOptions, Result, Row, Statement,
-    ToSql, Transaction, TransactionBehavior,
+    OpenFlags, Params, ReadStep, RemoteConnection, RemoteErrorKind, RemoteOptions, Result, Row,
+    Statement, ToSql, Transaction, TransactionBehavior, Value,
 };
 
 /// A synchronous SQL connection to an explicit local or remote backend.
@@ -14,7 +14,8 @@ pub struct Connection {
 #[derive(Debug)]
 enum Backend {
     Local(rusqlite::Connection),
-    Remote(RemoteConnection),
+    // Boxed: the remote state is much larger than a local handle.
+    Remote(Box<RemoteConnection>),
 }
 
 impl Connection {
@@ -24,7 +25,7 @@ impl Connection {
     /// Returns a sanitized connection error when unavailable or invalid.
     pub fn open_remote(options: RemoteOptions) -> Result<Self> {
         RemoteConnection::connect(options).map(|remote| Self {
-            backend: Backend::Remote(remote),
+            backend: Backend::Remote(Box::new(remote)),
         })
     }
 
@@ -41,6 +42,44 @@ impl Connection {
             Backend::Local(_) => false,
             Backend::Remote(remote) => remote.is_poisoned(),
         }
+    }
+
+    /// Run read-only steps and return each query's rows as owned values.
+    ///
+    /// The remote backend sends one closing round trip after any needed
+    /// Describe; the local backend runs the same steps in order.
+    ///
+    /// # Errors
+    /// Returns the first failing step or a remote transport error.
+    pub fn read_batch(&self, steps: &[ReadStep<'_>]) -> Result<Vec<Vec<Vec<Value>>>> {
+        let local = match &self.backend {
+            Backend::Local(local) => local,
+            Backend::Remote(remote) => return remote.read_batch(steps),
+        };
+        let mut outputs = Vec::with_capacity(steps.len());
+        for step in steps {
+            match step {
+                ReadStep::Query(sql, values) => {
+                    let mut statement = local.prepare(sql)?;
+                    let width = statement.column_count();
+                    let mut rows = statement.query(rusqlite::params_from_iter(values))?;
+                    let mut output = Vec::new();
+                    while let Some(row) = rows.next()? {
+                        output.push(
+                            (0..width)
+                                .map(|index| row.get::<_, Value>(index))
+                                .collect::<Result<Vec<_>>>()?,
+                        );
+                    }
+                    outputs.push(output);
+                }
+                ReadStep::Check(sql) => {
+                    local.prepare(sql)?;
+                    outputs.push(Vec::new());
+                }
+            }
+        }
+        Ok(outputs)
     }
 
     /// Open or create a local SQLite database.

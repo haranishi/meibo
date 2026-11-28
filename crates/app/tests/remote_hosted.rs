@@ -795,3 +795,161 @@ fn loopback_database_policy_is_explicit_and_help_has_only_implemented_commands()
     }
     assert!(!help.contains("MEIBO_TEST_REMOTE_LOOPBACK"));
 }
+
+fn control_value(fixture: &Fixture, sql: &str) -> i64 {
+    fixture
+        .connection()
+        .query_row(sql, [], |row| row.get(0))
+        .unwrap()
+}
+
+fn raw_get(web: &Web, path: &str, extra: &str) -> String {
+    let mut stream = TcpStream::connect(&web.address).unwrap();
+    stream
+        .set_read_timeout(Some(Duration::from_secs(15)))
+        .unwrap();
+    write!(
+        stream,
+        "GET {path} HTTP/1.1\r\nHost: crm.example.test\r\nConnection: close\r\n{extra}\r\n"
+    )
+    .unwrap();
+    let mut response = String::new();
+    stream.read_to_string(&mut response).unwrap();
+    response
+}
+
+#[test]
+// remote-performance 3, 4 and 5 on a real hosted process.
+fn gate_free_reads_write_nothing_and_fall_back_for_writes() {
+    let _serial = FIXTURES
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let fixture = Fixture::new();
+    fixture.setup();
+    let web = Web::start(&fixture);
+    let alpha = web.login("alpha", "admin", PASSWORD);
+    let viewer = web.login("alpha", "viewer", PASSWORD);
+    let conn = fixture.connection();
+    let set_seen = |ago: i64| {
+        conn.execute(
+            "UPDATE sessions SET last_seen=CAST(strftime('%s','now') AS INTEGER)-?1",
+            [ago],
+        )
+        .unwrap();
+    };
+    let oldest = "SELECT CAST(strftime('%s','now') AS INTEGER)-min(last_seen) FROM sessions";
+
+    // A recent activity record: the read answers without writing anything.
+    set_seen(30);
+    total(&web, &alpha, 2);
+    assert!((30..=32).contains(&control_value(&fixture, oldest)));
+    assert_eq!(
+        control_value(&fixture, "SELECT count(*) FROM remote_gate"),
+        0
+    );
+    // Older than 60 seconds: the serialized path records the activity.
+    set_seen(120);
+    total(&web, &alpha, 2);
+    assert!(
+        control_value(
+            &fixture,
+            "SELECT CAST(strftime('%s','now') AS INTEGER)-max(last_seen) FROM sessions"
+        ) <= 2
+    );
+    // A denied read is still audited (the audit write falls back).
+    let audits = control_value(&fixture, "SELECT count(*) FROM audit");
+    assert_eq!(
+        web.request("GET", "/auth/audit", Some(&viewer), &Value::Null)
+            .status,
+        403
+    );
+    assert_eq!(
+        control_value(&fixture, "SELECT count(*) FROM audit"),
+        audits + 1
+    );
+    // A held gate still refuses data reads, but not the fixed login page.
+    conn.execute(
+        "INSERT INTO remote_gate VALUES(1,?1,0,'held.fixture')",
+        [vec![9_u8; 32]],
+    )
+    .unwrap();
+    assert_eq!(
+        web.request("GET", "/api/summary", Some(&alpha), &Value::Null)
+            .status,
+        503
+    );
+    // The deployment probe requires no-store on the login HTML, even with a validator.
+    let login = raw_get(&web, "/login", "If-None-Match: *\r\n");
+    assert!(login.starts_with("HTTP/1.1 200"));
+    assert!(login.contains("Cache-Control: no-store") && !login.contains("ETag:"));
+    let css = raw_get(&web, "/login.css", "");
+    assert!(css.starts_with("HTTP/1.1 200") && css.contains("Cache-Control: no-cache"));
+    let tag = css
+        .lines()
+        .find_map(|line| line.strip_prefix("ETag: "))
+        .unwrap();
+    let callback = raw_get(&web, "/oauth/activity-return", "");
+    assert!(callback.starts_with("HTTP/1.1 200"));
+    assert!(callback.contains("Cache-Control: no-store") && !callback.contains("ETag"));
+    let revalidated = raw_get(&web, "/login.css", &format!("If-None-Match: {tag}\r\n"));
+    assert!(revalidated.starts_with("HTTP/1.1 304"));
+    assert_eq!(
+        web.request("GET", "/health", None, &Value::Null).status,
+        503
+    );
+    conn.execute("DELETE FROM remote_gate", []).unwrap();
+    // Data replies keep no-store.
+    let summary = web.request("GET", "/api/summary", Some(&alpha), &Value::Null);
+    assert_eq!(summary.header("Cache-Control"), "no-store");
+    // An idle-expired session is rejected and removed (the delete falls back).
+    set_seen(31 * 60);
+    let sessions = control_value(&fixture, "SELECT count(*) FROM sessions");
+    assert_eq!(
+        web.request("GET", "/api/summary", Some(&alpha), &Value::Null)
+            .status,
+        401
+    );
+    assert_eq!(
+        control_value(&fixture, "SELECT count(*) FROM sessions"),
+        sessions - 1
+    );
+    assert_eq!(
+        control_value(&fixture, "SELECT count(*) FROM remote_gate"),
+        0
+    );
+}
+
+#[test]
+// remote-performance 3.6: unverified cookies share the anonymous bucket.
+fn unverified_cookies_are_limited_and_verified_sessions_are_not() {
+    let _serial = FIXTURES
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let fixture = Fixture::new();
+    fixture.setup();
+    let web = Web::start(&fixture);
+    let alpha = web.login("alpha", "admin", PASSWORD);
+    let forged = Auth {
+        cookie: format!("__Host-meibo-session={}", "a".repeat(64)),
+        scope: alpha.scope.clone(),
+    };
+    let mut limited = false;
+    for _ in 0..400 {
+        let status = web
+            .request("GET", "/api/summary", Some(&forged), &Value::Null)
+            .status;
+        if status == 429 {
+            limited = true;
+            break;
+        }
+        assert_eq!(status, 401);
+    }
+    assert!(limited, "a forged cookie must use the anonymous bucket");
+    assert_eq!(web.request("GET", "/login", None, &Value::Null).status, 429);
+    // Login already verified this session, even on its first signed-in request.
+    total(&web, &alpha, 2);
+    assert_eq!(
+        web.request("GET", "/health", None, &Value::Null).status,
+        200
+    );
+}

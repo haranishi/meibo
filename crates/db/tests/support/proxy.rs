@@ -46,6 +46,7 @@ struct State {
     fault: Mutex<Option<Fault>>,
     triggered: AtomicUsize,
     requests: AtomicUsize,
+    requests_after_fault: AtomicUsize,
     commits: AtomicUsize,
     rollbacks: AtomicUsize,
     fresh_streams: AtomicUsize,
@@ -56,7 +57,9 @@ struct State {
 impl State {
     fn observe_stored_sql(&self, bytes: &[u8]) {
         if let Ok(body) = serde_json::from_slice::<PipelineReqBody>(bytes) {
-            if body.baton.is_none() {
+            // A closing pipeline cannot outlive its request, so only streams
+            // that remain open need stored SQL to survive provider cleanup.
+            if opens_stream(&body) {
                 self.fresh_streams.fetch_add(1, Ordering::SeqCst);
             }
             let uses_stored = body.requests.iter().any(|request| {
@@ -153,6 +156,11 @@ impl FaultProxy {
     }
 
     #[allow(dead_code)]
+    pub fn requests_after_fault(&self) -> usize {
+        self.state.requests_after_fault.load(Ordering::SeqCst)
+    }
+
+    #[allow(dead_code)]
     pub fn commits(&self) -> usize {
         self.state.commits.load(Ordering::SeqCst)
     }
@@ -199,6 +207,9 @@ async fn forward(
     client: &reqwest::Client,
 ) -> io::Result<()> {
     let mut request = read_request(&mut stream).await?;
+    if state.triggered.load(Ordering::SeqCst) != 0 {
+        state.requests_after_fault.fetch_add(1, Ordering::SeqCst);
+    }
     state.requests.fetch_add(1, Ordering::SeqCst);
     state.observe_stored_sql(&request.body);
     let commit = is_control(&request.body, "COMMIT");
@@ -218,20 +229,7 @@ async fn forward(
         };
         request.path = path.to_owned();
     }
-    let fault = {
-        let mut armed = state.fault.lock().unwrap();
-        match *armed {
-            Some(Fault::LoseCommitResponse) if !commit => None,
-            Some(Fault::LoseRollbackResponse) if !rollback => None,
-            Some(Fault::LoseWriteResponse) if !write => None,
-            Some(Fault::LoseMatchingWriteResponse(prefix))
-                if !matching_execute(&request.body, prefix) =>
-            {
-                None
-            }
-            _ => armed.take(),
-        }
-    };
+    let fault = take_fault(state, &request.body, commit, rollback, write);
     if let Some(Fault::OversizedErrorBody(length)) = fault {
         state.triggered.fetch_add(1, Ordering::SeqCst);
         return oversized_error(&mut stream, length).await;
@@ -295,6 +293,30 @@ async fn forward(
         _ => {}
     }
     write_response(&mut stream, status, &body).await
+}
+
+/// Take the armed fault only for the request it applies to.
+fn take_fault(
+    state: &State,
+    body: &[u8],
+    commit: bool,
+    rollback: bool,
+    write: bool,
+) -> Option<Fault> {
+    let mut armed = state.fault.lock().unwrap();
+    match *armed {
+        Some(Fault::LoseCommitResponse) if !commit => None,
+        Some(Fault::LoseRollbackResponse) if !rollback => None,
+        Some(Fault::LoseWriteResponse) if !write => None,
+        Some(Fault::LoseMatchingWriteResponse(prefix)) if !matching_execute(body, prefix) => None,
+        Some(Fault::EndUnstoredStream)
+            if !serde_json::from_slice::<PipelineReqBody>(body)
+                .is_ok_and(|body| opens_stream(&body)) =>
+        {
+            None
+        }
+        _ => armed.take(),
+    }
 }
 
 async fn write_response(
@@ -431,6 +453,10 @@ async fn read_request(stream: &mut TcpStream) -> io::Result<Request> {
         headers,
         body,
     })
+}
+
+fn opens_stream(body: &PipelineReqBody) -> bool {
+    body.baton.is_none() && !matches!(body.requests.last(), Some(StreamRequest::Close(_)))
 }
 
 fn is_control(bytes: &[u8], control: &str) -> bool {

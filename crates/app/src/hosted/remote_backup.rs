@@ -57,4 +57,4 @@ pub(in crate::hosted) fn restore(
 }
 
 #[cfg(test)]
-mod tests;
+pub(super) mod tests;

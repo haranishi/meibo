@@ -14,7 +14,7 @@
 2.2 session IDはOS乱数32bytes以上とし、サーバーにはSHA-256 hashのみ保存する。
 2.3 本番cookieはHttpOnly・Secure・SameSite=Strict・Path=/とし、Domainは付けない。
 2.4 絶対8時間・無操作30分で失効し、ログアウト後の再使用を拒否する。期限はサーバーで検査する。
-2.5 ログイン失敗に時間枠付きの回数制限と保存件数上限を設ける。body・passwordの長さも制限する。
+2.5 SQLite版は利用者名ごとに15分間で5回の失敗を許す。4096名を追跡中でも他の利用者はログインできる。失敗の監査は15分の窓ごとに最大100件とし、101件目で以降の省略を1行記録する。この件数は認証の可否に使わない。公開デモを除き、`/auth/login` は全体で連続100件まで受け付け、毎秒5件分回復する。body・passwordの長さも制限する。
 2.6 HTTP試験モードは明示したloopbackに限定し、本番とは別名のcookieを使う。
 
 ## 3. データ分離と権限
@@ -37,8 +37,8 @@
 ## 5. 監査と保存・復旧
 5.1 管理変更・認証・権限拒否・CRM更新の監査は時刻/actor/組織/操作/結果を記録し、password/session/本文を含めない。
 5.2 control DBとCRM DBは永続Volumeへ置き、hostedではFULL durabilityを使う。
-5.3 backupは管理操作とWeb処理を共通の保守lockで整列し、オンライン複製と検証済みmanifestを作る。
-5.4 restoreは未存在のROOTへ行い、path逸脱・symlink・hash不一致・壊れたDBを拒否する。復旧したsessionは失効させる。
+5.3 backupは共通の保守lockでオンライン複製を作り、成功時にmanifestのSHA-256指紋を出力する。保守者は指紋を保存物と別の場所に控える。
+5.4 restoreには保存時の指紋を必須とする。保存物内への復元・path逸脱・symlink・指紋やDBのhash不一致・壊れたDBを拒否する。全検査・session失効・各DBの同期後に新しいROOTを公開する。Unixではディレクトリも同期してから成功を返す。公開前のエラーでは作業フォルダを削除する。
 5.5 合成の2組織でbackup→新ROOTへrestore→再ログイン→各組織のデータ照合を実証する。
 
 ## 6. 配備と検証

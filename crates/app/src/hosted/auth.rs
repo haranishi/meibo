@@ -10,6 +10,10 @@ use super::{HostedResult, control::ControlStore, store};
 const ABSOLUTE: i64 = 8 * 3600;
 const IDLE: i64 = 30 * 60;
 const WINDOW: i64 = 15 * 60;
+const ACCOUNT_FAILURE_LIMIT: i64 = 5;
+const MAX_TRACKED_ACCOUNTS: i64 = 4096;
+const LOGIN_AUDIT_BUCKET: &str = "audit:login";
+const LOGIN_AUDIT_LIMIT: i64 = 100;
 const DEFAULT_MAX_SESSIONS: usize = 20;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -93,6 +97,10 @@ pub(super) fn hash_password(password: &str) -> HostedResult<String> {
         .map_err(|_| "passwordを保護できません。".into())
 }
 
+/// Remote storage records session activity at most once per this interval.
+#[cfg(feature = "cloud")]
+const LAST_SEEN_INTERVAL: i64 = 60;
+
 impl ControlStore {
     fn identity(
         &self,
@@ -128,24 +136,7 @@ impl ControlStore {
         }
         let name = store::username(name).unwrap_or_default();
         let account = hex(&digest(name.as_bytes()));
-        self.conn.execute(
-            "DELETE FROM login_attempts WHERE window_start<=?1",
-            [at - WINDOW],
-        )?;
-        for (bucket, limit) in [(account.as_str(), 5), ("global", 100)] {
-            let count: i64 = self.conn.query_row(
-                "SELECT COALESCE((SELECT failures FROM login_attempts WHERE bucket=?1),0)",
-                [bucket],
-                |r| r.get(0),
-            )?;
-            if count >= limit {
-                return Ok(LoginOutcome::Throttled);
-            }
-        }
-        let count: i64 = self
-            .conn
-            .query_row("SELECT count(*) FROM login_attempts", [], |r| r.get(0))?;
-        if count >= 4096 {
+        if self.login_throttled(&account, at)? {
             return Ok(LoginOutcome::Throttled);
         }
         let user: Option<(i64, String, bool)> = self
@@ -181,10 +172,8 @@ impl ControlStore {
             None
         };
         if !valid || role.is_none() {
-            for bucket in [&account, "global"] {
-                self.conn.execute("INSERT INTO login_attempts(bucket,window_start,failures) VALUES(?1,?2,1) ON CONFLICT(bucket) DO UPDATE SET failures=failures+1",params![bucket,at])?;
-            }
-            self.audit("unauthenticated", None, "login", "denied")?;
+            self.record_login_failure(&account, at)?;
+            self.audit_login_failure(at)?;
             return Ok(LoginOutcome::Invalid);
         }
         let (id, _, _) = user.ok_or("認証状態を確認できません。")?;
@@ -200,6 +189,102 @@ impl ControlStore {
             Some(&account),
             DEFAULT_MAX_SESSIONS,
         )?))
+    }
+
+    fn login_throttled(&self, account: &str, at: i64) -> HostedResult<bool> {
+        let failures = |bucket: &str| {
+            self.conn.query_row(
+                "SELECT COALESCE((SELECT failures FROM login_attempts WHERE bucket=?1),0)",
+                [bucket],
+                |r| r.get::<_, i64>(0),
+            )
+        };
+        #[cfg(feature = "cloud")]
+        if self.conn.is_remote() {
+            self.conn.execute(
+                "DELETE FROM login_attempts WHERE window_start<=?1",
+                [at - WINDOW],
+            )?;
+            if failures(account)? >= ACCOUNT_FAILURE_LIMIT || failures("global")? >= 100 {
+                return Ok(true);
+            }
+            let count: i64 =
+                self.conn
+                    .query_row("SELECT count(*) FROM login_attempts", [], |r| r.get(0))?;
+            return Ok(count >= MAX_TRACKED_ACCOUNTS);
+        }
+        self.conn.execute(
+            "DELETE FROM login_attempts WHERE window_start<=?1 OR bucket='global'",
+            [at - WINDOW],
+        )?;
+        Ok(failures(account)? >= ACCOUNT_FAILURE_LIMIT)
+    }
+
+    fn record_login_failure(&mut self, account: &str, at: i64) -> HostedResult<()> {
+        #[cfg(feature = "cloud")]
+        if self.conn.is_remote() {
+            for bucket in [account, "global"] {
+                self.conn.execute(
+                    "INSERT INTO login_attempts(bucket,window_start,failures) VALUES(?1,?2,1)
+                     ON CONFLICT(bucket) DO UPDATE SET failures=failures+1",
+                    params![bucket, at],
+                )?;
+            }
+            return Ok(());
+        }
+        let tx = self.conn.transaction()?;
+        if tx.execute(
+            "UPDATE login_attempts SET failures=failures+1 WHERE bucket=?1",
+            [account],
+        )? == 0
+        {
+            tx.execute(
+                "DELETE FROM login_attempts WHERE bucket IN (
+                     SELECT bucket FROM login_attempts WHERE bucket<>?2
+                     ORDER BY failures, window_start, rowid
+                     LIMIT (SELECT max(0, count(*) + 1 - ?1) FROM login_attempts WHERE bucket<>?2)
+                 )",
+                params![MAX_TRACKED_ACCOUNTS, LOGIN_AUDIT_BUCKET],
+            )?;
+            tx.execute(
+                "INSERT INTO login_attempts(bucket,window_start,failures) VALUES(?1,?2,1)",
+                params![account, at],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    fn audit_login_failure(&self, at: i64) -> HostedResult<()> {
+        #[cfg(feature = "cloud")]
+        if self.conn.is_remote() {
+            return self.audit("unauthenticated", None, "login", "denied");
+        }
+        // The counter and its audit row must commit together, including the one omission notice.
+        let tx = self.conn.unchecked_transaction()?;
+        tx.execute(
+            "DELETE FROM login_attempts WHERE bucket=?1 AND window_start<=?2",
+            params![LOGIN_AUDIT_BUCKET, at - WINDOW],
+        )?;
+        let count: Option<i64> = tx
+            .query_row(
+                "INSERT INTO login_attempts(bucket,window_start,failures) VALUES(?1,?2,1)
+                 ON CONFLICT(bucket) DO UPDATE SET failures=failures+1 WHERE failures<=?3
+                 RETURNING failures",
+                params![LOGIN_AUDIT_BUCKET, at, LOGIN_AUDIT_LIMIT],
+                |r| r.get(0),
+            )
+            .optional()?;
+        if let Some(count) = count {
+            let operation = if count > LOGIN_AUDIT_LIMIT {
+                "login.audit.suppressed"
+            } else {
+                "login"
+            };
+            self.audit("unauthenticated", None, operation, "denied")?;
+        }
+        tx.commit()?;
+        Ok(())
     }
 
     #[cfg(feature = "cloud")]
@@ -263,7 +348,7 @@ impl ControlStore {
             "SELECT u.id,m.role FROM users u JOIN memberships m ON m.user_id=u.id WHERE u.username=?1 AND u.disabled=0 AND m.tenant=?2",
             params![name, tenant], |r| Ok((r.get(0)?, r.get(1)?))).optional()?;
         let Some((id, role)) = user else {
-            self.audit("unauthenticated", None, "login", "denied")?;
+            self.audit_login_failure(at)?;
             return Ok(LoginOutcome::Invalid);
         };
         let identity = self.identity(id, name, tenant.into(), &role)?;
@@ -324,6 +409,10 @@ impl ControlStore {
             return Ok(None);
         }
         let key = digest(token.as_bytes());
+        #[cfg(feature = "cloud")]
+        if self.conn.is_remote() {
+            return self.authenticate_remote(&key, at, expected);
+        }
         let row:Option<(i64,String,String,String)>=self.conn.query_row("SELECT u.id,u.username,s.tenant,m.role FROM sessions s JOIN users u ON u.id=s.user_id JOIN memberships m ON m.user_id=s.user_id AND m.tenant=s.tenant WHERE s.digest=?1 AND u.disabled=0 AND s.created_at<=?2 AND s.last_seen<=?2 AND s.expires_at>?2 AND s.last_seen>?3",params![&key,at,at-IDLE],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))).optional()?;
         if let Some((id, name, tenant, role)) = row {
             if expected.is_some_and(|expected| expected != name) {
@@ -339,6 +428,46 @@ impl ControlStore {
                 .execute("DELETE FROM sessions WHERE digest=?1", [key])?;
             Ok(None)
         }
+    }
+
+    /// Remote storage reads the session, membership and service instance in
+    /// one statement, and records the last activity only when it is at least
+    /// [`LAST_SEEN_INTERVAL`] seconds old (remote-performance 5). The idle
+    /// condition itself is unchanged.
+    #[cfg(feature = "cloud")]
+    fn authenticate_remote(
+        &self,
+        key: &[u8],
+        at: i64,
+        expected: Option<&str>,
+    ) -> HostedResult<Option<Identity>> {
+        let row: Option<(i64, String, String, String, i64, String)> = self.conn.query_row(
+            "SELECT u.id,u.username,s.tenant,m.role,s.last_seen,(SELECT value FROM meta WHERE key='instance') FROM sessions s JOIN users u ON u.id=s.user_id JOIN memberships m ON m.user_id=s.user_id AND m.tenant=s.tenant WHERE s.digest=?1 AND u.disabled=0 AND s.created_at<=?2 AND s.last_seen<=?2 AND s.expires_at>?2 AND s.last_seen>?3",
+            params![key, at, at - IDLE],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)),
+        ).optional()?;
+        let Some((id, name, tenant, role, last_seen, instance)) = row else {
+            self.conn
+                .execute("DELETE FROM sessions WHERE digest=?1", [key])?;
+            return Ok(None);
+        };
+        if expected.is_some_and(|expected| expected != name) {
+            return Ok(None);
+        }
+        if at - last_seen >= LAST_SEEN_INTERVAL {
+            self.conn.execute(
+                "UPDATE sessions SET last_seen=?2 WHERE digest=?1",
+                params![key, at],
+            )?;
+        }
+        let scope = hex(&digest(format!("{instance}:{id}:{tenant}").as_bytes()));
+        Ok(Some(Identity {
+            user_id: id,
+            username: name,
+            tenant,
+            role: Role::parse(&role).ok_or("保存された権限が正しくありません。")?,
+            scope,
+        }))
     }
 
     pub(super) fn logout(&self, token: &str) -> HostedResult<()> {

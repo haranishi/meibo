@@ -45,6 +45,12 @@
 .hosted-session span{max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .hosted-session button{font:inherit;border:1px solid #bac7d6;border-radius:4px;background:white;padding:7px 9px;color:#244866;cursor:pointer;white-space:nowrap}
 main[data-meibo-gated]{visibility:hidden}
+.usage-entry{display:inline-flex;align-items:center;min-height:36px;padding:6px 10px;margin-right:10px;border:1px solid #bac7d6;border-radius:4px;background:#fff;color:#244866;font-size:12px;font-weight:600;text-decoration:none;white-space:nowrap}
+.usage-entry:hover{background:#edf4fb;border-color:#1863a8}
+.usage-entry:focus-visible,.usage-menu-link:focus-visible{outline:3px solid #9acdfb;outline-offset:3px}
+.app-menu>a.usage-menu-link{display:flex;align-items:center;min-height:44px;padding:12px 8px;margin-top:6px;border-top:1px solid #e0e6ee;color:#0b5cab;font-size:13px;text-decoration:none}
+.app-menu>a.usage-menu-link:hover{background:#eff5fc}
 html[data-meibo-auth-pending] body{display:none!important;visibility:hidden!important}
 html[data-meibo-auth-pending] body *{visibility:hidden!important}
 @media(max-width:600px){.login-page{padding:24px 16px}.login-card{padding:28px 22px}.login-card h1{font-size:22px}.hosted-session{gap:5px}.hosted-session span{max-width:90px}.hosted-session button{padding:7px}}
+@media(max-width:639px){.global-utilities>.usage-entry{display:none}}

@@ -6,7 +6,8 @@ mod sqld;
 
 use meibo_db::{
     Error, ErrorCode, OptionalExtension, RemoteConnection, RemoteOptions,
-    RemoteTransportDiagnostic, RemoteTransportKind, RemoteTransportPhase, params, params_from_iter,
+    RemoteTransportDiagnostic, RemoteTransportKind, RemoteTransportPhase, RemoteUsage, params,
+    params_from_iter,
 };
 use response::{ResponseServer, response};
 use std::time::{Duration, Instant};
@@ -49,6 +50,13 @@ fn no_secrets(error: &Error, endpoint: &str) {
             "diagnostic contains synthetic secret"
         );
     }
+}
+
+fn described_body(read_only: bool) -> serde_json::Value {
+    serde_json::json!({"baton":null,"base_url":null,"results":[
+        {"type":"ok","response":{"type":"describe","result":{"params":[],"cols":[],"is_explain":false,"is_readonly":read_only}}},
+        {"type":"ok","response":{"type":"close"}}
+    ]})
 }
 
 fn setup_body() -> serde_json::Value {
@@ -634,7 +642,8 @@ remote_test!(
             "http://127.0.0.1/?secret".into(),
             "http://127.0.0.1/#secret".into(),
         ] {
-            let mut body = setup_body();
+            // Describe uses one closing round trip; its base_url is checked.
+            let mut body = described_body(true);
             body["base_url"] = base.into();
             let server = ResponseServer::start(json_response(&body), Duration::ZERO);
             let connection = connect(&server.endpoint());
@@ -657,7 +666,11 @@ remote_test!(setup_failure_closes_once_without_sending_any_user_sql, {
         }
         let closed = serde_json::json!({"baton":null,"base_url":null,"results":[{"type":"ok","response":{"type":"close"}}]});
         let server = ResponseServer::script(
-            vec![json_response(&body), json_response(&closed)],
+            vec![
+                json_response(&described_body(false)),
+                json_response(&body),
+                json_response(&closed),
+            ],
             Duration::ZERO,
             false,
         );
@@ -667,10 +680,14 @@ remote_test!(setup_failure_closes_once_without_sending_any_user_sql, {
         assert!(connection.is_poisoned());
         assert_eq!(
             server.request_types(),
-            [vec!["store_sql", "execute", "execute"], vec!["close"]]
+            [
+                vec!["describe", "close"],
+                vec!["store_sql", "execute", "execute"],
+                vec!["close"]
+            ]
         );
         assert!(connection.execute_batch("SELECT 1").is_err());
-        assert_eq!(server.count(), 2);
+        assert_eq!(server.count(), 3);
     }
 });
 
@@ -728,15 +745,10 @@ remote_test!(
 );
 
 remote_test!(exact_response_body_limit_succeeds_and_one_less_rejects, {
-    let setup = serde_json::to_vec(&setup_body()).unwrap();
-    let described = serde_json::json!({"baton":null,"base_url":null,"results":[
-        {"type":"ok","response":{"type":"describe","result":{"params":[],"cols":[],"is_explain":false,"is_readonly":true}}},
-        {"type":"ok","response":{"type":"close"}}
-    ]});
-    assert!(serde_json::to_vec(&described).unwrap().len() < setup.len());
-    for (limit, accepted) in [(setup.len(), true), (setup.len() - 1, false)] {
+    let described = serde_json::to_vec(&described_body(true)).unwrap();
+    for (limit, accepted) in [(described.len(), true), (described.len() - 1, false)] {
         let server = ResponseServer::script(
-            vec![response(200, &setup, true, ""), json_response(&described)],
+            vec![response(200, &described, true, "")],
             Duration::ZERO,
             false,
         );
@@ -788,29 +800,97 @@ remote_test!(close_baton_variant_and_failure_are_validated_after_setup, {
 });
 
 remote_test!(
-    successful_http1_keepalive_responses_still_use_fresh_tcp_connections,
+    successful_http1_keepalive_responses_still_use_fresh_tcp_connections_for_writes,
     {
-        let described = serde_json::json!({"baton":null,"base_url":null,"results":[
-            {"type":"ok","response":{"type":"describe","result":{"params":[],"cols":[],"is_explain":false,"is_readonly":true}}},
+        let executed = serde_json::json!({"baton":null,"base_url":null,"results":[
+            {"type":"ok","response":{"type":"execute","result":{"cols":[],"rows":[],"affected_row_count":1,"last_insert_rowid":null}}},
             {"type":"ok","response":{"type":"close"}}
         ]});
         let server = ResponseServer::keepalive(vec![
+            json_response(&described_body(false)),
             json_response(&setup_body()),
-            json_response(&described),
+            json_response(&executed),
         ]);
         let connection = connect(&server.endpoint());
-        connection.prepare("SELECT 1").unwrap();
+        assert_eq!(
+            connection.execute("UPDATE synthetic SET a=1", []).unwrap(),
+            1
+        );
         assert_eq!(
             server.request_types(),
             [
+                vec!["describe", "close"],
                 vec!["store_sql", "execute", "execute"],
-                vec!["describe", "close"]
+                vec!["execute", "close"]
             ]
         );
         assert_eq!(
             server.count(),
-            2,
-            "idle HTTP/1 sockets must not be reused for internal retries"
+            3,
+            "idle HTTP/1 sockets must not be reused by data-changing round trips"
         );
     }
 );
+
+remote_test!(usage_counts_round_trips_and_reported_rows_then_resets, {
+    let _ = RemoteUsage::take();
+    let execute = serde_json::json!({"baton":null,"base_url":null,"results":[
+        {"type":"ok","response":{"type":"execute","result":{
+            "cols":[{"name":"n","decltype":null}],
+            "rows":[[{"type":"integer","value":"1"}]],
+            "affected_row_count":0,"last_insert_rowid":null,
+            "rows_read":7,"rows_written":2
+        }}},
+        {"type":"ok","response":{"type":"close"}}
+    ]});
+    let server = ResponseServer::script(
+        vec![
+            json_response(&described_body(true)),
+            json_response(&execute),
+        ],
+        Duration::ZERO,
+        false,
+    );
+    let connection = connect(&server.endpoint());
+    let value: i64 = connection
+        .query_row("SELECT 1", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(value, 1);
+    assert_eq!(
+        RemoteUsage::take(),
+        RemoteUsage {
+            round_trips: 2,
+            rows_read: 7,
+            rows_written: 2
+        }
+    );
+    assert_eq!(RemoteUsage::take(), RemoteUsage::ZERO);
+    // A failed round trip is still counted and reports no rows.
+    assert!(connection.query_row("SELECT 2", [], |_| Ok(())).is_err());
+    assert_eq!(RemoteUsage::take().rows_read, 0);
+    assert_eq!(RemoteUsage::take(), RemoteUsage::ZERO);
+
+    let sqld = sqld::Sqld::start().unwrap();
+    let connection = connect(&sqld.endpoint());
+    connection
+        .execute_batch("CREATE TABLE synthetic(id INTEGER PRIMARY KEY)")
+        .unwrap();
+    let _ = RemoteUsage::take();
+    for id in 1..=3 {
+        connection
+            .execute("INSERT INTO synthetic(id) VALUES(?1)", [id])
+            .unwrap();
+    }
+    let count: i64 = connection
+        .query_row("SELECT count(*) FROM synthetic", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(count, 3);
+    let usage = RemoteUsage::take();
+    assert!(usage.round_trips >= 4, "{usage:?}");
+    assert!(usage.rows_written >= 3, "{usage:?}");
+    assert!(usage.rows_read >= 1, "{usage:?}");
+    // Another thread has its own counters.
+    std::thread::spawn(|| assert_eq!(RemoteUsage::take(), RemoteUsage::ZERO))
+        .join()
+        .unwrap();
+});

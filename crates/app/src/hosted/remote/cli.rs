@@ -35,6 +35,7 @@ Commands:
   sync-nta SLUG CATALOG [--limit COUNT]
   backup NEW_DIRECTORY
   restore SNAPSHOT_DIRECTORY --target-config TARGET_CONFIG
+  usage-enable
   gate-status
   gate-recover OWNER --prior-work-terminated
   serve --origin https://domain [--bind 127.0.0.1:4317] [--access-config PRIVATE_JSON]
@@ -60,6 +61,7 @@ enum Action {
     Backup(PathBuf),
     Restore(PathBuf, PathBuf),
     Status,
+    UsageEnable,
     Recover(String),
     Serve(Box<HostedConfig>),
 }
@@ -142,6 +144,7 @@ fn parse(command: &str, args: &[String]) -> HostedResult<Action> {
             Ok(Action::Sync(tenant.clone(), catalog.into(), limit))
         }
         ("gate-status", []) => Ok(Action::Status),
+        ("usage-enable", []) => Ok(Action::UsageEnable),
         ("backup", [path]) => Ok(Action::Backup(path.into())),
         ("restore", [snapshot, flag, target]) if flag == "--target-config" => {
             Ok(Action::Restore(snapshot.into(), target.into()))
@@ -303,6 +306,10 @@ fn execute(
                 "inserted={} updated={} skipped={}",
                 report.inserted, report.updated, report.skipped
             ))
+        }
+        Action::UsageEnable => {
+            store.enable_usage()?;
+            Ok("usage-enabled".into())
         }
         Action::Backup(path) => {
             crate::hosted::remote_backup::create(store, operation, &path)?;

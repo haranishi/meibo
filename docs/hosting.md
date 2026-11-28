@@ -18,6 +18,8 @@ docker compose up -d
 
 passwordは12〜1024bytesです。引数や設定ファイルへ書かず、上の例では端末の非表示入力から標準入力へ渡します。組織ID・利用者名・passwordを招待した相手へ安全に渡してください。
 
+SQLite版では、`/auth/login` への大量の要求が続くと、正しいパスワードでも429が返ることがあります。要求が収まれば数秒で再試行できます。よくあるパスワードを多くの利用者名で試す攻撃は、最初の100件の後も毎秒5件まで続けられます。長く推測されにくいパスワードを使ってください。
+
 `MEIBO_DOMAIN`のdomainで開くとlogin画面へ進みます。アプリportをホストへ公開しないでください。`meibo_data`が認証/組織DB、`caddy_data`が証明書と鍵、`caddy_config`が前段設定の永続Volumeです。[Docker Volumes](https://docs.docker.com/engine/storage/volumes/)の対象を保持して更新します。
 
 ## 権限と失効
@@ -37,10 +39,18 @@ docker compose run --rm app hosted /data/service audit example
 
 ```sh
 docker compose run --rm app hosted /data/service backup /data/snapshot-001
-docker compose run --rm app hosted /data/restored-001 restore /data/snapshot-001
 ```
 
-backup/restore先には未存在の名前を使います。backupは共通保守lockで要求を整列し、SQLite online backupとhash/整合性検査を行います。その間のWeb要求は503になることがあります。復旧先では全sessionが失効します。
+成功すると `backed-up manifest-sha256=<64桁の指紋>` が1行表示されます。指紋は保存物と別の場所に、保存先の名前と一緒に控えてください。復元時はその控えから64桁を入力します。
+
+```sh
+read -r manifest_sha256
+docker compose run --rm app hosted /data/restored-001 restore /data/snapshot-001 --manifest-sha256 "$manifest_sha256"
+```
+
+backup先と復元先には未存在の名前を使い、復元先は保存物の外に置きます。backupは共通保守lockを取ってSQLiteをオンライン複製し、整合性を検査します。その間のWeb要求は503になることがあります。復元時には複写先の全sessionを失効させます。復元コマンドが成功すると、検査と同期を終えたROOTを使えます。
+
+復元を強制終了すると、復元先の隣に `.meibo-restore-*` が残ることがあります。復元処理が動いていないことを確かめてから、残った作業フォルダを削除できます。
 
 復旧後は`MEIBO_ROOT=/data/restored-001 docker compose up -d app`で新ROOTへ切り替え、再ログインして各組織の企業/活動/商談を照合します。切替後の再起動でも内容が残ることを確認してください。元ROOTとsnapshotは照合が済むまで保持します。
 
@@ -65,3 +75,6 @@ HTTPS到達、未認証APIの拒否、2組織/3権限、同一browserの利用�
 Cloudflare向けの準備と公開ゲートは[配備手順](hosting-cloudflare.md)を参照してください。
 
 [Cloudflareアカウントでログインする手順](hosting-cloudflare-access.md)。
+
+自分用に Cloud Run と Turso で公開する場合は[配備と管理の道具](hosting-cloud-run.md)と
+[運用と緊急時の手順](cloud-run-operations.md)を参照してください。

@@ -36,7 +36,8 @@ mod sqld {
 const PASSWORD: &str = "synthetic-backup-password-only";
 const TOKEN: &str = "synthetic-backup-token-only";
 const HIGH_WATER: i64 = 9_007_199_254_740_993;
-static FIXTURES: Mutex<()> = Mutex::new(());
+/// Also held by `usage_tests`, whose extra sqld starts raced these fixtures.
+pub(in crate::hosted) static FIXTURES: Mutex<()> = Mutex::new(());
 
 mod restore;
 
