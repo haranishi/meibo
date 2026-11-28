@@ -5,6 +5,11 @@ use crate::Result;
 #[derive(Clone, Copy, Default)]
 pub(super) struct Effects {
     pub inserts: bool,
+    /// Exactly one statement whose top-level kind is SELECT (including
+    /// `WITH ... SELECT`). PRAGMA, VALUES and every write kind are excluded.
+    pub single_select: bool,
+    /// At least one statement may change the schema used by prepared reads.
+    pub schema: bool,
 }
 
 /// The wrapper owns outer transactions. Savepoints cannot commit its BEGIN.
@@ -12,6 +17,8 @@ pub(super) fn inspect(sql: &str, in_transaction: bool) -> Result<Effects> {
     let mut statement = Statement::default();
     let mut effects = Effects::default();
     let mut parentheses = 0usize;
+    let mut statements = 0usize;
+    let mut selects = 0usize;
     for token in (Tokens { sql, offset: 0 }) {
         match token {
             Token::Word(word) if statement.in_body() => {
@@ -28,6 +35,8 @@ pub(super) fn inspect(sql: &str, in_transaction: bool) -> Result<Effects> {
             Token::Word(word) if parentheses == 0 => statement.word(word),
             Token::Semicolon if !statement.in_body() => {
                 statement.finish(in_transaction, &mut effects)?;
+                statements += usize::from(statement.count > 0);
+                selects += usize::from(statement.is_select());
                 statement = Statement::default();
                 parentheses = 0;
             }
@@ -37,6 +46,9 @@ pub(super) fn inspect(sql: &str, in_transaction: bool) -> Result<Effects> {
         }
     }
     statement.finish(in_transaction, &mut effects)?;
+    statements += usize::from(statement.count > 0);
+    selects += usize::from(statement.is_select());
+    effects.single_select = statements == 1 && selects == 1;
     Ok(effects)
 }
 
@@ -48,6 +60,7 @@ struct Statement<'sql> {
     cases: usize,
     inserts: bool,
     with_kind_found: bool,
+    with_select: bool,
 }
 
 #[derive(Default)]
@@ -61,6 +74,10 @@ enum Trigger {
 impl<'sql> Statement<'sql> {
     fn in_body(&self) -> bool {
         matches!(self.trigger, Trigger::Body)
+    }
+
+    fn is_select(&self) -> bool {
+        self.is(0, "SELECT") || (self.is(0, "WITH") && self.with_select)
     }
 
     fn is(&self, index: usize, word: &str) -> bool {
@@ -91,6 +108,7 @@ impl<'sql> Statement<'sql> {
                 .any(|kind| word.eq_ignore_ascii_case(kind))
         {
             self.with_kind_found = true;
+            self.with_select = word.eq_ignore_ascii_case("SELECT");
             self.inserts =
                 word.eq_ignore_ascii_case("INSERT") || word.eq_ignore_ascii_case("REPLACE");
         }
@@ -105,6 +123,7 @@ impl<'sql> Statement<'sql> {
             return Err(RemoteErrorKind::Unsupported.error());
         }
         effects.inserts |= self.inserts;
+        effects.schema |= self.is(0, "CREATE") || self.is(0, "ALTER") || self.is(0, "DROP");
         Ok(())
     }
 }
@@ -182,5 +201,48 @@ impl<'sql> Iterator for Tokens<'sql> {
             });
         }
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::inspect;
+
+    #[test]
+    fn only_one_top_level_select_is_a_single_select() {
+        for sql in [
+            "SELECT 1",
+            "  select a FROM t WHERE b=?;",
+            "WITH x AS (SELECT 1) SELECT * FROM x",
+            "SELECT (SELECT count(*) FROM t),(SELECT 2)",
+        ] {
+            assert!(inspect(sql, false).unwrap().single_select, "{sql}");
+        }
+        for sql in [
+            "PRAGMA foreign_keys",
+            "VALUES(1)",
+            "SELECT 1; SELECT 2",
+            "WITH x AS (SELECT 1) INSERT INTO t SELECT * FROM x",
+            "WITH x AS (SELECT 1) DELETE FROM t WHERE a IN (SELECT * FROM x)",
+            "INSERT INTO t SELECT 1",
+            "UPDATE t SET a=(SELECT 1)",
+            "DELETE FROM t",
+            "CREATE TABLE t(a)",
+            "",
+        ] {
+            assert!(!inspect(sql, false).unwrap().single_select, "{sql}");
+        }
+    }
+
+    #[test]
+    fn schema_changes_are_reported() {
+        for sql in [
+            "CREATE TABLE t(a)",
+            "SELECT 1; DROP TABLE t",
+            "alter table t add b",
+        ] {
+            assert!(inspect(sql, false).unwrap().schema, "{sql}");
+        }
+        assert!(!inspect("SELECT 1", false).unwrap().schema);
     }
 }

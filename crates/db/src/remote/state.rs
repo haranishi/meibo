@@ -1,6 +1,6 @@
 use super::{
-    CloseStreamReq, ExecuteStreamReq, RemoteConnection, RemoteErrorKind, Stmt, StoreSqlStreamReq,
-    StreamRequest, StreamResponse, execute_sql, expect_ok,
+    CloseStreamReq, ExecuteStreamReq, ReadFence, RemoteConnection, RemoteErrorKind, Stmt,
+    StoreSqlStreamReq, StreamRequest, StreamResponse, execute_sql, expect_ok,
 };
 use crate::{Error, Result, TransactionBehavior};
 use libsql_hrana::proto::{PipelineRespBody, Value};
@@ -11,6 +11,9 @@ const FOREIGN_KEYS_SQL_ID: i32 = 0;
 pub(super) struct Stream {
     pipeline: Url,
     baton: Option<String>,
+    // True only if the stream began under a fence and all its work was fenced.
+    fenced: bool,
+    pub(super) schema_changed: bool,
 }
 
 impl RemoteConnection {
@@ -22,6 +25,7 @@ impl RemoteConnection {
                 Some("remote database transaction already active".into()),
             ));
         }
+        self.check_fence(!matches!(behavior, TransactionBehavior::Deferred))?;
         let sql = match behavior {
             TransactionBehavior::Deferred => "BEGIN DEFERRED",
             TransactionBehavior::Immediate => "BEGIN IMMEDIATE",
@@ -48,6 +52,9 @@ impl RemoteConnection {
             .borrow_mut()
             .take()
             .ok_or_else(|| RemoteErrorKind::Unsupported.error())?;
+        // Finish a refused commit with one rollback. A cleanup failure takes precedence.
+        let fence_check = self.check_fence(commit && !stream.fenced);
+        let commit = commit && fence_check.is_ok();
         let result = self.control(&mut stream, if commit { "COMMIT" } else { "ROLLBACK" });
         if self.poisoned.get() {
             return Err(RemoteErrorKind::OutcomeUnknown.error());
@@ -58,10 +65,33 @@ impl RemoteConnection {
             if !self.poisoned.get() {
                 let _ = self.close(&mut stream);
             }
-            self.poisoned.set(true);
+            self.poison();
             return Err(RemoteErrorKind::OutcomeUnknown.error());
         }
         self.close(&mut stream)?;
+        result.and(fence_check)
+    }
+
+    /// Send one request that cannot change data on its own closing stream.
+    ///
+    /// There is no foreign-key setup: callers use it only for Describe and for
+    /// a SELECT that both the provider and the local inspection call read-only.
+    /// Failures are returned as-is and still poison the connection; nothing
+    /// is resent.
+    pub(super) fn request_read(&self, request: StreamRequest) -> Result<StreamResponse> {
+        self.ensure_usable()?;
+        let response = self.pipeline_with(
+            &self.transport.pipeline,
+            None,
+            vec![request, StreamRequest::Close(CloseStreamReq {})],
+            true,
+            true,
+        )?;
+        let mut results = response.results.into_iter();
+        let result = expect_ok(results.next().unwrap());
+        if expect_ok(results.next().unwrap()).is_err() {
+            return self.invalid_response();
+        }
         result
     }
 
@@ -154,6 +184,8 @@ impl RemoteConnection {
         let mut stream = Stream {
             pipeline: self.transport.next_pipeline(setup.base_url.as_deref())?,
             baton: setup.baton,
+            fenced: ReadFence::active(),
+            schema_changed: false,
         };
         let mut results = setup.results.into_iter();
         let stored = matches!(
@@ -191,7 +223,7 @@ impl RemoteConnection {
             .send(stream, vec![StreamRequest::Close(CloseStreamReq {})], true)
             .map_err(|_| RemoteErrorKind::OutcomeUnknown.error())?;
         if expect_ok(response.results.into_iter().next().unwrap()).is_err() {
-            self.poisoned.set(true);
+            self.poison();
             return Err(RemoteErrorKind::OutcomeUnknown.error());
         }
         Ok(())
@@ -203,6 +235,7 @@ impl RemoteConnection {
         requests: Vec<StreamRequest>,
         closing: bool,
     ) -> Result<PipelineRespBody> {
+        stream.fenced = stream.fenced && ReadFence::active();
         let response = self.pipeline(&stream.pipeline, stream.baton.take(), requests, closing)?;
         if response.base_url.is_some() {
             stream.pipeline = self.transport.next_pipeline(response.base_url.as_deref())?;

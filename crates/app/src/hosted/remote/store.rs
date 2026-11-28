@@ -160,6 +160,35 @@ impl RemoteStore {
         Ok(())
     }
 
+    /// The same readiness checks as [`Self::check_ready`] plus whether the
+    /// gate is free, in one read round trip. It writes nothing.
+    pub(in crate::hosted) fn read_ready(&self) -> HostedResult<bool> {
+        if self.conn.is_poisoned() {
+            return Err(crate::hosted::remote_gate::GateError::UncertainConnection.into());
+        }
+        let mut results = self
+            .conn
+            .read_batch(&[
+                meibo_db::ReadStep::Query("SELECT count(*) FROM remote_gate", Vec::new()),
+                meibo_db::ReadStep::Query(METADATA, Vec::new()),
+                meibo_db::ReadStep::Check(SCHEMA_PROBE),
+            ])
+            .map_err(batch_error)?
+            .into_iter();
+        let gate = results.next().ok_or(CONTROL_ERROR)?;
+        let identity = parse_control(results.next().ok_or(CONTROL_ERROR)?)?;
+        if identity.database_id != self.identity.database_id
+            || identity.instance != self.identity.instance
+        {
+            return Err(CONTROL_ERROR.into());
+        }
+        match gate.as_slice() {
+            [row] if row.as_slice() == [meibo_db::Value::Integer(0)] => Ok(true),
+            [row] if matches!(row.as_slice(), [meibo_db::Value::Integer(n)] if *n > 0) => Ok(false),
+            _ => Err(CONTROL_ERROR.into()),
+        }
+    }
+
     fn endpoint(&self, slug: &str) -> HostedResult<meibo_db::RemoteOptions> {
         if !valid_slug(slug) {
             return Err(TENANT_ERROR.into());
@@ -295,21 +324,43 @@ impl DerefMut for RemoteStore {
 }
 
 fn validate_control(conn: &Connection) -> HostedResult<ServiceIdentity> {
-    let tx = conn.unchecked_transaction()?;
+    // One read snapshot: the metadata rows and a fresh compile of the schema
+    // probe travel in a single round trip (remote-performance 2.5).
+    let mut results = conn
+        .read_batch(&[
+            meibo_db::ReadStep::Query(METADATA, Vec::new()),
+            meibo_db::ReadStep::Check(SCHEMA_PROBE),
+        ])
+        .map_err(batch_error)?
+        .into_iter();
+    parse_control(results.next().ok_or(CONTROL_ERROR)?)
+}
+
+/// Keep transport failures as before (the bare adapter error, as when the
+/// read transaction failed to start) and give SQL failures the fixed message.
+fn batch_error(error: meibo_db::Error) -> Box<dyn Error> {
+    let transport = meibo_db::remote_error_kind(&error).is_some()
+        || matches!(&error, meibo_db::Error::SqliteFailure(code, _)
+            if code.code == meibo_db::ErrorCode::SystemIoFailure);
+    if transport {
+        Box::new(error)
+    } else {
+        control_error(error)
+    }
+}
+
+fn parse_control(rows: Vec<Vec<meibo_db::Value>>) -> HostedResult<ServiceIdentity> {
     let mut metadata = std::collections::BTreeMap::new();
-    let mut statement = tx.prepare(METADATA).map_err(control_error)?;
-    for row in statement
-        .query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        })
-        .map_err(control_error)?
-    {
-        let (key, value) = row.map_err(control_error)?;
+    for row in rows {
+        let [meibo_db::Value::Text(key), meibo_db::Value::Text(value)] =
+            <[_; 2]>::try_from(row).map_err(|_| CONTROL_ERROR)?
+        else {
+            return Err(CONTROL_ERROR.into());
+        };
         if metadata.insert(key, value).is_some() {
             return Err(CONTROL_ERROR.into());
         }
     }
-    drop(statement);
     let required = |key| metadata.get(key).map(String::as_str).ok_or(CONTROL_ERROR);
     if required("remote_format")? != FORMAT
         || required("schema_version")? != "1"
@@ -321,13 +372,10 @@ fn validate_control(conn: &Connection) -> HostedResult<ServiceIdentity> {
     {
         return Err(CONTROL_ERROR.into());
     }
-    tx.prepare(SCHEMA_PROBE).map_err(control_error)?;
-    let identity = ServiceIdentity {
+    Ok(ServiceIdentity {
         database_id: required("database_id")?.into(),
         instance: required("instance")?.into(),
-    };
-    tx.commit()?;
-    Ok(identity)
+    })
 }
 
 pub(in crate::hosted) fn opaque_id(value: &str) -> bool {

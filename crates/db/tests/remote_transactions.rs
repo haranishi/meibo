@@ -3,7 +3,7 @@
 mod support;
 
 use meibo_db::{
-    Connection, Error, ErrorCode, RemoteErrorKind, RemoteOptions, TransactionBehavior,
+    Connection, Error, ErrorCode, ReadFence, RemoteErrorKind, RemoteOptions, TransactionBehavior,
     remote_error_kind,
 };
 use std::time::Duration;
@@ -182,6 +182,60 @@ transaction_test!(
         assert!(!connection.is_poisoned());
     }
 );
+
+transaction_test!(fenced_commit_rolls_back_prior_writes, {
+    let server = database();
+    let proxy = FaultProxy::start(server.address()).unwrap();
+    let connection = connect(&proxy.endpoint());
+    for began_fenced in [false, true] {
+        let before = began_fenced.then(ReadFence::begin);
+        let tx = connection.unchecked_transaction().unwrap();
+        drop(before);
+        tx.execute("INSERT INTO synthetic(value) VALUES(1)", [])
+            .unwrap();
+        let commits = proxy.commits();
+        let rollbacks = proxy.rollbacks();
+        let fence = ReadFence::begin();
+        let error = tx.commit().unwrap_err();
+        assert_eq!(
+            remote_error_kind(&error),
+            Some(RemoteErrorKind::Unsupported)
+        );
+        assert!(fence.tripped());
+        assert!(!fence.failed());
+        assert_eq!(proxy.commits(), commits);
+        assert_eq!(proxy.rollbacks(), rollbacks + 1);
+        assert!(connection.is_autocommit());
+        assert_eq!(observed_count(&server), 0);
+    }
+});
+
+transaction_test!(ddl_describes_expire_on_rollback, {
+    let server = database();
+    let proxy = FaultProxy::start(server.address()).unwrap();
+    let connection = connect(&proxy.endpoint());
+    let sql = "SELECT * FROM synthetic";
+    let ddl = "ALTER TABLE synthetic ADD COLUMN extra INTEGER";
+    for batch in [false, true] {
+        assert_eq!(connection.prepare(sql).unwrap().column_count(), 2);
+        let tx = connection.unchecked_transaction().unwrap();
+        if batch {
+            tx.execute_batch(ddl).unwrap();
+        } else {
+            tx.execute(ddl, []).unwrap();
+        }
+        assert_eq!(tx.prepare(sql).unwrap().column_count(), 3);
+        let sent = proxy.requests();
+        assert_eq!(tx.prepare(sql).unwrap().column_count(), 3);
+        assert_eq!(
+            proxy.requests(),
+            sent + 1,
+            "transactional DDL is still provisional"
+        );
+        tx.rollback().unwrap();
+        assert_eq!(connection.prepare(sql).unwrap().column_count(), 2);
+    }
+});
 
 transaction_test!(
     transaction_behaviors_and_same_stream_savepoints_are_supported,

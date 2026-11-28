@@ -24,6 +24,11 @@ path = "tests/remote.rs"
 required-features = ["integration-tests"]
 
 [[test]]
+name = "remote_keepalive"
+path = "tests/remote_keepalive.rs"
+required-features = ["integration-tests"]
+
+[[test]]
 name = "remote_transactions"
 path = "tests/remote_transactions.rs"
 required-features = ["integration-tests"]

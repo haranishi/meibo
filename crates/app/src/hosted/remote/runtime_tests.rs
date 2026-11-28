@@ -110,6 +110,22 @@ impl Fixture {
         )
         .unwrap()
     }
+    fn anonymous_request(&self, method: &str, target: &str, value: &Value) -> Input {
+        let mut request = self.request(method, target, value);
+        request.headers.retain(|(name, _)| name != "Cookie");
+        request
+    }
+    fn exhaust_anonymous(&self, web: &mut Hosted<RemoteStore>, at: i64) {
+        let page = self.anonymous_request("GET", "/login", &Value::Null);
+        for _ in 0..=100 {
+            match web.dispatch(&page, at).reply.status {
+                200 => {}
+                429 => return,
+                status => panic!("unexpected login page status {status}"),
+            }
+        }
+        panic!("anonymous requests exceeded the burst at a fixed time");
+    }
 }
 
 fn unknown(reply: &HostedReply) {
@@ -191,12 +207,187 @@ fn failed_engine_constructor_does_not_treat_an_absent_engine_as_healthy() {
     let proxy = proxy::FaultProxy::start(fixture.tenant.address()).unwrap();
     let mut web = Fixture::service(&fixture.control.endpoint(), &proxy.endpoint());
     proxy.arm(proxy::Fault::LoseCommitResponse);
+    assert!(!web.exit_requested());
     unknown(&web.dispatch(&fixture.request("GET", "/api/summary", &Value::Null), AT));
     assert_eq!(proxy.triggered(), 1);
     let sent = proxy.requests();
-    assert!(fixture.store().gate_status().unwrap().is_some());
+    // remote-performance 4.4: the gate-free read takes no gate, and the
+    // serve loop ends the process after this reply.
+    assert!(fixture.store().gate_status().unwrap().is_none());
+    assert!(web.exit_requested());
     unknown(&web.dispatch(&fixture.request("GET", "/api/summary", &Value::Null), AT));
     assert_eq!(proxy.requests(), sent);
+}
+
+#[test]
+fn lost_rollback_stops_without_gate() {
+    let _serial = FIXTURES
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let fixture = Fixture::new();
+    let control = proxy::FaultProxy::start(fixture.control.address()).unwrap();
+    let tenant = proxy::FaultProxy::start(fixture.tenant.address()).unwrap();
+    let mut web = Fixture::service(&control.endpoint(), &tenant.endpoint());
+    assert_eq!(
+        web.dispatch(&fixture.request("GET", "/auth/session", &Value::Null), AT)
+            .reply
+            .status,
+        200
+    );
+    fixture.exhaust_anonymous(&mut web, AT);
+    fixture
+        .raw_tenant()
+        .execute(
+            "UPDATE meta SET value=value || '-other' WHERE key='database_id'",
+            [],
+        )
+        .unwrap();
+    // Opening returns the identity error. Drop is the only observer of the lost rollback.
+    let rollbacks = tenant.rollbacks();
+    tenant.arm(proxy::Fault::LoseRollbackResponse);
+    control.arm(proxy::Fault::LoseMatchingWriteResponse(
+        "INSERT INTO remote_gate",
+    ));
+    unknown(&web.dispatch(&fixture.request("GET", "/api/summary", &Value::Null), AT));
+    assert_eq!(tenant.triggered(), 1);
+    assert_eq!(tenant.rollbacks(), rollbacks + 1);
+    assert_eq!(control.triggered(), 0);
+    assert!(web.exit_requested());
+    let sent = (control.requests(), tenant.requests());
+    unknown(&web.dispatch(
+        &fixture.anonymous_request("GET", "/login", &Value::Null),
+        AT,
+    ));
+    assert_eq!((control.requests(), tenant.requests()), sent);
+}
+
+#[test]
+fn tenant_identity_mismatch_on_a_gate_free_read_matches_the_serialized_reply() {
+    let _serial = FIXTURES
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let fixture = Fixture::new();
+    let raw = fixture.raw_tenant();
+    let original: String = raw
+        .query_row("SELECT value FROM meta WHERE key='database_id'", [], |r| {
+            r.get(0)
+        })
+        .unwrap();
+    let mut web = Fixture::service(&fixture.control.endpoint(), &fixture.tenant.endpoint());
+    raw.execute(
+        "UPDATE meta SET value='ffffffffffffffffffffffffffffffff' WHERE key='database_id'",
+        [],
+    )
+    .unwrap();
+    let summary = fixture.request("GET", "/api/summary", &Value::Null);
+    // POST is never gate-free, so it shows the serialized path's reply.
+    let serialized = web
+        .dispatch(
+            &fixture.request(
+                "POST",
+                "/api/companies",
+                &json!({"name":"合成の確認企業","prefecture":13}),
+            ),
+            AT,
+        )
+        .reply
+        .status;
+    let read = web.dispatch(&summary, AT).reply.status;
+    assert_eq!(read, serialized);
+    assert_ne!(
+        read, 503,
+        "a non-communication failure does not freeze the process"
+    );
+    assert!(!web.exit_requested());
+    let gates: i64 = Connection::open_remote(
+        RemoteOptions::new(fixture.control.endpoint(), TOKEN).allow_loopback_http_for_tests(),
+    )
+    .unwrap()
+    .query_row("SELECT count(*) FROM remote_gate", [], |r| r.get(0))
+    .unwrap();
+    assert_eq!(gates, 0);
+    raw.execute(
+        "UPDATE meta SET value=?1 WHERE key='database_id'",
+        [original],
+    )
+    .unwrap();
+    assert_eq!(web.dispatch(&summary, AT).reply.status, 200);
+}
+
+#[test]
+fn public_routes_use_anonymous_quota() {
+    let _serial = FIXTURES
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let fixture = Fixture::new();
+    let control = proxy::FaultProxy::start(fixture.control.address()).unwrap();
+    let mut web = Fixture::service(&control.endpoint(), &fixture.tenant.endpoint());
+    assert_eq!(
+        web.dispatch(&fixture.request("GET", "/auth/session", &Value::Null), AT)
+            .reply
+            .status,
+        200
+    );
+    let expired = AT + 3600;
+    fixture.exhaust_anonymous(&mut web, expired);
+    let sent = control.requests();
+    let form = format!("/forms/alpha/{}", "a".repeat(32));
+    for (method, target) in [
+        ("GET", form.as_str()),
+        ("POST", form.as_str()),
+        ("POST", "/auth/login"),
+    ] {
+        let request = fixture.request(method, target, &Value::Null);
+        assert_eq!(web.dispatch(&request, expired).reply.status, 429);
+        assert_eq!(control.requests(), sent);
+    }
+}
+
+#[test]
+fn new_cookie_skips_empty_bucket() {
+    let _serial = FIXTURES
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let fixture = Fixture::new();
+    let mut web = Fixture::service(&fixture.control.endpoint(), &fixture.tenant.endpoint());
+    let request = fixture.anonymous_request(
+        "POST",
+        "/auth/login",
+        &json!({"tenant":"alpha","username":"admin","password":PASSWORD}),
+    );
+    let login = web.dispatch(&request, AT);
+    assert_eq!(login.reply.status, 200);
+    let cookie = login
+        .header("Set-Cookie")
+        .unwrap()
+        .split_once(';')
+        .unwrap()
+        .0;
+    fixture.exhaust_anonymous(&mut web, AT);
+    let mut session = fixture.anonymous_request("GET", "/auth/session", &Value::Null);
+    session.headers.push(("Cookie".into(), cookie.into()));
+    assert_eq!(web.dispatch(&session, AT).reply.status, 200);
+}
+
+#[test]
+fn poison_precedes_quota() {
+    let _serial = FIXTURES
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let fixture = Fixture::new();
+    let control = proxy::FaultProxy::start(fixture.control.address()).unwrap();
+    let mut web = Fixture::service(&control.endpoint(), &fixture.tenant.endpoint());
+    fixture.exhaust_anonymous(&mut web, AT);
+    let tx = web.store.conn.unchecked_transaction().unwrap();
+    control.arm(proxy::Fault::LoseRollbackResponse);
+    assert!(tx.rollback().is_err());
+    assert!(web.store.conn.is_poisoned());
+    let sent = control.requests();
+    unknown(&web.dispatch(
+        &fixture.anonymous_request("GET", "/login", &Value::Null),
+        AT,
+    ));
+    assert_eq!(control.requests(), sent);
 }
 
 #[test]

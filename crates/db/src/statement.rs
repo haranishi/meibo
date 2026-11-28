@@ -199,7 +199,7 @@ impl<'conn> Local<'conn> {
     }
 }
 
-fn check_parameters(actual: usize, expected: usize) -> Result<()> {
+pub(crate) fn check_parameters(actual: usize, expected: usize) -> Result<()> {
     if actual == expected {
         Ok(())
     } else {

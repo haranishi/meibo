@@ -93,6 +93,10 @@ pub(super) fn hash_password(password: &str) -> HostedResult<String> {
         .map_err(|_| "passwordを保護できません。".into())
 }
 
+/// Remote storage records session activity at most once per this interval.
+#[cfg(feature = "cloud")]
+const LAST_SEEN_INTERVAL: i64 = 60;
+
 impl ControlStore {
     fn identity(
         &self,
@@ -324,6 +328,10 @@ impl ControlStore {
             return Ok(None);
         }
         let key = digest(token.as_bytes());
+        #[cfg(feature = "cloud")]
+        if self.conn.is_remote() {
+            return self.authenticate_remote(&key, at, expected);
+        }
         let row:Option<(i64,String,String,String)>=self.conn.query_row("SELECT u.id,u.username,s.tenant,m.role FROM sessions s JOIN users u ON u.id=s.user_id JOIN memberships m ON m.user_id=s.user_id AND m.tenant=s.tenant WHERE s.digest=?1 AND u.disabled=0 AND s.created_at<=?2 AND s.last_seen<=?2 AND s.expires_at>?2 AND s.last_seen>?3",params![&key,at,at-IDLE],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))).optional()?;
         if let Some((id, name, tenant, role)) = row {
             if expected.is_some_and(|expected| expected != name) {
@@ -339,6 +347,46 @@ impl ControlStore {
                 .execute("DELETE FROM sessions WHERE digest=?1", [key])?;
             Ok(None)
         }
+    }
+
+    /// Remote storage reads the session, membership and service instance in
+    /// one statement, and records the last activity only when it is at least
+    /// [`LAST_SEEN_INTERVAL`] seconds old (remote-performance 5). The idle
+    /// condition itself is unchanged.
+    #[cfg(feature = "cloud")]
+    fn authenticate_remote(
+        &self,
+        key: &[u8],
+        at: i64,
+        expected: Option<&str>,
+    ) -> HostedResult<Option<Identity>> {
+        let row: Option<(i64, String, String, String, i64, String)> = self.conn.query_row(
+            "SELECT u.id,u.username,s.tenant,m.role,s.last_seen,(SELECT value FROM meta WHERE key='instance') FROM sessions s JOIN users u ON u.id=s.user_id JOIN memberships m ON m.user_id=s.user_id AND m.tenant=s.tenant WHERE s.digest=?1 AND u.disabled=0 AND s.created_at<=?2 AND s.last_seen<=?2 AND s.expires_at>?2 AND s.last_seen>?3",
+            params![key, at, at - IDLE],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)),
+        ).optional()?;
+        let Some((id, name, tenant, role, last_seen, instance)) = row else {
+            self.conn
+                .execute("DELETE FROM sessions WHERE digest=?1", [key])?;
+            return Ok(None);
+        };
+        if expected.is_some_and(|expected| expected != name) {
+            return Ok(None);
+        }
+        if at - last_seen >= LAST_SEEN_INTERVAL {
+            self.conn.execute(
+                "UPDATE sessions SET last_seen=?2 WHERE digest=?1",
+                params![key, at],
+            )?;
+        }
+        let scope = hex(&digest(format!("{instance}:{id}:{tenant}").as_bytes()));
+        Ok(Some(Identity {
+            user_id: id,
+            username: name,
+            tenant,
+            role: Role::parse(&role).ok_or("保存された権限が正しくありません。")?,
+            scope,
+        }))
     }
 
     pub(super) fn logout(&self, token: &str) -> HostedResult<()> {

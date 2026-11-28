@@ -23,6 +23,11 @@ name = "remote_hosted"
 path = "tests/remote_hosted.rs"
 required-features = ["integration-tests"]
 
+[[test]]
+name = "remote_round_trips"
+path = "tests/remote_round_trips.rs"
+required-features = ["integration-tests"]
+
 [dependencies]
 meibo-db = { path = "../db", version = "0.1.0", optional = true }
 serde = { version = "1", features = ["derive"], optional = true }
