@@ -51,8 +51,9 @@ jobs:
             echo "=== width ${width}px ==="
             docker rm --force meibo-demo-ci >/dev/null 2>&1 || true
             # 共有の1組織を状態として持つので、幅ごとに新しいコンテナで始める。
+            # 外部から接続できないCIランナー内でのみ 0.0.0.0:4317 を使い、幅ごとの仮想インターフェースの作り直しを避ける。
             docker run --detach --name meibo-demo-ci --memory 256m \
-              --publish 127.0.0.1:4317:4317 --env MEIBO_DOMAIN=127.0.0.1:4442 meibo-demo:ci
+              --network host --env MEIBO_DOMAIN=127.0.0.1:4442 meibo-demo:ci
             MEIBO_DEMO_BACKEND_PORT=4317 MEIBO_DEMO_TEST_PORT=4442 MEIBO_DEMO_WIDTH="$width" \
               MEIBO_DEMO_TEST_OUTPUT="$RUNNER_TEMP/meibo-demo-browser-results-$width" \
               npx --no-install playwright test --config playwright.config.mjs

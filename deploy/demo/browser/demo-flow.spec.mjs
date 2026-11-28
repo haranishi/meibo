@@ -1,7 +1,27 @@
 // 公開デモの実ブラウザ試験。実バイナリ（--public-demo）と自己署名のHTTPS前段に対して、
 // 入口 → 入室 → 紹介動画の流れ（再架電・商談ボード・月次集計）→ 共有session → 入室の全体上限、を確かめる。
 // 全員が1組織を共有する状態を持つデモなので、順番に実行する（読むだけの確認 → 書き換える操作の順）。
-import { expect, test } from "@playwright/test";
+import { expect, test as base } from "@playwright/test";
+
+function recordBrowserErrors(context, problems) {
+  context.on("requestfailed", (request) => problems.push(`requestfailed: ${request.url()} ${request.failure()?.errorText}`));
+  context.on("weberror", (event) => problems.push(`pageerror: ${event.error().message}`));
+}
+
+const test = base.extend({
+  newVisitorContext: async ({ browser }, use, info) => {
+    const { baseURL, viewport } = info.project.use;
+    const problems = [];
+    await use(async () => {
+      const context = await browser.newContext({ baseURL, viewport, ignoreHTTPSErrors: true, serviceWorkers: "block" });
+      recordBrowserErrors(context, problems);
+      return context;
+    });
+    if (info.status !== info.expectedStatus && problems.length > 0) {
+      await info.attach("browser-errors", { body: problems.join("\n"), contentType: "text/plain" });
+    }
+  },
+});
 
 // アプリと同じ書式（日本時間・24時間表記）。
 const tokyo = new Intl.DateTimeFormat("ja-JP", {
@@ -39,9 +59,8 @@ test.describe.serial("公開デモ（実バイナリ・HTTPS前段）", () => {
     origin = new URL(baseURL).origin;
     // 画面は日時をブラウザの時間帯で表示する。期待値は日本時間で作るので、実行環境の時間帯（CIはUTC）によらず日本時間にそろえる。
     context = await browser.newContext({ baseURL, viewport, ignoreHTTPSErrors: true, serviceWorkers: "block", timezoneId: "Asia/Tokyo", locale: "ja-JP" });
+    recordBrowserErrors(context, problems);
     page = await context.newPage();
-    page.on("pageerror", (error) => problems.push(`pageerror: ${error.message}`));
-    page.on("requestfailed", (request) => problems.push(`requestfailed: ${request.url()} ${request.failure()?.errorText}`));
     page.on("response", (response) => { if (response.status() >= 500) problems.push(`HTTP ${response.status()} ${response.url()}`); });
   });
   test.afterAll(async () => { await context?.close(); });
@@ -86,9 +105,8 @@ test.describe.serial("公開デモ（実バイナリ・HTTPS前段）", () => {
     expect(page_.headers()["content-security-policy"]).toContain("default-src 'self'");
   });
 
-  test("入口：キーボードだけで入室でき、フォーカスが見える", async ({ browser }, info) => {
-    const { baseURL, viewport } = info.project.use;
-    const own = await browser.newContext({ baseURL, viewport, ignoreHTTPSErrors: true, serviceWorkers: "block" });
+  test("入口：キーボードだけで入室でき、フォーカスが見える", async ({ newVisitorContext }) => {
+    const own = await newVisitorContext();
     try {
       const keyboard = await own.newPage();
       await keyboard.goto("/login");
@@ -107,9 +125,8 @@ test.describe.serial("公開デモ（実バイナリ・HTTPS前段）", () => {
     }
   });
 
-  test("入口：初期化後の古いsessionは、初期化の案内つきで入口へ戻る", async ({ browser }, info) => {
-    const { baseURL, viewport } = info.project.use;
-    const own = await browser.newContext({ baseURL, viewport, ignoreHTTPSErrors: true, serviceWorkers: "block" });
+  test("入口：初期化後の古いsessionは、初期化の案内つきで入口へ戻る", async ({ newVisitorContext }) => {
+    const own = await newVisitorContext();
     try {
       await own.addCookies([{ name: "__Host-meibo-session", value: "a".repeat(64), url: origin, secure: true, httpOnly: true, sameSite: "Strict" }]);
       const stale = await own.newPage();
@@ -131,9 +148,8 @@ test.describe.serial("公開デモ（実バイナリ・HTTPS前段）", () => {
     body: JSON.stringify({ error: "起動中です。少し待ってからもう一度お試しください。", code: "starting" }),
   });
 
-  test("入口：起動待ちの503は自動で再試行し、待つ間は案内を出して、入室できる", async ({ browser }, info) => {
-    const { baseURL, viewport } = info.project.use;
-    const own = await browser.newContext({ baseURL, viewport, ignoreHTTPSErrors: true, serviceWorkers: "block" });
+  test("入口：起動待ちの503は自動で再試行し、待つ間は案内を出して、入室できる", async ({ newVisitorContext }) => {
+    const own = await newVisitorContext();
     try {
       const entry = await own.newPage();
       let calls = 0;
@@ -155,9 +171,8 @@ test.describe.serial("公開デモ（実バイナリ・HTTPS前段）", () => {
     }
   });
 
-  test("入口：メンテナンス中の503は、待たずにすぐ案内し、ボタンが元に戻る", async ({ browser }, info) => {
-    const { baseURL, viewport } = info.project.use;
-    const own = await browser.newContext({ baseURL, viewport, ignoreHTTPSErrors: true, serviceWorkers: "block" });
+  test("入口：メンテナンス中の503は、待たずにすぐ案内し、ボタンが元に戻る", async ({ newVisitorContext }) => {
+    const own = await newVisitorContext();
     try {
       const entry = await own.newPage();
       let calls = 0;
@@ -179,9 +194,8 @@ test.describe.serial("公開デモ（実バイナリ・HTTPS前段）", () => {
     }
   });
 
-  test("入口：503が続いたら、4回の再試行のあとに諦めて案内する", async ({ browser }, info) => {
-    const { baseURL, viewport } = info.project.use;
-    const own = await browser.newContext({ baseURL, viewport, ignoreHTTPSErrors: true, serviceWorkers: "block" });
+  test("入口：503が続いたら、4回の再試行のあとに諦めて案内する", async ({ newVisitorContext }) => {
+    const own = await newVisitorContext();
     try {
       const entry = await own.newPage();
       let calls = 0;
@@ -349,14 +363,13 @@ test.describe.serial("公開デモ（実バイナリ・HTTPS前段）", () => {
   });
 
   // 入室は起動ごとに1つの共有sessionを渡すだけ。別々に入室した訪問者は同じsessionを使い、片方のログアウトで他方は止まらない。
-  test("共有session：別々に入室した2人が両方操作でき、片方がログアウトしても、もう片方は続けられる", async ({ browser }, info) => {
-    const { baseURL, viewport } = info.project.use;
+  test("共有session：別々に入室した2人が両方操作でき、片方がログアウトしても、もう片方は続けられる", async ({ newVisitorContext }) => {
     const base = { Origin: origin, "X-Meibo-Local": "1", "X-Requested-With": "XMLHttpRequest" };
     const contexts = [];
     try {
       const visitors = [];
       for (let i = 0; i < 2; i += 1) {
-        const own = await browser.newContext({ baseURL, viewport, ignoreHTTPSErrors: true, serviceWorkers: "block" });
+        const own = await newVisitorContext();
         contexts.push(own);
         const entered = await own.request.post("/demo/enter", { headers: { ...base, "Content-Type": "application/json" }, data: "{}" });
         expect(entered.status(), `訪問者${i + 1}の入室`).toBe(200);
@@ -381,13 +394,12 @@ test.describe.serial("公開デモ（実バイナリ・HTTPS前段）", () => {
 
   // アプリの全体の上限（1分ごとの固定窓・300回）を確かめる。公開URLでは前段のWorkerの接続元ごとの上限が先に効き、
   // 自分のIPを制限してしまうので省略する。429を受けてから押すまでに分がまたいで入れてしまったら、連打からやり直す（最大3回）。
-  test("入室の全体上限：429が返った直後に、新しい訪問者には「混み合っています」が出て、入室済みの画面は動き続ける", async ({ browser }, info) => {
+  test("入室の全体上限：429が返った直後に、新しい訪問者には「混み合っています」が出て、入室済みの画面は動き続ける", async ({ newVisitorContext }) => {
     test.skip(Boolean(process.env.MEIBO_DEMO_URL), "公開URLでは前段の接続元ごとの上限が先に効くため省略");
-    const { baseURL, viewport } = info.project.use;
     const headers = { Origin: origin, "X-Meibo-Local": "1", "Content-Type": "application/json" };
     let shown = false;
     for (let round = 0; round < 3 && !shown; round += 1) {
-      const own = await browser.newContext({ baseURL, viewport, ignoreHTTPSErrors: true, serviceWorkers: "block" });
+      const own = await newVisitorContext();
       try {
         const visitor = await own.newPage();
         await visitor.goto("/login");

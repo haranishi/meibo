@@ -31,7 +31,8 @@ meibo hosted ROOT serve --origin https://<公開ドメイン> --bind 0.0.0.0:431
 
 ## 検証
 - Rustの試験：`cargo test -p meibo-app --locked hosted`・`--test hosted`。
-- 実ブラウザ（幅390・768・1440px）と、HTTPの境界の検査：`deploy/demo/browser/`。実バイナリは `MEIBO_BINARY=<meibo> npm test`、コンテナは `MEIBO_DEMO_BACKEND_PORT=<ポート>`、配備後の公開URLは `MEIBO_DEMO_URL=https://…` で、同じ試験を向けます。CIは `.github/workflows/demo-image.yml` です。
+- 実ブラウザ（幅390・768・1440px）と、HTTPの境界の検査：`deploy/demo/browser/`。実バイナリは `MEIBO_BINARY=<meibo> npm test`、コンテナは `MEIBO_DEMO_BACKEND_PORT=<ポート>`、配備後の公開URLは `MEIBO_DEMO_URL=https://…` で、同じ試験を向けます。
+- CI（`.github/workflows/demo-image.yml`）は、幅ごとに `--network host --memory 256m` でコンテナを起動します。ランナー内のHTTPS前段（`127.0.0.1:4442`）が要求を `127.0.0.1:4317` に転送します。
 - 公開前は、公開URLに同じ検査を流し、1つでも失敗したら公開しません。
 
 ## 運用者の責任
