@@ -22,10 +22,11 @@ Commands:
   audit [SLUG]
   sync-nta SLUG CATALOG [--limit COUNT]
   backup NEW_DIRECTORY
-  restore SNAPSHOT_DIRECTORY
+  restore SNAPSHOT_DIRECTORY --manifest-sha256 HEX
   serve --origin https://domain [--bind 127.0.0.1:4317] [--access-config PRIVATE_JSON] [--public-demo] [--demo-contact URL] [--demo-idle-seconds N] [--demo-max-uptime-seconds N] [--demo-stall-seconds N]
 
-restore writes to ROOT, which must not exist. Passwords are read from stdin.
+Keep the manifest SHA-256 printed by backup separately from the snapshot.
+restore requires that 64-digit fingerprint and a new ROOT. Passwords are read from stdin.
 HTTP is allowed only with --allow-http-loopback and loopback origin + bind.
 ";
 
@@ -66,8 +67,15 @@ pub(super) fn run(args: Vec<OsString>) -> HostedResult<()> {
         println!("initialized");
         return Ok(());
     }
-    if command == "restore" && rest.len() == 1 {
-        backup::restore(std::path::Path::new(&rest[0]), &root)?;
+    if command == "restore" {
+        let usage = "restore SNAPSHOT_DIRECTORY --manifest-sha256 HEX で指定してください。";
+        let [snapshot, flag, fingerprint] = rest.as_slice() else {
+            return Err(usage.into());
+        };
+        if flag != "--manifest-sha256" {
+            return Err(usage.into());
+        }
+        backup::restore(std::path::Path::new(snapshot), &root, fingerprint)?;
         println!("restored");
         return Ok(());
     }
@@ -82,8 +90,8 @@ pub(super) fn run(args: Vec<OsString>) -> HostedResult<()> {
     }
     let mut store = Store::open(&root)?;
     if command == "backup" && rest.len() == 1 {
-        backup::create(&store, std::path::Path::new(&rest[0]))?;
-        println!("backed-up");
+        let fingerprint = backup::create(&store, std::path::Path::new(&rest[0]))?;
+        println!("backed-up manifest-sha256={fingerprint}");
         return Ok(());
     }
     let _guard = store.lock()?;

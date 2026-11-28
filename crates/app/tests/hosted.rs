@@ -42,7 +42,7 @@ fn public_import_is_limited_to_a_registered_real_tenant() {
     assert!(!invalid.status.success());
 }
 
-fn cli(root: &Path, args: &[&str], password: bool) {
+fn cli(root: &Path, args: &[&str], password: bool) -> String {
     let mut process = Command::new(env!("CARGO_BIN_EXE_meibo"))
         .arg("hosted")
         .arg(root)
@@ -70,8 +70,60 @@ fn cli(root: &Path, args: &[&str], password: bool) {
         "hosted CLI failed: {}",
         String::from_utf8_lossy(&result.stderr)
     );
-    assert!(!String::from_utf8_lossy(&result.stdout).contains(PASSWORD));
+    let stdout = String::from_utf8(result.stdout).unwrap();
+    assert!(!stdout.contains(PASSWORD));
     assert!(!String::from_utf8_lossy(&result.stderr).contains(PASSWORD));
+    stdout
+}
+
+fn backup(root: &Path, snapshot: &Path) -> String {
+    use sha2::{Digest, Sha256};
+    let output = cli(root, &["backup", snapshot.to_str().unwrap()], false);
+    let bytes = std::fs::read(snapshot.join("manifest.json")).unwrap();
+    let fingerprint = format!("{:x}", Sha256::digest(bytes));
+    assert_eq!(output, format!("backed-up manifest-sha256={fingerprint}\n"));
+    fingerprint
+}
+
+fn restore(root: &Path, snapshot: &Path, fingerprint: &str) {
+    let args = [
+        "restore",
+        snapshot.to_str().unwrap(),
+        "--manifest-sha256",
+        fingerprint,
+    ];
+    assert_eq!(cli(root, &args, false), "restored\n");
+}
+
+#[test]
+fn restore_cli_requires_the_saved_manifest_fingerprint() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("service");
+    cli(&root, &["init"], false);
+    let snapshot = temp.path().join("snapshot");
+    let fingerprint = backup(&root, &snapshot);
+    let restored = temp.path().join("restored");
+    let wrong = "0".repeat(64);
+    let non_hex = "g".repeat(64);
+    for args in [
+        &[][..],
+        &["--manifest-sha256", "1234"],
+        &["--manifest-sha256", non_hex.as_str()],
+        &["--manifest-sha256", wrong.as_str()],
+    ] {
+        let output = Command::new(env!("CARGO_BIN_EXE_meibo"))
+            .arg("hosted")
+            .arg(&restored)
+            .arg("restore")
+            .arg(&snapshot)
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(!output.status.success());
+        assert!(!restored.exists());
+    }
+    restore(&restored, &snapshot, &fingerprint.to_ascii_uppercase());
+    assert!(cli(&restored, &["audit"], false).contains("restore"));
 }
 
 struct Server {
@@ -286,9 +338,9 @@ fn hosted_cli_http_cookie_roles_isolation_logout_and_recovery_are_connected() {
         );
     }
     let snapshot = temp.path().join("snapshot");
-    cli(&root, &["backup", snapshot.to_str().unwrap()], false);
+    let fingerprint = backup(&root, &snapshot);
     let restored = temp.path().join("restored");
-    cli(&restored, &["restore", snapshot.to_str().unwrap()], false);
+    restore(&restored, &snapshot, &fingerprint);
     let server = Server::start(&restored);
     let beta = server.login("beta", "admin");
     let response = server.request("GET", "/api/summary", Some(&beta), &Value::Null);

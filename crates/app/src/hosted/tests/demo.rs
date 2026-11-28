@@ -101,18 +101,19 @@ fn demo_enter_issues_editor_session_and_rejects_password_login() {
     assert_eq!(session_body["storage_scope"], scope);
 
     // デモ中は形式が正しい本文でも POST /auth/login を404で拒否し、パスワード照合を行わない。
-    let login_reply = app.dispatch(
-        &demo_request(
-            "/auth/login",
-            "POST",
-            None,
-            None,
-            json!({"tenant":"demo","username":"demo","password":PASSWORD})
-                .to_string()
-                .into_bytes(),
-        ),
-        AT + 2,
+    let password_login = demo_request(
+        "/auth/login",
+        "POST",
+        None,
+        None,
+        json!({"tenant":"demo","username":"demo","password":PASSWORD})
+            .to_string()
+            .into_bytes(),
     );
+    for _ in 0..100 {
+        assert_eq!(app.dispatch(&password_login, AT + 2).reply.status, 404);
+    }
+    let login_reply = app.dispatch(&password_login, AT + 2);
     assert_eq!(login_reply.reply.status, 404);
     let login_err: Value = serde_json::from_slice(&login_reply.reply.body).unwrap();
     assert!(login_err["error"].as_str().is_some_and(|m| !m.is_empty()));
